@@ -1229,3 +1229,12 @@ html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止�
 .ctrl-label.scrub { cursor: ns-resize; touch-action: none; }
 .ctrl-label.scrub:hover { color: var(--text); }
 body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: none !important; }
+
+/* 面板参数：行间距加大，控件高度 34px */
+.ctrls { row-gap: 12px; }
+.ctrls .ctrl { min-height: 34px; }
+.ctrls .ctrl.sfield, .ctrls .ctrl.nfield { height: 34px; }
+.ctrls .ctrl .select, .ctrls .ctrl .font-btn, .hex-input { height: 34px; }
+.color-field input[type=color] { width: 34px; height: 34px; }
+.seg-btn { height: 28px; }
+.ctrls .ctrl.stacked { gap: 6px; }
