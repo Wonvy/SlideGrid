@@ -74,13 +74,14 @@ export const store = createStore({
   ...projectSettings(),
   exportOpts: { ...schemaDefaults(exportSchema), ...(prefs.exportOpts || {}) }, // 导出偏好跨项目保留
   wheelMode: ['hover', 'alt', 'off'].includes(prefs.wheelMode) ? prefs.wheelMode : 'hover',
+  wheelNav: prefs.wheelNav === 'scroll' ? 'scroll' : 'zoom', // 工作区滚轮：缩放视图（默认）/ 滚动视图
 });
 
 let prefsTimer;
 store.subscribe(s => {
   clearTimeout(prefsTimer);
   prefsTimer = setTimeout(() => {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ exportOpts: s.exportOpts, wheelMode: s.wheelMode })); } catch { /* 忽略 */ }
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ exportOpts: s.exportOpts, wheelMode: s.wheelMode, wheelNav: s.wheelNav })); } catch { /* 忽略 */ }
   }, 300);
 });
 

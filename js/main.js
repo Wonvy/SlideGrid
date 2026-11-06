@@ -28,9 +28,11 @@ import { createResizeHandles } from './ui/resizeHandles.js';
 import { createPresetsPanel } from './ui/presetsPanel.js';
 import { isPresetsFile } from './persist/presets.js';
 import { initResizers } from './ui/resizer.js';
+import { showContextMenu } from './ui/contextMenu.js';
 import { toast } from './ui/toast.js';
 import { setWheelMode } from './ui/wheel.js';
 import { applyIcons } from './ui/icons.js';
+import './core/noPageZoom.js';
 import { clamp } from './core/utils.js';
 
 applyIcons();
@@ -206,7 +208,10 @@ function render() {
     bgCtx.font = `${(active ? 600 : 400)} ${11.5 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
     bgCtx.fillStyle = active ? '#a3afff' : selected.has(b.id) ? '#8b96d9' : '#6b7385';
     bgCtx.textBaseline = 'bottom';
-    bgCtx.fillText(`${b.name}  ·  ${aspectLabel(b.settings.aspect)}`, sx * d, (sy - 6) * d);
+    const labelText = `${b.name}  ·  ${aspectLabel(b.settings.aspect)}`;
+    bgCtx.fillText(labelText, sx * d, (sy - 6) * d);
+    // 名称标签的可点区域（CSS 像素）：拖动它可以移动画板
+    info.label = { x: sx - 2, y: sy - 22, w: bgCtx.measureText(labelText).width / d + 6, h: 18 };
 
     const px = { x: sx * d, y: sy * d, w: sw * d, h: sh * d };
     if (px.x > CW || px.y > CH || px.x + px.w < 0 || px.y + px.h < 0) continue; // 在视野外
@@ -316,6 +321,15 @@ function pickIn(info, clientX, clientY) {
   return pickItem(info.scene, (x / info.sw) * 2 - 1, 1 - (y / info.sh) * 2);
 }
 const pickAt = (clientX, clientY) => pickIn(activeInfo(), clientX, clientY);
+function labelAt(clientX, clientY) {
+  const r = viewport.getBoundingClientRect();
+  const x = clientX - r.left, y = clientY - r.top;
+  for (const b of [...boardInfo.values()].reverse()) {
+    const l = b.label;
+    if (l && x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h) return b.id;
+  }
+  return null;
+}
 const ndcToClient = ([x, y]) => {
   const r = viewport.getBoundingClientRect();
   const info = activeInfo();
@@ -574,6 +588,66 @@ for (const input of [fileInput, folderInput]) {
     input.value = '';
   });
 }
+// 替换某一张：单独的文件选择框（取消选择不会影响普通导入）
+let replaceIndex = null;
+const replaceInput = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', hidden: true });
+document.body.append(replaceInput);
+replaceInput.addEventListener('change', () => {
+  if (replaceInput.files.length && replaceIndex != null) runImport(Promise.resolve(collectFromInput(replaceInput.files)), { replaceIndex });
+  replaceInput.value = '';
+});
+function pickReplacement(index) {
+  replaceIndex = index;
+  replaceInput.click();
+}
+
+/* ---------------- 粘贴剪贴板图片 ---------------- */
+
+const pastedName = type => {
+  const t = new Date();
+  const ext = (type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+  return `粘贴的图片-${[t.getHours(), t.getMinutes(), t.getSeconds()].map(n => String(n).padStart(2, '0')).join('')}.${ext}`;
+};
+// 选中卡片时替换它，否则追加为新幻灯片
+function selectedSlideIndex() {
+  if (ui.selected == null || !lastScene) return null;
+  return lastScene.items.find(x => x.order === ui.selected)?.slideIndex ?? null;
+}
+function importPasted(files, replaceAt = selectedSlideIndex()) {
+  const list = files.map(f => ({ file: new File([f], pastedName(f.type), { type: f.type }), path: '' }));
+  runImport(Promise.resolve(list), { replaceIndex: replaceAt });
+}
+// ⌘V / Ctrl+V：浏览器的 paste 事件直接带有剪贴板里的图片，不需要额外授权
+document.addEventListener('paste', e => {
+  const t = e.target;
+  if (/^(INPUT|TEXTAREA)$/.test(t?.tagName) || t?.isContentEditable) return;
+  const files = [...(e.clipboardData?.items || [])]
+    .filter(it => it.kind === 'file' && it.type.startsWith('image/'))
+    .map(it => it.getAsFile()).filter(Boolean);
+  if (!files.length) {
+    if (selectedSlideIndex() != null) toast('剪贴板里没有图片', { error: true });
+    return;
+  }
+  e.preventDefault();
+  importPasted(files);
+});
+// 右键菜单里的「粘贴」：用异步剪贴板接口读取（浏览器可能会请求授权）
+async function pasteFromClipboard(replaceAt) {
+  try {
+    const items = await navigator.clipboard.read();
+    const files = [];
+    for (const it of items) {
+      const type = it.types.find(x => x.startsWith('image/'));
+      if (type) files.push(await it.getType(type));
+    }
+    if (!files.length) { toast('剪贴板里没有图片', { error: true }); return; }
+    importPasted(files, replaceAt);
+  } catch (err) {
+    console.warn(err);
+    toast('无法读取剪贴板，请改用 ⌘V / Ctrl+V 粘贴', { error: true, duration: 4000 });
+  }
+}
+
 $('clear-btn').addEventListener('click', () => {
   if (hasRealSlides() && confirm('移除当前项目的全部图片？（设置会保留）')) actions.clearSlides();
 });
@@ -617,33 +691,45 @@ const progress = label => p => {
   toast(`${label}… ${Math.round(p * 100)}%`, { sticky: true });
 };
 
-async function doExport() {
+// 导出指定画板：一个画板直接下载图片，多个打包成 ZIP
+async function exportBoards(ids, name) {
+  const s = store.get();
+  const boards = boardsOf(s).filter(b => ids.includes(b.id));
+  const ext = s.exportOpts.format === 'jpg' ? 'jpg' : 'png';
+  const base = safe(s.project?.name || 'slidegrid');
+  if (boards.length === 1) {
+    const b = boards[0];
+    const { blob, width, height } = await renderToBlob(boardInput(s, b.settings), exportOptions(s, { onProgress: progress('正在导出') }));
+    const file = name || `${base}-${safe(b.name)}-${width}x${height}.${ext}`;
+    downloadBlob(blob, file);
+    toast(`已导出 ${file}（${width} × ${height}）`);
+    return;
+  }
+  const entries = [];
+  for (let i = 0; i < boards.length; i++) {
+    const b = boards[i];
+    const { blob, width, height } = await renderToBlob(boardInput(s, b.settings), exportOptions(s, {
+      onProgress: p => progress(`正在导出 ${i + 1}/${boards.length}`)((i + p) / boards.length),
+    }));
+    entries.push({ name: `${String(i + 1).padStart(2, '0')}-${safe(b.name)}-${width}x${height}.${ext}`, data: blob });
+  }
+  const file = name || `${base}-${boards.length}个画板.zip`;
+  downloadBlob(await createZip(entries), file);
+  toast(`已导出 ${boards.length} 个画板（${file}）`);
+}
+
+async function doExport(ids = null) {
   if (busy) return;
   exportPopover.setBusy(true);
   try {
     await withBusy(async () => {
       const s = store.get();
-      const name = exportPopover.filename();
-      if (s.exportOpts.scope === 'all' || (s.exportOpts.scope === 'selected' && selectionOf(s).length > 1)) {
-        // 全部 / 所选画板：逐个渲染后打包成 ZIP
-        const pickIds = s.exportOpts.scope === 'selected' ? new Set(selectionOf(s)) : null;
-        const boards = boardsOf(s).filter(b => !pickIds || pickIds.has(b.id));
-        const ext = s.exportOpts.format === 'jpg' ? 'jpg' : 'png';
-        const entries = [];
-        for (let i = 0; i < boards.length; i++) {
-          const b = boards[i];
-          const { blob, width, height } = await renderToBlob(boardInput(s, b.settings), exportOptions(s, {
-            onProgress: p => progress(`正在导出 ${i + 1}/${boards.length}`)((i + p) / boards.length),
-          }));
-          entries.push({ name: `${String(i + 1).padStart(2, '0')}-${safe(b.name)}-${width}x${height}.${ext}`, data: blob });
-        }
-        downloadBlob(await createZip(entries), name);
-        toast(`已导出 ${boards.length} 个画板（${name}）`);
-      } else {
-        const { blob, width, height } = await renderToBlob(sceneInput(s), exportOptions(s, { onProgress: progress('正在导出') }));
-        downloadBlob(blob, name);
-        toast(`已导出 ${name}（${width} × ${height}）`);
-      }
+      if (ids) { await exportBoards(ids); return; } // 右键菜单：导出指定画板
+      const scope = s.exportOpts.scope;
+      const target = scope === 'all' ? s.artboards.map(b => b.id)
+        : scope === 'selected' ? selectionOf(s)
+          : [s.activeBoard];
+      await exportBoards(target, exportPopover.filename());
     });
   } catch (err) {
     console.error(err);
@@ -670,11 +756,12 @@ function doCopy() {
 }
 
 $('copy-btn').addEventListener('click', doCopy);
-$('export-btn').addEventListener('click', doExport);
+$('export-btn').addEventListener('click', () => doExport());
 
 /* ---------------- 界面 ---------------- */
 
-initResizers($('app'));
+const panels = initResizers($('app'));
+document.querySelector('.slides-head .head-actions').append(panels.collapseButton('left'));
 
 const slidesPanel = createSlidesPanel({
   listEl: $('slide-list'),
@@ -697,6 +784,7 @@ const settings = createSettingsPanel($('settings-panel'), {
     dropTarget: 'background',
   },
 });
+document.querySelector('#settings-panel .rp-tabs').append(panels.collapseButton('right'));
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
   store, actions, snapshot, toast, download: downloadBlob,
   onCount: n => settings.setPresetCount(n),
@@ -750,6 +838,62 @@ const toolbar = createToolbar($('app'), {
   },
 });
 
+/* ---------------- 右键菜单 ---------------- */
+
+function onContextMenu({ clientX, clientY, board }) {
+  const s = store.get();
+  const mod = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
+  if (!board) {
+    showContextMenu(clientX, clientY, [
+      { title: '工作区' },
+      { label: '新建画板', icon: 'plus', action: () => addBoard({ duplicate: false }) },
+      { label: '粘贴图片为新幻灯片', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => pasteFromClipboard(null) },
+      { sep: true },
+      { label: '适合全部画板', icon: 'maximize', shortcut: `${mod}⌥0`, action: fitAll },
+      { label: '全选画板', icon: 'check', shortcut: `${mod}A`, action: () => actions.selectAllBoards() },
+    ]);
+    return;
+  }
+
+  // 右键点到的画板：不在选中集合里就只选它（与 Illustrator 一致）
+  const inSelection = selectionOf(s).includes(board);
+  const info = boardInfo.get(board);
+  const card = pickIn(info, clientX, clientY);
+  if (board !== s.activeBoard || !inSelection) activateBoard(board, { fit: false, keepSelection: inSelection });
+  const sel = selectionOf(store.get());
+  const multi = sel.length > 1;
+  const b = store.get().artboards.find(x => x.id === board);
+  const flat = !is3D();
+
+  const items = [];
+  if (card) {
+    const slide = card.slide;
+    const real = !slide.placeholder;
+    const adjusted = !!(store.get().adjust[store.get().layoutId] || {})[card.order];
+    items.push(
+      { title: `第 ${card.slideIndex + 1} 张 · ${real ? slide.name : '空位'}` },
+      { label: real ? '替换图片…' : '放入图片…', icon: 'image-plus', action: () => pickReplacement(card.slideIndex) },
+      { label: real ? '用剪贴板图片替换' : '粘贴剪贴板图片', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => pasteFromClipboard(card.slideIndex) },
+      flat && { label: '选中这张卡片', icon: 'mouse-pointer-2', action: () => { setTool('select'); setUi('selected', card.order); } },
+      flat && adjusted && { label: '复位这张卡片', icon: 'undo-2', action: () => actions.resetItemAdjust(card.order) },
+      real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); slidesPanel.highlight(card.slideIndex); } },
+      real && { label: '从项目中移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id) },
+      { sep: true },
+    );
+  }
+  items.push(
+    { title: multi ? `已选 ${sel.length} 个画板` : b.name },
+    !multi && { label: '适合窗口', icon: 'scan', shortcut: `${mod}0`, action: () => fitBoard(board) },
+    !multi && { label: '重命名…', icon: 'pencil', action: () => renameBoard(board) },
+    { label: '画板背景…', icon: 'images', action: () => bgPicker.open() },
+    { label: multi ? `复制所选的 ${sel.length} 个画板` : '复制画板', icon: 'copy', action: duplicateSelected },
+    { label: multi ? `导出所选的 ${sel.length} 个画板（ZIP）` : '导出此画板', icon: 'download', action: () => doExport(sel) },
+    { sep: true },
+    s.artboards.length > 1 && { label: multi ? `删除所选的 ${sel.length} 个画板` : '删除画板', icon: 'trash-2', danger: true, action: () => deleteBoards(sel) },
+  );
+  showContextMenu(clientX, clientY, items);
+}
+
 // 画板框选的矩形
 const marquee = Object.assign(document.createElement('div'), { className: 'marquee', hidden: true });
 viewport.append(marquee);
@@ -802,6 +946,10 @@ interaction = attachViewportInteraction(viewport, {
   selectAllBoards: () => actions.selectAllBoards(),
   moveBoards: moves => actions.moveArtboards(moves),
   setMarquee,
+  onContextMenu,
+  labelAt,
+  pickOn: (id, x, y) => pickIn(boardInfo.get(id), x, y),
+  wheelMode: () => store.get().wheelNav,
   deleteSelectedBoards: () => deleteBoards(),
   panView: (dx, dy) => { panView(dx, dy); autoFit = null; scheduleRender(); },
   zoomViewAt: zoomAtScreen,
@@ -845,7 +993,7 @@ function updateHint() {
   const s = store.get();
   const parts = [TOOL_HINTS[ui.tempHand ? 'hand' : ui.tool]];
   if (!s.slides.length) parts.push('拖入图片替换示例图');
-  parts.push('滚轮滚动 · Ctrl/⌘ + 滚轮缩放视图 · 空格平移 · ⌘0 适合画板');
+  parts.push(s.wheelNav === 'scroll' ? '滚轮滚动 · ⌘ + 滚轮缩放' : '滚轮缩放', '空格 / 中键平移', '拖画板名称移动画板', 'Tab 隐藏面板');
   hint.textContent = parts.join('  ·  ');
 }
 

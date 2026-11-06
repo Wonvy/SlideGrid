@@ -778,3 +778,31 @@ button.ctrl-group { cursor: pointer; padding: 3px 0; }
 .multi-banner > .icon { color: var(--accent); margin-top: 2px; flex: none; }
 .multi-banner > span { flex: 1; }
 .multi-banner .btn { flex: none; margin: -2px -4px 0 0; }
+
+/* ---------- 右键菜单 ---------- */
+.ctx-menu { min-width: 230px; max-width: 320px; transform: none; transition: none; }
+.menu-item.danger { color: #ff8a8a; }
+.menu-item.danger .menu-check { color: #ff8a8a; }
+.menu-item.danger:hover { background: rgba(255, 107, 107, .12); }
+.menu-item:disabled { opacity: .4; cursor: default; }
+
+/* ---------- 左右栏折叠（Tab / Shift+Tab） ---------- */
+.app { transition: grid-template-columns .18s ease; }
+body.resizing .app { transition: none; }
+.app.left-hidden .sidebar.left, .app.right-hidden .sidebar.right { visibility: hidden; border: 0; }
+.app.left-hidden .gutter-left, .app.right-hidden .gutter-right { display: none; }
+.rp-tabs { grid-template-columns: 1fr 1fr auto; align-items: center; }
+.rp-tabs .panel-collapse { width: 28px; height: 28px; color: var(--faint); }
+.slides-head .panel-collapse { width: 28px; height: 28px; color: var(--muted); margin-left: 2px; }
+.panel-collapse:hover { color: var(--text) !important; background: var(--panel-2) !important; }
+.edge-tab {
+  position: absolute; z-index: 8; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 56px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-2); background: rgba(21, 24, 30, .95); color: var(--muted); cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+}
+.edge-tab:hover { color: var(--text); background: var(--panel-2); }
+.edge-left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
+.edge-right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+
+html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止双击缩放和回弹 */

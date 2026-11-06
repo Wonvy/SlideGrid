@@ -1,9 +1,14 @@
 import { clamp } from '../core/utils.js';
 import { el } from './dom.js';
+import { icon } from './icons.js';
 
-// 左右两栏可拖动调整宽度，双击分隔条恢复默认，宽度保存到 localStorage
+/**
+ * 左右两栏：拖动分隔条调整宽度（双击恢复默认），可折叠隐藏。
+ *   Tab：隐藏 / 显示左右两栏（类似 Photoshop）；Shift + Tab：只切换右栏
+ * 宽度和折叠状态保存到 localStorage。
+ */
 const KEY = 'slidegrid:panels:v1';
-const DEFAULTS = { left: 248, right: 300 };
+const DEFAULTS = { left: 248, right: 300, leftHidden: false, rightHidden: false };
 const LIMITS = { left: [180, 560], right: [240, 600] };
 const MIN_STAGE = 360;
 
@@ -12,13 +17,51 @@ function load() {
 }
 
 export function initResizers(app) {
-  const sizes = load();
-  const apply = () => {
-    app.style.setProperty('--left-w', `${sizes.left}px`);
-    app.style.setProperty('--right-w', `${sizes.right}px`);
+  const st = load();
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* 忽略 */ } };
+
+  // 收起后贴在屏幕边缘的展开按钮
+  const edges = {
+    left: el('button', { class: 'edge-tab edge-left', title: '显示左栏（Tab）', 'aria-label': '显示左栏' }, icon('panel-left-open', 15)),
+    right: el('button', { class: 'edge-tab edge-right', title: '显示右栏（Tab / Shift+Tab）', 'aria-label': '显示右栏' }, icon('panel-right-open', 15)),
   };
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(sizes)); } catch { /* 忽略 */ } };
+  edges.left.addEventListener('click', () => setHidden('left', false));
+  edges.right.addEventListener('click', () => setHidden('right', false));
+  app.append(edges.left, edges.right);
+
+  const apply = () => {
+    app.style.setProperty('--left-w', `${st.leftHidden ? 0 : st.left}px`);
+    app.style.setProperty('--right-w', `${st.rightHidden ? 0 : st.right}px`);
+    app.classList.toggle('left-hidden', st.leftHidden);
+    app.classList.toggle('right-hidden', st.rightHidden);
+    edges.left.hidden = !st.leftHidden;
+    edges.right.hidden = !st.rightHidden;
+  };
   apply();
+
+  function setHidden(side, hidden) {
+    st[`${side}Hidden`] = hidden;
+    apply();
+    save();
+  }
+  const toggle = side => setHidden(side, !st[`${side}Hidden`]);
+  // Tab：有任意一栏显示着就全部隐藏，否则全部显示
+  const toggleAll = () => {
+    const hide = !(st.leftHidden && st.rightHidden);
+    st.leftHidden = hide;
+    st.rightHidden = hide;
+    apply();
+    save();
+  };
+
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Tab' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName) || t?.isContentEditable) return;
+    if (document.querySelector('dialog[open], .menu.show')) return;
+    e.preventDefault();
+    if (e.shiftKey) toggle('right'); else toggleAll();
+  });
 
   for (const side of ['left', 'right']) {
     const gutter = el('div', { class: `gutter gutter-${side}`, title: '拖动调整宽度，双击恢复默认' });
@@ -28,15 +71,15 @@ export function initResizers(app) {
       if (e.button !== 0) return;
       e.preventDefault();
       gutter.setPointerCapture(e.pointerId);
-      const startX = e.clientX, start = sizes[side];
+      const startX = e.clientX, start = st[side];
       gutter.classList.add('active');
       document.body.classList.add('resizing');
 
       const move = ev => {
         const dx = ev.clientX - startX;
-        const other = side === 'left' ? sizes.right : sizes.left;
+        const other = side === 'left' ? (st.rightHidden ? 0 : st.right) : (st.leftHidden ? 0 : st.left);
         const max = Math.min(LIMITS[side][1], app.clientWidth - other - MIN_STAGE);
-        sizes[side] = Math.round(clamp(side === 'left' ? start + dx : start - dx, LIMITS[side][0], max));
+        st[side] = Math.round(clamp(side === 'left' ? start + dx : start - dx, LIMITS[side][0], max));
         apply();
       };
       const up = () => {
@@ -53,9 +96,21 @@ export function initResizers(app) {
     });
 
     gutter.addEventListener('dblclick', () => {
-      sizes[side] = DEFAULTS[side];
+      st[side] = DEFAULTS[side];
       apply();
       save();
     });
   }
+
+  // 面板标题里的「收起」按钮
+  const collapseButton = side => {
+    const b = el('button', {
+      class: 'icon-btn visible panel-collapse', title: side === 'left' ? '收起左栏（Tab）' : '收起右栏（Shift+Tab）',
+      'aria-label': side === 'left' ? '收起左栏' : '收起右栏',
+    }, icon(side === 'left' ? 'panel-left-close' : 'panel-right-close', 15));
+    b.addEventListener('click', () => setHidden(side, true));
+    return b;
+  };
+
+  return { toggle, toggleAll, setHidden, collapseButton, isHidden: side => st[`${side}Hidden`] };
 }

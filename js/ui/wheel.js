@@ -80,6 +80,13 @@ export function attachWheel(node, onSteps) {
 
 export const wheelModeSchema = [
   {
+    key: 'wheelNav', label: '工作区滚轮', type: 'select', default: 'zoom', nowheel: true,
+    options: [
+      { value: 'zoom', label: '缩放视图（推荐）' },
+      { value: 'scroll', label: '滚动视图（⌘ + 滚轮缩放）' },
+    ],
+  },
+  {
     key: 'wheelMode', label: '滚轮调参', type: 'select', default: 'hover', nowheel: true,
     options: [
       { value: 'hover', label: '悬停激活（推荐）' },

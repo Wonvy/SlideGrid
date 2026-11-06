@@ -12,8 +12,9 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  * 工作区鼠标 / 键盘交互（参照 Illustrator）。
  *
  * 导航（任何工具下都可用，只改变视图，不会改动作品）：
- *   滚轮 / Shift+滚轮      上下 / 左右滚动工作区
- *   Ctrl/⌘/⌥ + 滚轮       以光标为中心缩放视图（触控板双指捏合同样有效）
+ *   滚轮                  以鼠标位置为中心缩放视图（偏好里可改为「滚动视图」）
+ *   Shift + 滚轮          左右平移
+ *   拖动画板名称           在任何工具下移动画板；选择工具下拖画板空白处也可以
  *   空格按住 / 中键拖动      平移视图
  *   ⌘/Ctrl + 0            适合当前画板；⌘/Ctrl + ⌥ + 0 适合全部画板
  *   ⌘/Ctrl + 1            100%；⌘/Ctrl + = / -  放大 / 缩小
@@ -32,7 +33,7 @@ export function attachViewportInteraction(target, opts) {
     selectedBoards, toggleBoardSelection, selectBoards, selectAllBoards, moveBoards, setMarquee,
     panView, zoomViewAt, zoomViewBy, fitActive, fitAll, actualSize,
     // 当前画板内
-    pick, getCamera, setCamera, allBoardIds,
+    pick, getCamera, setCamera, allBoardIds, onContextMenu, labelAt, wheelMode,
     setHover, setDragSource, setDropTarget, onSwap,
     getAdjust, nextLift, toLayoutDelta, itemCenterClient,
     setItemAdjust, resetItemAdjust, getSelected, setSelected,
@@ -50,6 +51,7 @@ export function attachViewportInteraction(target, opts) {
     return [e.clientX - r.left, e.clientY - r.top];
   };
   const cardTools = new Set(['select', 'rotate', 'scale']);
+  const pickBoard = (id, e) => opts.pickOn?.(id, e.clientX, e.clientY) || null;
 
   /* ---------- 键盘 ---------- */
 
@@ -127,13 +129,14 @@ export function attachViewportInteraction(target, opts) {
     const tool = effectiveTool();
     if (tool === 'hand') return drag?.mode === 'pan' ? 'grabbing' : 'grab';
     if (tool === 'zoom') return altDown ? ZOOM_OUT_CURSOR : ZOOM_IN_CURSOR;
+    if (labelAt(e.clientX, e.clientY)) return 'move'; // 拖名称移动画板
     const b = boardAt(e.clientX, e.clientY);
     if (tool === 'artboard') return b ? 'move' : 'default';
     if (!b) return 'default';
-    if (b !== activeBoard()) return 'pointer'; // 点击切换到这个画板
+    if (b !== activeBoard()) return tool === 'select' ? 'move' : 'pointer'; // 点击切换到这个画板
     if (tool === 'orbit') return is3D() ? 'move' : 'grab';
     const hit = pick(e.clientX, e.clientY);
-    if (!hit) return 'default';
+    if (!hit) return tool === 'select' ? 'move' : 'default';
     if (tool === 'swap') return canSwap() ? 'grab' : 'default';
     if (!toolAvailable(tool)) return 'not-allowed';
     if (tool === 'select') return 'move';
@@ -163,7 +166,12 @@ export function attachViewportInteraction(target, opts) {
 
   /* ---------- 鼠标 ---------- */
 
-  target.addEventListener('contextmenu', e => e.preventDefault());
+  // 右键菜单：内容由 main.js 根据点到的画板 / 卡片生成
+  target.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (drag) return;
+    onContextMenu({ clientX: e.clientX, clientY: e.clientY, board: boardAt(e.clientX, e.clientY) });
+  });
   target.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
   target.addEventListener('pointerdown', e => {
@@ -177,8 +185,15 @@ export function attachViewportInteraction(target, opts) {
       const tool = effectiveTool();
       const b = boardAt(e.clientX, e.clientY);
 
+      const label = labelAt(e.clientX, e.clientY);
       if (tool === 'hand') {
         mode = 'pan';
+      } else if (label && tool !== 'zoom') {
+        // 拖动画板名称：在任何工具下都能移动画板（属于多选时一起移动）
+        const keep = selectedBoards().includes(label);
+        activateBoard(label, { fit: false, keepSelection: keep });
+        mode = 'moveBoards';
+        extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
       } else if (tool === 'zoom') {
         const [sx, sy] = local(e);
         zoomViewAt(sx, sy, e.altKey ? 1 / 1.6 : 1.6);
@@ -202,18 +217,29 @@ export function attachViewportInteraction(target, opts) {
       } else {
         if (!b) { setSelected(null); return; }
         if (b !== activeBoard()) {
-          if (e.shiftKey || e.metaKey || e.ctrlKey) toggleBoardSelection(b); // 加选画板
-          else activateBoard(b, { fit: false }); // 先切换画板
-          return;
+          if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleBoardSelection(b); return; } // 加选画板
+          const keep = selectedBoards().includes(b);
+          activateBoard(b, { fit: false, keepSelection: keep }); // 先切换画板
+          // 选择工具：按在画板空白处可以直接拖走这个画板
+          if (tool !== 'select' || pickBoard(b, e)) return;
+          mode = 'moveBoards';
+          extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
         }
-        const hit = pick(e.clientX, e.clientY);
+        const hit = mode ? null : pick(e.clientX, e.clientY);
         if (tool === 'orbit') {
           mode = is3D() && !e.shiftKey ? 'orbit' : 'contentPan';
         } else if (tool === 'swap') {
           if (hit && canSwap()) { mode = 'swap'; Object.assign(extra, { src: hit.slideIndex, ghost: null, target: null }); }
+        } else if (mode === 'moveBoards') {
+          // 已在上面开始拖动画板
         } else if (cardTools.has(tool)) {
           const ok = hit && toolAvailable(tool);
           setSelected(ok ? hit.order : null);
+          if (!ok && tool === 'select') {
+            // 选择工具：拖画板上没有卡片的地方 = 移动画板（3D 版式里也可以）
+            mode = 'moveBoards';
+            extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
+          }
           if (ok) {
             mode = tool === 'select' ? 'move' : tool;
             extra.adj = { dx: 0, dy: 0, rz: 0, ...getAdjust(hit.order) };
@@ -364,15 +390,17 @@ export function attachViewportInteraction(target, opts) {
     }
     let dy = e.deltaY, dx = e.deltaX;
     if (e.deltaMode === 1) { dx *= 33; dy *= 33; }
-    if (mod) {
-      const [sx, sy] = local(e);
-      // 触控板捏合（ctrlKey + 小增量）更灵敏，鼠标滚轮每格约 25%
-      const k = e.ctrlKey && !e.metaKey && Math.abs(dy) < 40 ? 0.01 : 0.0025;
-      zoomViewAt(sx, sy, Math.exp(-dy * k));
+    const [sx, sy] = local(e);
+    // 触控板捏合（ctrlKey + 小增量）更灵敏，鼠标滚轮每格约 22%
+    const zoomBy = d => zoomViewAt(sx, sy, Math.exp(-d * (e.ctrlKey && !e.metaKey && Math.abs(d) < 40 ? 0.01 : 0.0025)));
+    if (e.shiftKey) { panView(-(dx || dy), 0); return; } // Shift + 滚轮：左右平移
+    if (wheelMode() === 'scroll') {
+      // 偏好「滚动视图」：滚轮滚动，Ctrl/⌘/⌥ + 滚轮缩放
+      if (mod) zoomBy(dy); else panView(-dx, -dy);
       return;
     }
-    if (e.shiftKey && !dx) { dx = dy; dy = 0; } // Shift + 滚轮：横向滚动
-    panView(-dx, -dy);
+    // 默认：滚轮以鼠标位置为中心缩放视图
+    zoomBy(dy);
   }, { passive: false });
 
   target.addEventListener('dblclick', e => {
