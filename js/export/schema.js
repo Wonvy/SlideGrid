@@ -21,6 +21,7 @@ export const formatSchema = [
     key: 'scope', label: '范围', type: 'select', default: 'current',
     options: [
       { value: 'current', label: '当前画板' },
+      { value: 'selected', label: '所选画板（ZIP）' },
       { value: 'all', label: '全部画板（ZIP）' },
     ],
   },

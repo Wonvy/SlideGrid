@@ -1,5 +1,5 @@
 import { ASPECTS, aspectValue, aspectLabel, isLongAspect, parseRatio } from '../config.js';
-import { boardsOf } from '../state.js';
+import { boardsOf, selectionOf } from '../state.js';
 import { createMenu } from './menu.js';
 import { attachWheel } from './wheel.js';
 import { el } from './dom.js';
@@ -17,7 +17,7 @@ function ratioShape(id, max = 18) {
  * 顶栏中间：画板切换器 + 画布比例。
  *   onActivate(id)、onAdd({ duplicate })、onRename(id)、onDelete(id)、onFitAll()
  */
-export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onRename, onDelete, onFitAll }) {
+export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onDuplicateSelected, onRename, onDelete, onDeleteSelected, onFitAll }) {
   /* ---------- 画板 ---------- */
   const boardName = el('span', { class: 'tb-board-name' });
   const boardBtn = el('button', { class: 'topbar-btn', 'aria-haspopup': 'menu', title: '画板：切换、新建、复制、重命名、删除' },
@@ -27,16 +27,18 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onR
     className: 'board-menu',
     render(pop, close) {
       const s = store.get();
+      const sel = new Set(selectionOf(s));
       pop.innerHTML = '';
-      pop.append(el('div', { class: 'menu-title' }, `画板（${s.artboards.length}）`));
+      pop.append(el('div', { class: 'menu-title' }, `画板（${s.artboards.length}）· Shift/⌘ + 单击多选`));
       for (const b of boardsOf(s)) {
         const active = b.id === s.activeBoard;
+        const selected = sel.has(b.id);
         const act = (name, title, fn, danger = false) => el('button', {
           class: `icon-btn visible${danger ? ' danger' : ''}`, title, 'aria-label': title,
           onclick: e => { e.stopPropagation(); close(); fn(); },
         }, icon(name, 13));
-        const row = el('div', { class: `menu-item board-item${active ? ' active' : ''}`, role: 'menuitem', title: '切换到此画板并居中显示' },
-          el('span', { class: 'menu-check' }, active ? icon('check', 14) : null),
+        const row = el('div', { class: `menu-item board-item${active ? ' active' : ''}${selected && !active ? ' selected' : ''}`, role: 'menuitem', title: '单击切换并居中 · Shift/⌘ + 单击加选 / 减选' },
+          el('span', { class: 'menu-check' }, selected ? icon('check', 14) : null),
           ratioShape(b.settings.aspect, 16),
           el('span', { class: 'menu-label' }, b.name),
           el('span', { class: 'menu-meta' }, aspectLabel(b.settings.aspect)),
@@ -45,14 +47,21 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onR
             act('copy', '复制画板', () => { onActivate(b.id); onAdd({ duplicate: true }); }),
             s.artboards.length > 1 ? act('trash-2', '删除画板', () => onDelete(b.id), true) : null),
         );
-        row.addEventListener('click', () => { close(); onActivate(b.id); });
+        row.addEventListener('click', e => {
+          if (e.shiftKey || e.metaKey || e.ctrlKey) { actions.toggleBoardSelection(b.id); return; } // 多选时菜单保持打开
+          close();
+          onActivate(b.id);
+        });
         pop.append(row);
       }
+      const n = sel.size;
+      const item = (ic, label, fn, meta = null) => el('button', { class: 'menu-item', onclick: () => { close(); fn(); } },
+        el('span', { class: 'menu-check' }, icon(ic, 14)), el('span', { class: 'menu-label' }, label), meta ? el('span', { class: 'menu-meta' }, meta) : null);
       pop.append(el('div', { class: 'menu-sep' }),
-        el('button', { class: 'menu-item', onclick: () => { close(); onAdd({ duplicate: false }); } },
-          el('span', { class: 'menu-check' }, icon('plus', 14)), el('span', { class: 'menu-label' }, '新建画板')),
-        el('button', { class: 'menu-item', onclick: () => { close(); onAdd({ duplicate: true }); } },
-          el('span', { class: 'menu-check' }, icon('copy', 14)), el('span', { class: 'menu-label' }, '复制当前画板')),
+        item('plus', '新建画板', () => onAdd({ duplicate: false })),
+        item('copy', n > 1 ? `复制所选的 ${n} 个画板` : '复制当前画板', onDuplicateSelected),
+        n > 1 && n < s.artboards.length ? item('trash-2', `删除所选的 ${n} 个画板`, onDeleteSelected) : null,
+        item('check', '全选画板', () => actions.selectAllBoards(), '⌘A'),
         el('button', { class: 'menu-item', onclick: () => { close(); onFitAll(); } },
           el('span', { class: 'menu-check' }, icon('maximize', 14)), el('span', { class: 'menu-label' }, '查看全部画板'), el('span', { class: 'menu-meta' }, '⌘⌥0')),
       );
@@ -111,7 +120,8 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onR
   return {
     update(s) {
       const board = s.artboards.find(b => b.id === s.activeBoard);
-      boardName.textContent = board?.name || '画板';
+      const n = selectionOf(s).length;
+      boardName.textContent = n > 1 ? `${board?.name || '画板'} 等 ${n} 个` : board?.name || '画板';
       ratioShapeSlot.replaceChildren(ratioShape(s.aspect, 14));
       ratioText.textContent = aspectLabel(s.aspect);
       boardMenu.refresh();

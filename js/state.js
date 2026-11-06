@@ -55,7 +55,7 @@ export function projectSettings(saved = {}) {
     settings: boardSettings(b.settings),
   }));
   const active = boards.find(b => b.id === saved.activeBoard) || boards[0];
-  return { artboards: boards, activeBoard: active.id, ...active.settings };
+  return { artboards: boards, activeBoard: active.id, selectedBoards: [active.id], ...active.settings };
 }
 
 // 当前画板（store 顶层）的设置
@@ -85,6 +85,22 @@ store.subscribe(s => {
 });
 
 const closeSlide = slide => slide?.preview?.close?.();
+
+// 当前选中的画板（至少包含当前画板）
+export const selectionOf = s => {
+  const sel = (s.selectedBoards || []).filter(id => s.artboards.some(b => b.id === id));
+  return sel.includes(s.activeBoard) ? sel : [...sel, s.activeBoard];
+};
+
+/**
+ * 多选画板时，把同一修改同步到其他选中的画板（当前画板的设置在 store 顶层，由调用方修改）。
+ * fn(settings) → 新的 settings。只选了一个画板时原样返回 artboards。
+ */
+function syncSelected(s, fn) {
+  const sel = new Set(selectionOf(s));
+  if (sel.size <= 1) return s.artboards;
+  return s.artboards.map(b => (b.id !== s.activeBoard && sel.has(b.id) ? { ...b, settings: boardSettings(fn(b.settings)) } : b));
+}
 
 // 只保留仍被某个画板引用的素材
 function pruneAssets(s, assets) {
@@ -150,96 +166,157 @@ export const actions = {
     Object.values(s.assets).forEach(a => { if (assets[a.id] !== a) a.preview?.close?.(); });
     store.set({ project, slides, assets, ...projectSettings(settings) });
   },
-  // 设置背景图（只保留当前这一张素材）
-  // 设置当前画板的背景图（其他画板仍在用的背景图会保留）
+  // 设置背景图（多选画板时一起设置；其他画板仍在用的背景图会保留）
   setBackgroundImage(asset) {
     const s = store.get();
     const style = { ...s.style, bgType: 'image', bgImageId: asset.id };
-    store.set({ style, assets: pruneAssets({ ...s, style }, { ...s.assets, [asset.id]: asset }) });
+    const artboards = syncSelected(s, st => ({ ...st, style: { ...st.style, bgType: 'image', bgImageId: asset.id } }));
+    const next = { ...s, style, artboards };
+    store.set({ style, artboards, assets: pruneAssets(next, { ...s.assets, [asset.id]: asset }) });
   },
   setProjectName(name) {
     store.set(s => ({ project: s.project ? { ...s.project, name } : s.project }));
   },
+
   /* ---------- 画板 ---------- */
-  setActiveBoard(id) {
+  // 切换当前画板。keepSelection：保留现有的多选（id 已在选中集合里时）
+  setActiveBoard(id, { keepSelection = false } = {}) {
     const s = store.get();
-    if (id === s.activeBoard) return;
+    const keep = keepSelection && selectionOf(s).includes(id);
+    const selectedBoards = keep ? selectionOf(s) : [id];
+    if (id === s.activeBoard) { store.set({ selectedBoards }); return; }
     const boards = boardsOf(s);
     const b = boards.find(x => x.id === id);
     if (!b) return;
-    store.set({ artboards: boards, activeBoard: id, ...b.settings });
+    store.set({ artboards: boards, activeBoard: id, selectedBoards, ...b.settings });
+  },
+  // 多选：设置选中集合；active 为当前画板（默认集合里最后一个）
+  selectBoards(ids, active = ids[ids.length - 1]) {
+    const s = store.get();
+    const valid = ids.filter(id => s.artboards.some(b => b.id === id));
+    if (!valid.length) return;
+    const act = valid.includes(active) ? active : valid[valid.length - 1];
+    actions.setActiveBoard(act);
+    store.set({ selectedBoards: valid });
+  },
+  // 加选 / 减选（Shift / ⌘ + 单击）
+  toggleBoardSelection(id) {
+    const s = store.get();
+    const sel = selectionOf(s);
+    if (sel.includes(id)) {
+      if (sel.length === 1) return;
+      const rest = sel.filter(x => x !== id);
+      actions.selectBoards(rest, id === s.activeBoard ? rest[rest.length - 1] : s.activeBoard);
+    } else {
+      actions.selectBoards([...sel, id], id);
+    }
+  },
+  selectAllBoards() {
+    const s = store.get();
+    actions.selectBoards(s.artboards.map(b => b.id), s.activeBoard);
   },
   // 新建画板：duplicate 时复制当前画板的全部设置；位置由调用方算好
-  addArtboard({ x, y, duplicate = false, name }) {
+  addArtboard({ x, y, duplicate = false, name, from = null }) {
     const s = store.get();
     const boards = boardsOf(s);
-    const settings = duplicate ? boardSettings(JSON.parse(JSON.stringify(boardSettingsOf(s)))) : boardSettings({ aspect: s.aspect });
+    const src = from ? boards.find(b => b.id === from) : boards.find(b => b.id === s.activeBoard);
+    const settings = duplicate ? boardSettings(JSON.parse(JSON.stringify(src.settings))) : boardSettings({ aspect: s.aspect });
     const nums = boards.map(b => Number(/^画板 (\d+)$/.exec(b.name)?.[1]) || 0);
-    const board = {
-      id: newBoardId(),
-      name: name || (duplicate ? `${boards.find(b => b.id === s.activeBoard).name} 副本` : `画板 ${Math.max(boards.length, ...nums) + 1}`),
-      x, y, settings,
-    };
-    store.set({ artboards: [...boards, board], activeBoard: board.id, ...settings });
+    // 名称不重复：「xx 副本」已存在时依次用「xx 副本 2」「xx 副本 3」…
+    const taken = new Set(boards.map(b => b.name));
+    let boardName = name || (duplicate ? `${src.name} 副本` : `画板 ${Math.max(boards.length, ...nums) + 1}`);
+    if (taken.has(boardName)) {
+      let i = 2;
+      while (taken.has(`${boardName} ${i}`)) i++;
+      boardName = `${boardName} ${i}`;
+    }
+    const board = { id: newBoardId(), name: boardName, x, y, settings };
+    store.set({ artboards: [...boards, board], activeBoard: board.id, selectedBoards: [board.id], ...settings });
     return board;
   },
-  removeArtboard(id) {
+  // 删除画板（可多个），至少保留一个
+  removeArtboards(ids) {
     const s = store.get();
-    if (s.artboards.length <= 1) return false;
-    const boards = boardsOf(s).filter(b => b.id !== id);
+    const del = new Set(ids);
+    const boards = boardsOf(s).filter(b => !del.has(b.id));
+    if (!boards.length || boards.length === s.artboards.length) return 0;
     let patch;
-    if (id !== s.activeBoard) {
-      patch = { artboards: boards };
+    if (!del.has(s.activeBoard)) {
+      patch = { artboards: boards, selectedBoards: [s.activeBoard] };
     } else {
-      const idx = s.artboards.findIndex(b => b.id === id);
-      const next = boards[Math.max(0, idx - 1)];
-      patch = { artboards: boards, activeBoard: next.id, ...next.settings };
+      const idx = s.artboards.findIndex(b => b.id === s.activeBoard);
+      const next = boards[Math.min(Math.max(0, idx - 1), boards.length - 1)];
+      patch = { artboards: boards, activeBoard: next.id, selectedBoards: [next.id], ...next.settings };
     }
     store.set({ ...patch, assets: pruneAssets({ ...s, ...patch }, s.assets) }); // 删掉的画板独用的背景图一并释放
-    return true;
+    return s.artboards.length - boards.length;
+  },
+  removeArtboard(id) {
+    return actions.removeArtboards([id]) > 0;
   },
   renameArtboard(id, name) {
     store.set(s => ({ artboards: s.artboards.map(b => (b.id === id ? { ...b, name } : b)) }));
   },
   moveArtboard(id, x, y) {
-    store.set(s => ({ artboards: s.artboards.map(b => (b.id === id ? { ...b, x, y } : b)) }));
+    actions.moveArtboards([{ id, x, y }]);
   },
+  moveArtboards(moves) {
+    const m = new Map(moves.map(v => [v.id, v]));
+    store.set(s => ({ artboards: s.artboards.map(b => (m.has(b.id) ? { ...b, x: m.get(b.id).x, y: m.get(b.id).y } : b)) }));
+  },
+
+  /* ---------- 编辑（多选画板时同步到所有选中的画板；构图和卡片调整不同步） ---------- */
   setLayout(id) {
     const layout = getLayout(id);
     if (!layout) return false;
-    if (store.get().aspect === 'long' && !layout.long) return false; // 长图模式只支持部分版式
-    store.set({ layoutId: id, camera: { ...DEFAULT_CAMERA } });
+    const s = store.get();
+    if (s.aspect === 'long' && !layout.long) return false; // 长图模式只支持部分版式
+    const artboards = syncSelected(s, st => (st.aspect === 'long' && !layout.long ? st : { ...st, layoutId: id, camera: { ...DEFAULT_CAMERA } }));
+    store.set({ layoutId: id, camera: { ...DEFAULT_CAMERA }, artboards });
     return true;
   },
   setParam(key, value) {
-    store.set(s => ({ params: { ...s.params, [s.layoutId]: { ...s.params[s.layoutId], [key]: value } } }));
+    store.set(s => ({
+      params: { ...s.params, [s.layoutId]: { ...s.params[s.layoutId], [key]: value } },
+      // 参数只同步给使用同一版式的画板
+      artboards: syncSelected(s, st => (st.layoutId !== s.layoutId ? st
+        : { ...st, params: { ...st.params, [s.layoutId]: { ...st.params[s.layoutId], [key]: value } } })),
+    }));
   },
   resetParams() {
-    store.set(s => ({ params: { ...s.params, [s.layoutId]: schemaDefaults(getLayout(s.layoutId).params) } }));
+    store.set(s => {
+      const defaults = schemaDefaults(getLayout(s.layoutId).params);
+      return {
+        params: { ...s.params, [s.layoutId]: defaults },
+        artboards: syncSelected(s, st => (st.layoutId !== s.layoutId ? st : { ...st, params: { ...st.params, [s.layoutId]: { ...defaults } } })),
+      };
+    });
   },
   setStyle(key, value) {
     store.set(s => {
-      const extra = key === 'bgType' ? backgroundTypeDefaults(s.style, value) : {};
+      const patch = { [key]: value, ...(key === 'bgType' ? backgroundTypeDefaults(s.style, value) : {}) };
+      const style = { ...s.style, ...patch };
+      const artboards = syncSelected(s, st => ({ ...st, style: { ...st.style, ...patch } }));
       // 移除背景图时，没有画板再用的素材一并释放
-      if (key === 'bgImageId' && !value) {
-        const style = { ...s.style, bgImageId: null };
-        return { style, assets: pruneAssets({ ...s, style }, s.assets) };
-      }
-      return { style: { ...s.style, [key]: value, ...extra } };
+      if (key === 'bgImageId' && !value) return { style, artboards, assets: pruneAssets({ ...s, style, artboards }, s.assets) };
+      return { style, artboards };
     });
   },
   // 一次改多个样式字段（工具条背景面板用）
   patchStyle(patch) {
     store.set(s => {
       const extra = patch.bgType && patch.bgType !== s.style.bgType ? backgroundTypeDefaults(s.style, patch.bgType) : {};
-      return { style: { ...s.style, ...extra, ...patch } };
+      return {
+        style: { ...s.style, ...extra, ...patch },
+        artboards: syncSelected(s, st => ({ ...st, style: { ...st.style, ...extra, ...patch } })),
+      };
     });
   },
   setAspect(id) {
     const s = store.get();
-    // 切到长图时，当前版式不支持就换成规整网格
-    const patch = id === 'long' && !getLayout(s.layoutId).long ? { layoutId: 'grid', camera: { ...DEFAULT_CAMERA } } : {};
-    store.set({ aspect: id, ...patch });
+    // 切到长图时，版式不支持就换成规整网格
+    const fix = st => (id === 'long' && !getLayout(st.layoutId).long ? { layoutId: 'grid', camera: { ...DEFAULT_CAMERA } } : {});
+    store.set({ aspect: id, ...fix(s), artboards: syncSelected(s, st => ({ ...st, aspect: id, ...fix(st) })) });
   },
   setExport(key, value) {
     store.set(s => ({ exportOpts: { ...s.exportOpts, [key]: value } }));

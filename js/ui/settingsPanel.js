@@ -1,4 +1,5 @@
 import { layouts, getLayout } from '../layouts/index.js';
+import { selectionOf } from '../state.js';
 import { styleSchema } from '../style/schema.js';
 import { buildControls } from './controls.js';
 import { wheelModeSchema } from './wheel.js';
@@ -87,7 +88,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     curIcon,
     el('div', { class: 'cur-text' }, curName, curMeta),
     el('button', { class: 'btn small', title: '去「版式」页选择其他版式', onclick: () => showMain('layouts') }, icon('layout-grid', 13), '更换'));
-  panes.params.append(current);
+  // 多选画板时的提示：修改会同步到所有选中的画板
+  const multiText = el('span', {});
+  const multiBanner = el('div', { class: 'multi-banner', hidden: true },
+    icon('frame', 14), multiText,
+    el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
+  panes.params.append(multiBanner, current);
 
   const paramsBox = el('div');
   panes.params.append(section('版式参数', paramsBox,
@@ -135,6 +141,9 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     updateParams(s.params[currentLayout]);
     updateStyle(s.style);
     updatePrefs(s);
+    const n = selectionOf(s).length;
+    multiBanner.hidden = n <= 1;
+    multiText.textContent = `正在同时编辑 ${n} 个画板：样式、比例、版式和参数会一起修改（构图、卡片调整除外）`;
   }
   update(s0);
 

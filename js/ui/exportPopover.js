@@ -53,13 +53,17 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info 
     const o = s.exportOpts;
     updateControls(o);
     const { width, height, defaultName } = info(s);
-    sizeInfo.textContent = o.scope === 'all' ? `当前画板：${width} × ${height} px` : `输出尺寸：${width} × ${height} px`;
+    const multi = o.scope === 'all' || (o.scope === 'selected' && (s.selectedBoards || []).length > 1);
+    sizeInfo.textContent = multi ? `当前画板：${width} × ${height} px` : `输出尺寸：${width} × ${height} px`;
     if (!nameEdited) nameInput.value = defaultName;
-    ext.textContent = o.scope === 'all' ? '.zip' : o.format === 'jpg' ? '.jpg' : '.png';
+    ext.textContent = multi ? '.zip' : o.format === 'jpg' ? '.jpg' : '.png';
     const transparent = s.style.bgType === 'transparent';
     preview.classList.toggle('checker', transparent && o.format === 'png');
+    const selCount = (s.selectedBoards || []).length;
     hint.textContent = o.scope === 'all'
       ? `将导出全部 ${s.artboards.length} 个画板，打包为 ZIP（各画板按自己的比例）`
+      : o.scope === 'selected' && selCount > 1
+        ? `将导出所选的 ${selCount} 个画板，打包为 ZIP`
       : transparent
         ? (o.format === 'png' ? '背景透明：导出 PNG 时保留透明' : 'JPG 不支持透明，背景将以白色填充')
         : '尺寸在左侧下拉框中选择 · 点击「导出」开始导出';
@@ -96,7 +100,8 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info 
   const filename = () => {
     const s = store.get();
     const base = (isOpen() && nameEdited ? nameInput.value.trim() : '').replace(/\.(png|jpe?g|zip)$/i, '') || info(s).defaultName;
-    return `${base}.${s.exportOpts.scope === 'all' ? 'zip' : s.exportOpts.format === 'jpg' ? 'jpg' : 'png'}`;
+    const zip = s.exportOpts.scope === 'all' || (s.exportOpts.scope === 'selected' && (s.selectedBoards || []).length > 1);
+    return `${base}.${zip ? 'zip' : s.exportOpts.format === 'jpg' ? 'jpg' : 'png'}`;
   };
 
   return {

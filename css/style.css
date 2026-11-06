@@ -762,3 +762,19 @@ button.ctrl-group { cursor: pointer; padding: 3px 0; }
 .cur-text { flex: 1; min-width: 0; }
 .cur-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cur-meta { font-size: 11.5px; color: var(--faint); }
+
+/* ---------- 画板多选 ---------- */
+.marquee {
+  position: absolute; z-index: 3; pointer-events: none;
+  border: 1px solid var(--accent); background: rgba(124, 140, 255, .1); border-radius: 2px;
+}
+.board-item.selected { background: rgba(124, 140, 255, .06); }
+.board-item.selected .menu-check { color: #8b96d9; }
+.multi-banner {
+  display: flex; align-items: flex-start; gap: 8px; margin: 6px 12px 0; padding: 8px 10px;
+  border: 1px solid rgba(124, 140, 255, .45); border-radius: 9px; background: rgba(124, 140, 255, .1);
+  color: var(--text); font-size: 12px; line-height: 1.5;
+}
+.multi-banner > .icon { color: var(--accent); margin-top: 2px; flex: none; }
+.multi-banner > span { flex: 1; }
+.multi-banner .btn { flex: none; margin: -2px -4px 0 0; }

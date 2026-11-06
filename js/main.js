@@ -1,4 +1,4 @@
-import { store, actions, boardsOf } from './state.js';
+import { store, actions, boardsOf, selectionOf } from './state.js';
 import { aspectLabel } from './config.js';
 import { getLayout } from './layouts/index.js';
 import { Renderer } from './render/renderer.js';
@@ -192,6 +192,7 @@ function render() {
   boardInfo.clear();
   lastScene = null;
   const boards = boardsOf(s);
+  const selected = new Set(selectionOf(s));
   for (const b of boards) {
     const input = boardInput(s, b.settings);
     const { W, H } = resolveCanvas(input);
@@ -203,7 +204,7 @@ function render() {
 
     // 画板名称（左上角上方）
     bgCtx.font = `${(active ? 600 : 400)} ${11.5 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
-    bgCtx.fillStyle = active ? '#a3afff' : '#6b7385';
+    bgCtx.fillStyle = active ? '#a3afff' : selected.has(b.id) ? '#8b96d9' : '#6b7385';
     bgCtx.textBaseline = 'bottom';
     bgCtx.fillText(`${b.name}  ·  ${aspectLabel(b.settings.aspect)}`, sx * d, (sy - 6) * d);
 
@@ -224,10 +225,12 @@ function render() {
     } else {
       bgCtx.drawImage(boardBackground(b.id, b.settings.style, input.background, W, H, Math.max(px.w, px.h)), px.x, px.y, px.w, px.h);
     }
-    if (active && s.artboards.length > 1) {
-      bgCtx.strokeStyle = 'rgba(124,140,255,.9)';
-      bgCtx.lineWidth = 1.5 * d;
-      bgCtx.strokeRect(px.x - 1.5 * d, px.y - 1.5 * d, px.w + 3 * d, px.h + 3 * d);
+    // 选中的画板描边；当前画板描边更粗
+    if (s.artboards.length > 1 && (active || selected.has(b.id))) {
+      const w = (active ? 2 : 1.25) * d;
+      bgCtx.strokeStyle = active ? 'rgba(124,140,255,1)' : 'rgba(124,140,255,.7)';
+      bgCtx.lineWidth = w;
+      bgCtx.strokeRect(px.x - w, px.y - w, px.w + 2 * w, px.h + 2 * w);
     }
 
     // WebGL：只画画板在视野内的部分（用裁切矩阵，放大很多时也不会超出 WebGL 视口上限）
@@ -386,8 +389,8 @@ async function importProject(file) {
 
 /* ---------------- 画板管理 ---------------- */
 
-function activateBoard(id, { fit = true } = {}) {
-  actions.setActiveBoard(id);
+function activateBoard(id, { fit = true, keepSelection = false } = {}) {
+  actions.setActiveBoard(id, { keepSelection });
   if (fit) fitBoard(id);
 }
 function addBoard({ duplicate = false } = {}) {
@@ -404,14 +407,35 @@ function renameBoard(id) {
   const name = prompt('画板名称', b?.name)?.trim();
   if (name && name !== b.name) actions.renameArtboard(id, name);
 }
-function deleteBoard(id = store.get().activeBoard) {
+// 删除画板（默认删除所有选中的画板），至少保留一个
+function deleteBoards(ids = selectionOf(store.get())) {
   const s = store.get();
   if (s.artboards.length <= 1) { toast('至少保留一个画板', { error: true }); return; }
-  const b = s.artboards.find(x => x.id === id);
-  if (!confirm(`删除画板「${b.name}」？`)) return;
-  actions.removeArtboard(id);
-  bgCache.delete(id);
-  toast(`已删除「${b.name}」`);
+  if (ids.length >= s.artboards.length) ids = ids.filter(id => id !== s.activeBoard); // 保留当前画板
+  const names = s.artboards.filter(b => ids.includes(b.id)).map(b => `「${b.name}」`);
+  if (!names.length || !confirm(`删除画板 ${names.join('、')}？`)) return;
+  const n = actions.removeArtboards(ids);
+  ids.forEach(id => bgCache.delete(id));
+  toast(`已删除 ${n} 个画板`);
+}
+const deleteBoard = id => deleteBoards([id]);
+// 复制所有选中的画板，副本依次放在最右侧，并选中这些副本
+function duplicateSelected() {
+  const s = store.get();
+  const ids = selectionOf(s);
+  if (ids.length <= 1) { addBoard({ duplicate: true }); return; }
+  const rects = boardsOf(s).map(b => boardWorldRect(s, b));
+  let x = Math.max(...rects.map(r => r.x + r.w)) + 160;
+  const created = [];
+  for (const id of ids) {
+    const b = boardsOf(store.get()).find(v => v.id === id);
+    const r = boardWorldRect(store.get(), b);
+    created.push(actions.addArtboard({ x, y: b.y, duplicate: true, from: id }).id);
+    x += r.w + 160;
+  }
+  actions.selectBoards(created);
+  fitAll();
+  toast(`已复制 ${created.length} 个画板`);
 }
 
 /* ---------------- 导入图片 ---------------- */
@@ -568,7 +592,9 @@ function exportInfo(s) {
   const base = safe(s.project?.name || 'slidegrid');
   return {
     width, height,
-    defaultName: s.exportOpts.scope === 'all' ? `${base}-全部画板` : `${base}-${safe(board?.name || '画板')}-${width}x${height}`,
+    defaultName: s.exportOpts.scope === 'all' ? `${base}-全部画板`
+      : s.exportOpts.scope === 'selected' && selectionOf(s).length > 1 ? `${base}-所选画板`
+        : `${base}-${safe(board?.name || '画板')}-${width}x${height}`,
   };
 }
 
@@ -598,9 +624,10 @@ async function doExport() {
     await withBusy(async () => {
       const s = store.get();
       const name = exportPopover.filename();
-      if (s.exportOpts.scope === 'all') {
-        // 全部画板：逐个渲染后打包成 ZIP
-        const boards = boardsOf(s);
+      if (s.exportOpts.scope === 'all' || (s.exportOpts.scope === 'selected' && selectionOf(s).length > 1)) {
+        // 全部 / 所选画板：逐个渲染后打包成 ZIP
+        const pickIds = s.exportOpts.scope === 'selected' ? new Set(selectionOf(s)) : null;
+        const boards = boardsOf(s).filter(b => !pickIds || pickIds.has(b.id));
         const ext = s.exportOpts.format === 'jpg' ? 'jpg' : 'png';
         const entries = [];
         for (let i = 0; i < boards.length; i++) {
@@ -678,8 +705,10 @@ const topbarMenus = createTopbarMenus($('board-bar'), {
   store, actions,
   onActivate: id => activateBoard(id),
   onAdd: addBoard,
+  onDuplicateSelected: duplicateSelected,
   onRename: renameBoard,
   onDelete: deleteBoard,
+  onDeleteSelected: () => deleteBoards(),
   onFitAll: fitAll,
 });
 const updateSizePicker = buildControls($('size-picker'), sizeSchema, store.get().exportOpts, actions.setExport);
@@ -721,6 +750,14 @@ const toolbar = createToolbar($('app'), {
   },
 });
 
+// 画板框选的矩形
+const marquee = Object.assign(document.createElement('div'), { className: 'marquee', hidden: true });
+viewport.append(marquee);
+function setMarquee(r) {
+  marquee.hidden = !r;
+  if (r) Object.assign(marquee.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+}
+
 // 工具条上的「画板背景」：快速切换类型、预设色板、自定义颜色
 const bgPicker = createBgPicker(toolbar.bgSlot, {
   store, actions,
@@ -758,8 +795,14 @@ interaction = attachViewportInteraction(viewport, {
   activeBoard: () => store.get().activeBoard,
   activateBoard,
   boardRect: id => boardInfo.get(id),
-  moveBoard: (id, x, y) => actions.moveArtboard(id, x, y),
-  deleteActiveBoard: () => deleteBoard(),
+  allBoardIds: () => [...boardInfo.keys()],
+  selectedBoards: () => selectionOf(store.get()),
+  toggleBoardSelection: id => actions.toggleBoardSelection(id),
+  selectBoards: ids => { const a = store.get().activeBoard; actions.selectBoards(ids, ids.includes(a) ? a : undefined); },
+  selectAllBoards: () => actions.selectAllBoards(),
+  moveBoards: moves => actions.moveArtboards(moves),
+  setMarquee,
+  deleteSelectedBoards: () => deleteBoards(),
   panView: (dx, dy) => { panView(dx, dy); autoFit = null; scheduleRender(); },
   zoomViewAt: zoomAtScreen,
   zoomViewBy,
@@ -796,7 +839,7 @@ const TOOL_HINTS = {
   orbit: '构图：拖动调整画板内构图（3D 旋转 / Shift 平移）· 滚轮缩放构图',
   hand: '抓手：拖动平移视图',
   zoom: '放大镜：单击放大 · ⌥ 单击缩小',
-  artboard: '画板：点击切换 · 拖动移动画板 · Delete 删除',
+  artboard: '画板：点击切换 · Shift/⌘ 单击加选 · 空白处拖动框选 · 拖动一起移动 · ⌘A 全选 · Delete 删除所选',
 };
 function updateHint() {
   const s = store.get();
@@ -869,4 +912,6 @@ window.SlideGrid = {
   fitBoard,
   fitAll,
   addBoard,
+  duplicateSelected,
+  deleteBoards,
 };

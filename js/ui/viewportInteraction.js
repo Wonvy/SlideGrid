@@ -20,15 +20,19 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  *
  * 工具（左键只执行当前工具）：
  *   V 选择  X 交换  R 旋转  S 比例  O 构图  H 抓手  Z 放大镜  ⇧O 画板
+ *
+ * 画板多选：画板工具下 Shift/⌘ + 单击加选减选、在空白处拖动框选、拖动任一选中画板一起移动、
+ *          Delete 删除所选；任何工具下 ⌘A 全选画板、Shift/⌘ + 单击其他画板加选。
  */
 export function attachViewportInteraction(target, opts) {
   const {
     getTool, setTool, toolAvailable, is3D, canSwap, getSlide, onTempHand,
     // 画板与视图
-    boardAt, activeBoard, activateBoard, boardRect, moveBoard, deleteActiveBoard,
+    boardAt, activeBoard, activateBoard, boardRect, deleteSelectedBoards,
+    selectedBoards, toggleBoardSelection, selectBoards, selectAllBoards, moveBoards, setMarquee,
     panView, zoomViewAt, zoomViewBy, fitActive, fitAll, actualSize,
     // 当前画板内
-    pick, getCamera, setCamera,
+    pick, getCamera, setCamera, allBoardIds,
     setHover, setDragSource, setDropTarget, onSwap,
     getAdjust, nextLift, toLayoutDelta, itemCenterClient,
     setItemAdjust, resetItemAdjust, getSelected, setSelected,
@@ -59,6 +63,7 @@ export function attachViewportInteraction(target, opts) {
     if (mod && (e.code === 'Digit1' || e.code === 'Numpad1')) { e.preventDefault(); actualSize(); return; }
     if (mod && (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd')) { e.preventDefault(); zoomViewBy(1.25); return; }
     if (mod && (e.key === '-' || e.code === 'NumpadSubtract')) { e.preventDefault(); zoomViewBy(0.8); return; }
+    if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllBoards(); return; }
     if (mod || e.altKey) return;
 
     if (e.code === 'Space') {
@@ -72,10 +77,10 @@ export function attachViewportInteraction(target, opts) {
     const TOOL_KEYS = { v: 'select', x: 'swap', r: 'rotate', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom' };
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
 
-    if (e.key === 'Escape') { setSelected(null); setTool('select'); return; }
+    if (e.key === 'Escape') { setSelected(null); selectBoards([activeBoard()]); setTool('select'); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && getTool() === 'artboard') {
       e.preventDefault();
-      deleteActiveBoard();
+      deleteSelectedBoards();
       return;
     }
 
@@ -179,14 +184,28 @@ export function attachViewportInteraction(target, opts) {
         zoomViewAt(sx, sy, e.altKey ? 1 / 1.6 : 1.6);
         return;
       } else if (tool === 'artboard') {
-        if (!b) return;
-        activateBoard(b, { fit: false });
-        const r = boardRect(b);
-        mode = 'moveBoard';
-        Object.assign(extra, { board: b, bx: r.x, by: r.y });
+        const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+        if (!b) {
+          // 空白处拖动：框选画板（Shift/⌘ 时追加到现有选择）
+          const [sx, sy] = local(e);
+          mode = 'marquee';
+          Object.assign(extra, { sx, sy, additive, base: selectedBoards() });
+        } else if (additive) {
+          toggleBoardSelection(b);
+          return;
+        } else {
+          // 点在已选画板上：保留多选并一起拖动；否则只选这一个
+          activateBoard(b, { fit: false, keepSelection: selectedBoards().includes(b) });
+          mode = 'moveBoards';
+          extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
+        }
       } else {
         if (!b) { setSelected(null); return; }
-        if (b !== activeBoard()) { activateBoard(b, { fit: false }); return; } // 先切换画板
+        if (b !== activeBoard()) {
+          if (e.shiftKey || e.metaKey || e.ctrlKey) toggleBoardSelection(b); // 加选画板
+          else activateBoard(b, { fit: false }); // 先切换画板
+          return;
+        }
         const hit = pick(e.clientX, e.clientY);
         if (tool === 'orbit') {
           mode = is3D() && !e.shiftKey ? 'orbit' : 'contentPan';
@@ -234,9 +253,15 @@ export function attachViewportInteraction(target, opts) {
       case 'pan':
         panView(e.clientX - drag.lx, e.clientY - drag.ly);
         break;
-      case 'moveBoard': {
-        const z = boardRect(drag.board).zoom;
-        moveBoard(drag.board, drag.bx + dx / z, drag.by + dy / z);
+      case 'moveBoards': {
+        const z = boardRect(activeBoard()).zoom;
+        moveBoards(drag.starts.map(st => ({ id: st.id, x: st.x + dx / z, y: st.y + dy / z })));
+        break;
+      }
+      case 'marquee': {
+        const [cx, cy] = local(e);
+        drag.rect = { x: Math.min(drag.sx, cx), y: Math.min(drag.sy, cy), w: Math.abs(cx - drag.sx), h: Math.abs(cy - drag.sy) };
+        setMarquee(drag.rect);
         break;
       }
       case 'orbit':
@@ -295,6 +320,21 @@ export function attachViewportInteraction(target, opts) {
 
   const end = () => {
     if (!drag) return;
+    if (drag.mode === 'marquee') {
+      setMarquee(null);
+      if (!drag.active || !drag.rect) {
+        if (!drag.additive) selectBoards([activeBoard()]); // 单击空白处：只保留当前画板
+      } else {
+        // 与框相交的画板
+        const r = drag.rect;
+        const hits = [];
+        for (const id of allBoardIds()) {
+          const b = boardRect(id);
+          if (b && b.sx < r.x + r.w && b.sx + b.sw > r.x && b.sy < r.y + r.h && b.sy + b.sh > r.y) hits.push(id);
+        }
+        if (hits.length) selectBoards(drag.additive ? [...new Set([...drag.base, ...hits])] : hits);
+      }
+    }
     if (drag.mode === 'swap' && drag.active) {
       drag.ghost?.remove();
       setDragSource(null);
