@@ -27,7 +27,7 @@ const hiddenInput = accept => {
   return input;
 };
 
-export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel, onProjectFile, onLayoutFile, onLayersAdded = () => {} }) {
+export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel, onProjectFile, onLayoutFile, onLayersAdded = () => {}, deviceAt = () => null, onDeviceChanged = () => {} }) {
   async function runImport(listPromise, { replaceIndex = null } = {}) {
     let list;
     try {
@@ -75,14 +75,74 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
   const bgInput = hiddenInput('image/*');
   bgInput.addEventListener('change', () => { setBackgroundFile(bgInput.files[0]); bgInput.value = ''; });
 
+  /* ---------------- 样机屏幕的图片 ---------------- */
+
+  // 样机屏幕换成一张图片（样机自己的素材，不加入幻灯片列表）
+  async function setDeviceImageFile(target, file) {
+    if (!file) return;
+    try {
+      if (target.board !== store.get().activeBoard) actions.setActiveBoard(target.board);
+      toast('正在载入图片…', { sticky: true });
+      actions.setDeviceImage(target.layer.id, await createAsset({ file }));
+      onDeviceChanged(target.layer.id);
+      toast(`已把图片放进「${target.layer.name}」`);
+    } catch (err) {
+      console.error(err);
+      toast('无法读取这张图片', { error: true });
+    }
+  }
+  let deviceImageTarget = null;
+  const deviceInput = hiddenInput('image/*');
+  deviceInput.addEventListener('change', () => {
+    if (deviceInput.files[0] && deviceImageTarget) setDeviceImageFile(deviceImageTarget, deviceInput.files[0]);
+    deviceInput.value = '';
+  });
+  function pickDeviceImage(layer) {
+    deviceImageTarget = { board: store.get().activeBoard, layer };
+    deviceInput.click();
+  }
+
+  // 从左栏把幻灯片拖到样机上：屏幕改为显示这一张（左栏是当前画板的图片，只认当前画板上的样机）
+  const isSlideDrag = e => [...(e.dataTransfer?.types || [])].includes('text/x-slidegrid');
+  let slideDropDevice = null;
+  const deviceOnActive = e => {
+    const hit = deviceAt(e.clientX, e.clientY);
+    return hit && hit.board === store.get().activeBoard ? hit : null;
+  };
+  window.addEventListener('dragover', e => {
+    if (!isSlideDrag(e)) return;
+    const hit = deviceOnActive(e);
+    if ((hit?.layer.id || null) !== (slideDropDevice?.layer.id || null)) setUi('layerHover', hit?.layer.id || null);
+    slideDropDevice = hit;
+    if (!hit) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move'; // 左栏拖动只允许 move
+  });
+  window.addEventListener('drop', e => {
+    if (!isSlideDrag(e) || !slideDropDevice) return;
+    e.preventDefault();
+    const index = Number(e.dataTransfer.getData('text/x-slidegrid'));
+    const target = slideDropDevice;
+    slideDropDevice = null;
+    setUi('layerHover', null);
+    if (!Number.isInteger(index)) return;
+    actions.setDeviceImage(target.layer.id, null, index + 1);
+    onDeviceChanged(target.layer.id);
+    toast(`「${target.layer.name}」改为显示第 ${index + 1} 张`);
+  });
+  window.addEventListener('dragend', () => { if (slideDropDevice) { slideDropDevice = null; setUi('layerHover', null); } });
+
   /* ---------------- 拖入文件 ---------------- */
 
   let dragDepth = 0;
   let dropHit = null;
+  let dropDevice = null;
   let dropOnBackground = null;
   function endFileDrag() {
     dragDepth = 0;
     dropHit = null;
+    if (dropDevice) setUi('layerHover', null);
+    dropDevice = null;
     overlay.classList.remove('show');
     document.body.classList.remove('file-drag');
     dropOnBackground?.classList.remove('drop-hover');
@@ -113,6 +173,16 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
       dropLabel.textContent = '松开设为背景图';
       return;
     }
+    // 落在样机上：图片放进样机的屏幕（样机在卡片上面，优先）
+    const dev = deviceAt(e.clientX, e.clientY);
+    if ((dev?.layer.id || null) !== (dropDevice?.layer.id || null)) setUi('layerHover', dev?.layer.id || null);
+    dropDevice = dev;
+    if (dev) {
+      dropHit = null;
+      setUi('dropTarget', null);
+      dropLabel.textContent = `松开把图片放进「${dev.layer.name}」`;
+      return;
+    }
     // 幻灯片是所有画板共用的，落在任何画板的卡片上都可以放入 / 替换
     const board = ws.boardAt(e.clientX, e.clientY);
     dropHit = board ? ws.pickOn(board, e.clientX, e.clientY) : null;
@@ -133,8 +203,13 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     e.preventDefault();
     const target = dropHit;
     const toBackground = !!dropOnBackground;
+    const toDevice = dropDevice;
     endFileDrag();
     const files = [...(e.dataTransfer.files || [])];
+    if (toDevice) {
+      const img = files.find(f => f.type.startsWith('image/'));
+      if (img) { setDeviceImageFile(toDevice, img); return; }
+    }
     if (toBackground) {
       setBackgroundFile(files.find(f => f.type.startsWith('image/')));
       return;
@@ -250,6 +325,13 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     const files = [...dt.items].filter(it => it.kind === 'file').map(it => it.getAsFile()).filter(Boolean);
     const svgFile = files.find(f => f.type === 'image/svg+xml' || /\.svg$/i.test(f.name || ''));
     const images = files.filter(f => f.type.startsWith('image/') && f !== svgFile);
+    // 只选中了一个样机：图片放进它的屏幕
+    const selDevice = ui.layerSel.length === 1 ? (store.get().layers || []).find(l => l.id === ui.layerSel[0] && l.type === 'device') : null;
+    if (selDevice && images.length) {
+      e.preventDefault();
+      setDeviceImageFile({ board: store.get().activeBoard, layer: selDevice }, images[0]);
+      return;
+    }
     const replacing = selectedSlideIndex() != null && !ui.layerSel.length; // 选中了卡片：用图片替换它
     let svg = extractSvg(dt.getData('image/svg+xml')) || extractSvg(dt.getData('text/plain')) || extractSvg(dt.getData('text/html'));
     if (svg || svgFile || images.length) e.preventDefault();
@@ -309,6 +391,8 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     pickReplacement,
     pasteFromClipboard,
     pasteAsLayers,
+    pickDeviceImage,
+    createAsset,
     addImageLayers,
     addSvg,
   };

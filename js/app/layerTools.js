@@ -173,7 +173,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     const { f, list } = h.fs;
     const all = layersOf();
     // 点状文字、图片等比缩放；区块文字拖手柄改变框的大小
-    const keep = list.length === 1 && ((list[0].type === 'text' && !list[0].area) || list[0].type === 'image');
+    const keep = list.length === 1 && ((list[0].type === 'text' && !list[0].area) || list[0].type === 'image' || list[0].type === 'device');
     const i = info();
     if (h.kind === 'rotate') {
       const c = toScreen({ x: f.cx, y: f.cy }, i);
@@ -646,6 +646,11 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       return layersOf().map(l => (m.has(l.id) ? moveLayer(l, m.get(l.id).dx / z, m.get(l.id).dy / z) : l));
     },
     // 屏幕坐标下当前画板最上层的图层（右键菜单用）
+    // 鼠标下的样机图层（任何画板）：{ board, layer } | null
+    deviceAtClient: (x, y) => {
+      const found = layerAtScreen(...local({ clientX: x, clientY: y }));
+      return found?.layer.type === 'device' && !found.layer.locked ? found : null;
+    },
     layerAtClient: (x, y) => {
       const found = layerAtScreen(...local({ clientX: x, clientY: y }));
       return found && found.board === S().activeBoard ? found.layer : null;

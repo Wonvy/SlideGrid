@@ -1,11 +1,13 @@
 import { fontOf, textLines, lineWidths, pathOf, center, anchorCount } from './model.js';
+import { drawDevice } from './devices.js';
 
 /**
  * 把图层画到 2D 画布上。调用前 ctx 的变换应已设为「画板坐标 → 像素」（工作区与导出共用，所见即所得）。
  * skip：正在编辑的文字图层（由编辑框显示）不画
  * assets：图片素材 { [id]: { preview } }（工作区用预览图，导出时传入按输出尺寸读取的原图）
+ * slideImage(n)：画板第 n 张幻灯片（从 1 开始）的图片，设备样机的屏幕用
  */
-export function drawLayers(ctx, layers, { skip = null, assets = {} } = {}) {
+export function drawLayers(ctx, layers, { skip = null, assets = {}, slideImage = () => null } = {}) {
   for (const l of layers || []) {
     if (l.hidden || l.id === skip) continue;
     ctx.save();
@@ -18,6 +20,7 @@ export function drawLayers(ctx, layers, { skip = null, assets = {} } = {}) {
     }
     if (l.type === 'text') drawText(ctx, l);
     else if (l.type === 'image') drawImage(ctx, l, assets[l.assetId]);
+    else if (l.type === 'device') drawDevice(ctx, l, l.imageId ? assets[l.imageId]?.preview : slideImage(l.slide || 1), assets[l.frameAssetId]?.preview);
     else drawShape(ctx, l);
     ctx.restore();
   }

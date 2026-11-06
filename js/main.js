@@ -32,7 +32,9 @@ import { createLayerTools } from './app/layerTools.js';
 import { createInspector } from './ui/inspector.js';
 import { createContextBar } from './ui/contextBar.js';
 import { setUsedFonts } from './ui/fontPicker.js';
-import { applyLayerProp, typeName } from './layers/model.js';
+import { applyLayerProp, typeName, createLayer } from './layers/model.js';
+import { deviceSize, deviceOf, deviceAspect, findScreen } from './layers/devices.js';
+import { createMockupPanel } from './ui/mockupPanel.js';
 
 /**
  * 入口：创建各个模块并把它们连起来。
@@ -134,6 +136,8 @@ window.addEventListener('keydown', e => {
 
 const importing = createImporting({
   ws,
+  deviceAt: (x, y) => layerTools?.deviceAtClient(x, y) || null,
+  onDeviceChanged: id => { setTool('select'); clearSelection(); layerTools.select([id]); },
   fileInput: $('file-input'),
   folderInput: $('folder-input'),
   overlay: $('drop-overlay'),
@@ -312,9 +316,67 @@ layerTools = createLayerTools({
 ws.hooks.drawOverlay = layerTools.drawOverlay;
 ws.hooks.editingLayer = layerTools.editingId;
 
+// 样机：把设备加到当前画板中间（样机图层）；多台时依次显示下一张、稍微错开
+// 把样机加到当前画板中间：宽度不超过画板的 62%、高度不超过 72%；多台时依次显示下一张、稍微错开
+function addDeviceLayer(props, label, asset = null) {
+  const s = store.get();
+  const { W, H } = canvasOf(s);
+  const list = s.layers || [];
+  const used = list.filter(l => l.type === 'device').length;
+  const aspect = deviceAspect(props.device, props);
+  const { w, h } = deviceSize(props.device, Math.min(W * 0.62, (H * 0.72) / aspect), props);
+  const l = createLayer('device', {
+    ...props, w, h,
+    slide: (used % slidesOf(s).length) + 1,
+    x: (W - w) / 2 + used * 32, y: (H - h) / 2 + used * 32,
+  }, list);
+  if (asset) actions.addAssetLayers([asset], [l]);
+  else actions.setLayers([...list, l]);
+  setTool('select');
+  clearSelection();
+  layerTools.select([l.id]);
+  toast(`已添加${label}样机`);
+}
+const mockupPanel = createMockupPanel(settings.mockupSlot, {
+  getSlide: () => slidesOf(store.get())[0]?.preview,
+  onAdd(device, frame) {
+    const d = deviceOf(device);
+    const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === device).length + 1;
+    addDeviceLayer({ device, frame, name: `${d.label} ${n}` }, d.label);
+  },
+  // 上传 PNG 样机：找出透明的屏幕区域
+  async onUpload(file) {
+    try {
+      toast('正在识别样机的屏幕区域…', { sticky: true });
+      const asset = await importing.createAsset({ file });
+      const screen = findScreen(asset.preview);
+      if (!screen) { toast('没有找到透明的屏幕区域：PNG 里屏幕部分需要是透明的，并被外框包围', { error: true, duration: 5000 }); return; }
+      const name = file.name.replace(/\.[^.]+$/, '');
+      addDeviceLayer({ device: 'custom', frameAssetId: asset.id, frameW: asset.width, frameH: asset.height, screen, name }, `「${name}」`, asset);
+    } catch (err) {
+      console.error(err);
+      toast('无法读取这张图片', { error: true });
+    }
+  },
+  onAddCustom: t => addDeviceLayer({ device: 'custom', frameAssetId: t.frameAssetId, frameW: t.frameW, frameH: t.frameH, screen: t.screen, name: t.name }, `「${t.name}」`),
+  // 本项目所有画板里用到的 PNG 样机（按外框去重）
+  getCustom() {
+    const s = store.get();
+    const seen = new Map();
+    for (const b of boardsOf(s)) {
+      for (const l of b.settings.layers || []) {
+        if (l.type !== 'device' || l.device !== 'custom' || !s.assets[l.frameAssetId] || seen.has(l.frameAssetId)) continue;
+        seen.set(l.frameAssetId, { frameAssetId: l.frameAssetId, frameW: l.frameW, frameH: l.frameH, screen: l.screen, name: l.name.replace(/ \d+$/, ''), frameImg: s.assets[l.frameAssetId].preview });
+      }
+    }
+    return [...seen.values()];
+  },
+});
+
 // 检查器：「设计」页里选中对象的属性、「图层」页的图层列表
 const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: settings.layersSlot }, {
   store, actions, ui, is3D, setTool,
+  onDeviceImage: l => importing.pickDeviceImage(l),
   selectLayers: ids => layerTools.select(ids),
   getCards: () => ui.selection,
   reorder: dir => layerTools.reorder(dir),
@@ -497,6 +559,7 @@ setWheelMode(prev.wheelMode);
 store.subscribe(s => {
   if (s.wheelMode !== prev.wheelMode) setWheelMode(s.wheelMode);
   if (s.slidesOwn !== prev.slidesOwn || s.artboards !== prev.artboards || s.activeBoard !== prev.activeBoard) renderSlidesMode(s);
+  if (s.slides !== prev.slides || s.assets !== prev.assets || (s.layers !== prev.layers && s.activeBoard === prev.activeBoard && s.layers.length !== prev.layers.length)) mockupPanel.update();
   if (s.slides !== prev.slides) {
     slidesPanel.render(s.slides);
     // 只释放不再被任何画板使用的纹理

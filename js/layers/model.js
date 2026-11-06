@@ -12,15 +12,19 @@
  *            hi / ho 为进入 / 离开的控制柄）、fillRule（nonzero / evenodd，复合路径的镂空）、填充、描边
  *            路径不使用 rotation：旋转、缩放直接作用在锚点上；x / y / w / h 为路径的包围盒
  *   image    assetId（项目素材里的图片，见 state.assets）、radius（圆角）；缩放时保持比例
+ *   device   设备样机（layers/devices.js）：device（laptop / monitor / tablet / projector / custom）、slide（屏幕显示第几张，从 1 开始）、
+ *            imageId（屏幕用自己的图片素材，优先于 slide）、fit（cover / contain）、frame（dark / silver / light）、shadow；
+ *            自定义 PNG 样机另有 frameAssetId、frameW / frameH、screen；缩放时保持设备比例
  * 填充：fillType 'solid' | 'linear' | 'none'，fill / fillAlpha，渐变时 fill2 / fill2Alpha / fillAngle（可做透明度渐变）
  * 描边：stroke、strokeWidth（0 = 无描边）
  */
 import { GENERIC, fontStack } from './fonts.js';
+import { deviceSize } from './devices.js';
 
 // 通用字体（字体名也可以是本机安装的任何字体，见 layers/fonts.js）
 export const FONTS = Object.fromEntries(Object.entries(GENERIC).map(([k, v]) => [k, v.stack]));
 
-const TYPE_NAMES = { rect: '矩形', ellipse: '椭圆', text: '文字', path: '路径', image: '图片' };
+const TYPE_NAMES = { rect: '矩形', ellipse: '椭圆', text: '文字', path: '路径', image: '图片', device: '样机' };
 export const typeName = t => TYPE_NAMES[t] || '图层';
 
 export const newLayerId = () => `l_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -40,6 +44,10 @@ export function createLayer(type, props = {}, existing = []) {
     });
   }
   if (type === 'image') return { ...base, radius: 0, assetId: null, ...props };
+  if (type === 'device') {
+    const device = props.device || 'laptop';
+    return { ...base, device, slide: 1, imageId: null, fit: 'cover', frame: 'dark', shadow: true, ...deviceSize(device, props.w || 1000, props), ...props };
+  }
   if (type === 'path') {
     const { anchors, closed, ...rest } = props; // 也接受单一路径的写法
     const contours = rest.contours || [{ anchors: anchors || [], closed: !!closed }];
@@ -265,7 +273,7 @@ export function hitLayer(l, p, tol) {
   const q = toLocal(l, p);
   const inBox = q.x >= l.x - tol && q.x <= l.x + l.w + tol && q.y >= l.y - tol && q.y <= l.y + l.h + tol;
   if (!inBox) return false;
-  if (l.type === 'text' || l.type === 'image') return true;
+  if (l.type === 'text' || l.type === 'image' || l.type === 'device') return true;
   const filled = l.fillType !== 'none' && (l.fillAlpha > 0 || (l.fillType === 'linear' && l.fill2Alpha > 0));
   if (l.type === 'ellipse') {
     const c = center(l), rx = l.w / 2, ry = l.h / 2;
@@ -325,6 +333,14 @@ export function mapToFrame(l, from, to) {
  */
 const TEXT_METRICS = new Set(['text', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'letterSpacing']);
 export function applyLayerProp(l, key, value) {
+  // 设备样机：换设备时保持中心和宽度，高度按新设备的比例；改宽 / 高时保持比例
+  if (l.type === 'device' && (key === 'device' || key === 'w' || key === 'h')) {
+    if (key === 'device' && value === 'custom' && !l.frameAssetId) return l; // 没有上传过 PNG
+    const device = key === 'device' ? value : l.device;
+    const w = key === 'w' ? value : key === 'h' ? (value * l.w) / l.h : l.w;
+    const size = deviceSize(device, Math.max(1, w), l);
+    return { ...l, device, ...size, x: key === 'device' ? l.x + (l.w - size.w) / 2 : l.x, y: key === 'device' ? l.y + (l.h - size.h) / 2 : l.y };
+  }
   // 文字在点状 / 区块之间切换：区块文字保持当前宽度，按宽度换行
   if (key === 'area' && l.type === 'text') return value ? measureText({ ...l, area: true, boxH: l.h }) : measureText({ ...l, area: false });
   if (!(key in l) && !['x', 'y', 'w', 'h'].includes(key)) return l; // 这种图层没有这个属性

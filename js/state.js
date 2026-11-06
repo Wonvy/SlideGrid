@@ -155,7 +155,10 @@ export function usedAssetIds(s) {
   const used = new Set();
   for (const b of boardsOf(s)) {
     if (b.settings.style?.bgImageId) used.add(b.settings.style.bgImageId);
-    for (const l of b.settings.layers || []) if (l.type === 'image' && l.assetId) used.add(l.assetId);
+    for (const l of b.settings.layers || []) {
+      if (l.type === 'image' && l.assetId) used.add(l.assetId);
+      if (l.type === 'device') { if (l.imageId) used.add(l.imageId); if (l.frameAssetId) used.add(l.frameAssetId); }
+    }
   }
   return used;
 }
@@ -464,6 +467,13 @@ export const actions = {
     store.set(s => ({ layers: s.layers.map(l => (set.has(l.id) ? (typeof patch === 'function' ? patch(l) : { ...l, ...patch }) : l)) }));
   },
   // 加入图片图层（素材和图层一起，作为一步撤销）
+  // 样机屏幕换成自己的图片（asset 为 null：改回显示幻灯片，slide 可同时指定第几张）
+  setDeviceImage(id, asset, slide = null) {
+    store.set(s => ({
+      assets: asset ? { ...s.assets, [asset.id]: asset } : s.assets,
+      layers: s.layers.map(l => (l.id === id ? { ...l, imageId: asset ? asset.id : null, ...(slide ? { slide } : {}) } : l)),
+    }));
+  },
   addAssetLayers(assets, layers) {
     store.set(s => ({
       assets: { ...s.assets, ...Object.fromEntries(assets.map(a => [a.id, a])) },

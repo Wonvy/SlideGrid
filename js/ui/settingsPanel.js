@@ -21,6 +21,7 @@ const store_ = {
  *   设计：版式参数、卡片样式（圆角、描边等）、构图
  *   背景 / 投影 / 渐隐遮罩：画板样式，各自一页（与选择无关，随时可调）
  *   图层：当前画板的图层列表
+ *   样机：把幻灯片放进笔记本 / 显示器 / 平板 / 投影幕（添加为样机图层）
  *   偏好：滚轮等操作习惯（图标栏底部）
  */
 export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null }) {
@@ -29,7 +30,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
 
   /* ================= 顶层标签 ================= */
   // 左侧竖排的图标栏切换页面，右边是页面标题 + 内容
-  const TITLES = { params: '设计', layouts: '版式', bg: '背景', shadow: '投影', fade: '渐隐遮罩', layers: '图层', prefs: '偏好' };
+  const TITLES = { params: '设计', layouts: '版式', bg: '背景', shadow: '投影', fade: '渐隐遮罩', layers: '图层', mockup: '样机', prefs: '偏好' };
   // 样式页对应 style/schema.js 里的分组（「卡片」分组放在设计页里，见下）
   const STYLE_PAGES = { bg: '背景', shadow: '投影', fade: '渐隐遮罩' };
   const layerCount = el('span', { class: 'tab-count' });
@@ -41,6 +42,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     shadow: tab('shadow', 'sun-dim'),
     fade: tab('fade', 'fade'),
     layers: tab('layers', 'layers', layerCount),
+    mockup: tab('mockup', 'laptop'),
     prefs: tab('prefs', 'cog'),
   };
   mainTabs.prefs.classList.add('rp-bottom');
@@ -65,7 +67,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const t = mainTabs;
   root.append(
     el('div', { class: 'rp-tabs rp-rail', role: 'tablist', 'aria-orientation': 'vertical' },
-      t.layouts, t.params, sep(), t.bg, t.shadow, t.fade, sep(), t.layers, t.prefs),
+      t.layouts, t.params, sep(), t.bg, t.shadow, t.fade, sep(), t.layers, t.mockup, t.prefs),
     el('div', { class: 'rp-main' }, pageTitle, multiBanner, ...Object.values(panes)),
   );
 
@@ -139,6 +141,9 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   // 图层页
   const layersSlot = el('div', { class: 'inspector' });
   panes.layers.append(layersSlot);
+  // 样机页（ui/mockupPanel.js 填充）
+  const mockupSlot = el('div', { class: 'page-body' });
+  panes.mockup.append(mockupSlot);
 
   // 设计页（没有选择时）：版式参数、构图
   const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
@@ -231,6 +236,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     presetsContainer: mine,
     presetsFooter,
     designFooter,
+    mockupSlot,
     selectionSlot,
     layersSlot,
     currentTab: () => Object.keys(panes).find(k => !panes[k].hidden),

@@ -41,20 +41,46 @@ async function loadBackground(bg, target) {
  */
 async function layerImages(input, k, preview) {
   const out = {};
-  for (const l of input.layers) {
-    if (l.type !== 'image' || l.hidden || !l.assetId || out[l.assetId]) continue;
-    const a = input.assets?.[l.assetId];
+  // 图片图层，以及样机的屏幕图片 / PNG 外框
+  const uses = input.layers.filter(l => !l.hidden).flatMap(l => (l.type === 'image' ? [[l.assetId, l]]
+    : l.type === 'device' ? [[l.imageId, l], [l.frameAssetId, l]] : []));
+  for (const [id, l] of uses) {
+    if (!id || out[id]) continue;
+    const a = input.assets?.[id];
     if (!a) continue;
     const need = Math.ceil(Math.max(l.w, l.h) * k * 1.25);
     const pv = a.preview;
-    if (preview || !a.file || (pv && Math.max(pv.width, pv.height) >= need)) { out[l.assetId] = { preview: pv, temp: false }; continue; }
+    if (preview || !a.file || (pv && Math.max(pv.width, pv.height) >= need)) { out[id] = { preview: pv, temp: false }; continue; }
     try {
       const full = await decodeImage(a.file);
       const img = await resizeBitmap(full, Math.min(8192, need));
       if (img !== full) full.close();
-      out[l.assetId] = { preview: img, temp: true };
+      out[id] = { preview: img, temp: true };
     } catch {
-      out[l.assetId] = { preview: pv, temp: false };
+      out[id] = { preview: pv, temp: false };
+    }
+  }
+  return out;
+}
+
+// 设备样机屏幕里的幻灯片：按输出尺寸读取原图（预览时直接用预览图）。返回 Map<第几张, { img, temp }>
+async function deviceImages(input, k, preview) {
+  const out = new Map();
+  for (const l of input.layers) {
+    if (l.type !== 'device' || l.hidden || l.imageId) continue;
+    const n = l.slide || 1;
+    const slide = input.slides?.[n - 1];
+    if (!slide) continue;
+    const need = Math.ceil(l.w * k * 1.1);
+    if (out.has(n) && Math.max(out.get(n).img.width, out.get(n).img.height) >= need) continue;
+    if (preview || !slide.source) { out.set(n, { img: slide.preview, temp: false }); continue; }
+    try {
+      const prev = out.get(n);
+      if (prev?.temp) prev.img.close?.();
+      const img = await loadExportSource(slide, Math.min(8192, Math.max(256, need)));
+      out.set(n, { img, temp: img !== slide.source && img !== slide.preview });
+    } catch {
+      out.set(n, { img: slide.preview, temp: false });
     }
   }
   return out;
@@ -134,16 +160,18 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
   if (input.layers?.length) {
     const k = pxH / scene.H;
     const images = await layerImages(input, k, preview);
+    const screens = await deviceImages(input, k, preview);
     try {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, pxW, pxH);
       ctx.clip();
       ctx.setTransform(pxW / scene.W, 0, 0, k, 0, 0);
-      drawLayers(ctx, input.layers, { assets: images });
+      drawLayers(ctx, input.layers, { assets: images, slideImage: n => screens.get(n)?.img });
       ctx.restore();
     } finally {
       for (const { preview: img, temp } of Object.values(images)) if (temp) img.close?.();
+      for (const { img, temp } of screens.values()) if (temp) img.close?.();
     }
   }
   return { canvas: out, width: pxW, height: pxH };

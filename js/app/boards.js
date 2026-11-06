@@ -10,7 +10,7 @@ import { createPlaceholders } from '../slides/placeholders.js';
 
 // 还没有导入图片时显示的示例卡片（同时也是可以放入图片的空位）
 export const placeholders = createPlaceholders(9);
-const boardSlides = list => (list?.length ? list : placeholders);
+export const boardSlides = list => (list?.length ? list : placeholders);
 export const slidesOf = s => boardSlides(s.slides); // 当前画板
 export const hasRealSlides = () => store.get().slides.length > 0;
 export const is3D = () => getLayout(store.get().layoutId).category === '3d';

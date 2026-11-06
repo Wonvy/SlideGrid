@@ -2,17 +2,29 @@
  * 图层属性面板的控件定义（ui/controls.js 的 schema）。types：适用的图层类型；
  * 多选时只显示所有选中图层都有的属性，修改作用于全部选中的图层。
  */
+import { DEVICES, FRAMES } from './devices.js';
+
 const SHAPES = ['rect', 'ellipse', 'path'];
-const ALL = ['rect', 'ellipse', 'text', 'path', 'image'];
+const ALL = ['rect', 'ellipse', 'text', 'path', 'image', 'device'];
 const fillOn = v => v.fillType !== 'none';
 
 export const layerSchema = [
   { group: '位置', types: ALL },
   { key: 'x', label: 'X', type: 'number', step: 1, half: true, types: ALL },
   { key: 'y', label: 'Y', type: 'number', step: 1, half: true, types: ALL },
-  { key: 'w', label: '宽', type: 'number', step: 1, min: 1, half: true, types: [...SHAPES, 'image'] },
-  { key: 'h', label: '高', type: 'number', step: 1, min: 1, half: true, types: [...SHAPES, 'image'] },
-  { key: 'rotation', label: '旋转', type: 'number', step: 1, unit: '°', types: ['rect', 'ellipse', 'text', 'image'] },
+  { key: 'w', label: '宽', type: 'number', step: 1, min: 1, half: true, types: [...SHAPES, 'image', 'device'] },
+  { key: 'h', label: '高', type: 'number', step: 1, min: 1, half: true, types: [...SHAPES, 'image', 'device'] },
+  { key: 'rotation', label: '旋转', type: 'number', step: 1, unit: '°', types: ['rect', 'ellipse', 'text', 'image', 'device'] },
+
+  { group: '样机', types: ['device'] },
+  { key: 'device', label: '设备', type: 'select', types: ['device'], show: v => v.device !== 'custom', options: Object.entries(DEVICES).map(([value, d]) => ({ value, label: d.label, icon: d.icon })) },
+  { key: 'slide', label: '显示第几张', type: 'number', min: 1, max: 999, step: 1, types: ['device'], show: v => !v.imageId },
+  {
+    key: 'fit', label: '显示方式', type: 'select', types: ['device'],
+    options: [{ value: 'cover', label: '填满屏幕' }, { value: 'contain', label: '完整显示' }],
+  },
+  { key: 'frame', label: '外观', type: 'select', types: ['device'], show: v => v.device !== 'custom', options: Object.entries(FRAMES).map(([value, f]) => ({ value, label: f.label })) },
+  { key: 'shadow', label: '投影', type: 'toggle', types: ['device'] },
 
   { group: '文字', types: ['text'] },
   { key: 'text', label: '内容', type: 'textarea', types: ['text'] },

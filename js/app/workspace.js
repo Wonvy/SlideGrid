@@ -9,7 +9,7 @@ import { rectOfPoints, intersects } from '../workspace/snap.js';
 import { view, toScreen, zoomViewAt, panView, fitRect, unionRect, MIN_ZOOM, MAX_ZOOM } from '../workspace/view.js';
 import { clamp } from '../core/utils.js';
 import { drawLayers } from '../layers/draw.js';
-import { slidesOf, boardInput, boardWorldRect } from './boards.js';
+import { slidesOf, boardSlides, boardInput, boardWorldRect } from './boards.js';
 import { ui } from './uiState.js';
 
 /**
@@ -192,7 +192,8 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       const [sx, sy] = toScreen(b.x, b.y);
       fgCtx.save();
       fgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, sx * d, sy * d);
-      drawLayers(fgCtx, b.settings.layers, { skip, assets: s.assets });
+      const list = boardSlides(b.settings.slides);
+      drawLayers(fgCtx, b.settings.layers, { skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
       fgCtx.restore();
     }
     // 当前画板的选框、手柄、锚点（不裁切，可以超出画板）

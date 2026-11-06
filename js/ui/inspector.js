@@ -11,7 +11,7 @@ import { applyLayerProp, typeName } from '../layers/model.js';
  *     点击选中、显示 / 隐藏、锁定、上移 / 下移、双击改名、删除
  * 返回 hasSelection()：设计页是否在显示选中对象（否则显示画板设置）
  */
-const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool', image: 'image' };
+const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool', image: 'image', device: 'laptop' };
 const ADD_TOOLS = [
   { tool: 'text', icon: 'type', label: '文字', key: 'T' },
   { tool: 'rect', icon: 'square', label: '矩形', key: 'M' },
@@ -20,7 +20,7 @@ const ADD_TOOLS = [
   { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
 ];
 
-export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D }) {
+export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, onDeviceImage = () => {} }) {
   /* ---------- 设计页：选中对象的标题栏 ---------- */
   const selTitle = el('span', { class: 'sel-title' });
   const selBar = el('div', { class: 'sel-bar' }, selTitle,
@@ -29,7 +29,18 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   /* ---------- 选中的图层 ---------- */
   // 图层属性的各个分组（位置、文字、填充、描边、外观）直接作为一级分组
   const propsBox = el('div');
-  const propsSection = el('div', { class: 'groups-box' }, propsBox);
+  // 只选中一个样机时：更换屏幕图片 / 改回显示幻灯片（也可以把图片、左栏的幻灯片拖到样机上）
+  const deviceUseSlide = el('button', { class: 'btn', title: '屏幕改回显示画板的幻灯片' }, icon('images', 14), '用幻灯片');
+  const deviceRow = el('div', { class: 'device-image-row', hidden: true },
+    el('button', { class: 'btn', title: '选择一张图片放进样机的屏幕（也可以把图片拖到样机上，或选中后粘贴）', onclick: () => { const l = selectedDevice(); if (l) onDeviceImage(l); } },
+      icon('image-plus', 14), '更换屏幕图片…'),
+    deviceUseSlide);
+  deviceUseSlide.addEventListener('click', () => { const l = selectedDevice(); if (l) actions.setDeviceImage(l.id, null); });
+  const selectedDevice = () => {
+    const l = ui.layerSel.length === 1 ? (store.get().layers || []).find(x => x.id === ui.layerSel[0]) : null;
+    return l?.type === 'device' ? l : null;
+  };
+  const propsSection = el('div', { class: 'groups-box' }, propsBox, deviceRow);
   const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
 
   /* ---------- 选中的卡片：裁切 + 位置 ---------- */
@@ -67,6 +78,9 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
       updateProps = buildControls(propsBox, schemaFor(types), values, setProp, { collapseKey: 'layer' });
     }
     updateProps(values);
+    const dev = selectedDevice();
+    deviceRow.hidden = !dev;
+    deviceUseSlide.hidden = !dev?.imageId;
   }
 
   function renderCards(s, cards) {

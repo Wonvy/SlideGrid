@@ -38,6 +38,7 @@ const BARS = {
     fillAlpha: { label: v => (v.fillType === 'linear' ? '起点' : '填充'), show: v => v.fillType !== 'none' },
     opacity: { label: '整体' },
   }),
+  device: pick(['device', 'slide', 'frame'], { slide: { label: '第几张' } }),
   mixed: pick(['opacity'], COMPACT),
 };
 const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ');
@@ -100,7 +101,8 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
     let ctx = 'board', next = '', schema = null, values = null, onChange = null;
     if (sel.length) {
       const types = new Set(sel.map(l => l.type));
-      const kind = types.size === 1 && types.has('text') ? 'text' : [...types].every(t => ['rect', 'ellipse', 'path'].includes(t)) ? 'shape' : 'mixed';
+      const only = t => types.size === 1 && types.has(t);
+      const kind = only('text') ? 'text' : only('device') ? 'device' : [...types].every(t => ['rect', 'ellipse', 'path'].includes(t)) ? 'shape' : 'mixed';
       ctx = 'layers';
       next = `layers:${kind}:${booleanCount() >= 2 ? 'bool' : ''}`;
       schema = BARS[kind];
