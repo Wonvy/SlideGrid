@@ -21,7 +21,7 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  *   ⌘/Ctrl + 1            100%；⌘/Ctrl + = / -  放大 / 缩小
  *
  * 工具（左键只执行当前工具）：
- *   V 选择  C 裁切  X 交换  R 旋转  S 比例  O 构图  H 抓手  Z 放大镜  ⇧O 画板
+ *   V 选择（拖角点缩放、拖角外侧旋转）  C 裁切  X 交换  S 比例  O 构图  H 抓手  Z 放大镜  ⇧O 画板
  *   T 文字  M 矩形  L 椭圆  P 钢笔  A 直接选择（图层相关见 app/layerTools.js，图层优先于卡片）
  *
  * 裁切：拖动卡片平移里面的图片，滚轮放大 / 缩小图片，双击复位（3D 版式也可用）
@@ -133,7 +133,7 @@ export function attachViewportInteraction(target, opts) {
     const key = e.key.toLowerCase();
     if (key === 'o' && e.shiftKey) { setTool('artboard'); return; }
     const TOOL_KEYS = {
-      v: 'select', c: 'crop', x: 'swap', r: 'rotate', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom',
+      v: 'select', c: 'crop', x: 'swap', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom',
       t: 'text', m: 'rect', l: 'ellipse', p: 'pen', a: 'direct',
     };
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }

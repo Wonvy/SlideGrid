@@ -3,10 +3,9 @@ import { icon } from './icons.js';
 
 // 工作区：左侧竖排的工具栏（工具切换，快捷键参照 Illustrator）+ 顶部浮动工具条（背景、遮罩、吸附、对齐、视图缩放、重置卡片）
 export const TOOLS = [
-  { id: 'select', icon: 'mouse-pointer-2', label: '选择', key: 'V', desc: '点选卡片，拖动移动位置，拖四个角等比缩放（Shift 锁定方向，方向键微调）' },
+  { id: 'select', icon: 'mouse-pointer-2', label: '选择', key: 'V', desc: '点选卡片 / 图层，拖动移动，拖四个角缩放，拖角外侧旋转（Shift 锁定方向 / 15° 吸附，方向键微调）' },
   { id: 'crop', icon: 'crop', label: '裁切', key: 'C', desc: '调整卡片里显示图片的哪一部分：拖动平移图片，滚轮放大缩小，双击复位（平面和 3D 版式都可用）' },
   { id: 'swap', icon: 'arrow-left-right', label: '交换', key: 'X', desc: '把卡片拖到另一张上交换图片' },
-  { id: 'rotate', icon: 'rotate-cw', label: '旋转', key: 'R', desc: '拖动旋转卡片（Shift 按 15° 吸附）' },
   { id: 'scale', icon: 'scaling', label: '比例', key: 'S', desc: '拖动以卡片中心等比缩放（Shift 按 5% 吸附，+/- 键微调）' },
   { id: 'orbit', icon: 'rotate-3d', label: '构图', key: 'O', desc: '调整画板内的构图（会导出）：3D 拖动旋转 / Shift+拖动平移，平面拖动平移，滚轮缩放' },
   { sep: true },
@@ -26,13 +25,13 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
   const tools = el('div', { class: 'toolstrip', role: 'toolbar', 'aria-label': '工具', 'aria-orientation': 'vertical' });
   for (const t of TOOLS) {
     if (t.sep) { tools.append(el('span', { class: 'ts-sep' })); continue; }
-    const b = el('button', { class: 'tb-btn', 'aria-label': t.label, onclick: () => onTool(t.id) },
-      icon(t.icon, 17), el('span', { class: 'tb-key' }, t.key));
+    const b = el('button', { class: 'tb-btn', 'aria-label': t.label, onclick: () => onTool(t.id) }, icon(t.icon, 17)); // 快捷键在提示里
     buttons.set(t.id, b);
     tools.append(b);
   }
 
   const zoomLabel = el('button', { class: 'tb-zoom', title: '视图缩放（不影响导出）· 点击 = 100%（⌘/Ctrl + 1）', onclick: onActualSize }, '100%');
+  const viewSlot = el('div', { class: 'tb-group tb-view' }); // 吸附开关等，由 main.js 挂进来
   const zoom = el('div', { class: 'tb-group' },
     el('button', { class: 'tb-btn', title: '缩小视图（⌘/Ctrl + -）', onclick: onZoomOut }, icon('zoom-out', 16)),
     zoomLabel,
@@ -44,16 +43,23 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
     icon('undo-2', 15), el('span', {}, '重置卡片'));
   const extra = el('div', { class: 'tb-group' }, resetAdj);
 
-  // 画板背景、吸附开关、对齐按钮由 main.js 挂进来
+  // 顶部工具条随选择变化：
+  //   ctxSlot   选中图层 / 卡片时的常用属性（ui/contextBar.js）
+  //   bgSlot    没有选择时：画板背景、渐隐遮罩
+  //   alignSlot 选中卡片 / 图层时：对齐、分布
+  //   viewSlot + 缩放：始终显示
+  const ctxSlot = el('div', { class: 'tb-group tb-ctx', hidden: true });
   const bgSlot = el('div', { class: 'tb-group' });
   const alignSlot = el('div', { class: 'tb-group tb-align', hidden: true });
 
-  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '画板与视图' }, bgSlot, alignSlot, zoom, extra);
+  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '属性与视图' }, ctxSlot, bgSlot, alignSlot, viewSlot, zoom, extra);
   root.append(tools, bar);
 
   return {
+    ctxSlot,
     bgSlot,
     alignSlot,
+    viewSlot,
     update({ tool, tempHand, viewZoom, adjustCount }) {
       for (const t of TOOLS) {
         if (t.sep) continue;

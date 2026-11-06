@@ -5,23 +5,25 @@ import { createPlaceholders } from '../slides/placeholders.js';
 
 /**
  * 画板 → 渲染输入。只读 store，不碰 DOM。
- * 幻灯片和素材是所有画板共用的；每个画板有自己的版式、参数、样式、比例、构图、卡片调整。
+ * 每个画板有自己的图片顺序、版式、参数、样式、比例、构图、卡片调整和图层；图片文件和背景素材是项目共用的。
  */
 
 // 还没有导入图片时显示的示例卡片（同时也是可以放入图片的空位）
 export const placeholders = createPlaceholders(9);
-export const slidesOf = s => (s.slides.length ? s.slides : placeholders);
+const boardSlides = list => (list?.length ? list : placeholders);
+export const slidesOf = s => boardSlides(s.slides); // 当前画板
 export const hasRealSlides = () => store.get().slides.length > 0;
 export const is3D = () => getLayout(store.get().layoutId).category === '3d';
 
 // 背景图 / 幻灯片模糊背景用到的图片：preview 用于预览，source 用于导出时读取原图
-function bgSourceOf(s, style) {
+function bgSourceOf(s, st) {
+  const style = st.style;
   if (style.bgType === 'image') {
     const a = s.assets[style.bgImageId];
     return a ? { preview: a.preview, source: a.file } : null;
   }
   if (style.bgType === 'slide') {
-    const list = slidesOf(s);
+    const list = boardSlides(st.slides);
     const sl = list[Math.min(list.length, Math.max(1, Math.round(style.bgSlide || 1))) - 1];
     return sl ? { preview: sl.preview, source: sl.source } : null;
   }
@@ -32,13 +34,13 @@ function bgSourceOf(s, style) {
 export function boardInput(s, st) {
   const layout = getLayout(st.layoutId);
   return {
-    slides: slidesOf(s),
+    slides: boardSlides(st.slides),
     layout,
     params: st.params[layout.id],
     style: st.style,
     aspect: st.aspect, // 比例 id，长图为 'long'
     camera: st.camera,
-    background: bgSourceOf(s, st.style),
+    background: bgSourceOf(s, st),
     adjust: st.adjust[st.layoutId] || null,
     layers: st.layers || [],
   };

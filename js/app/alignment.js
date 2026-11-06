@@ -5,8 +5,9 @@ import { getAdjust, is3D } from './boards.js';
 import { ui } from './uiState.js';
 
 /**
- * 卡片对齐 / 分布（工具条上选中卡片时出现）、吸附开关和吸附时的粉色参考线。
- * 多选时在选中的卡片之间对齐，单选时对齐到画板。
+ * 对齐 / 分布（工具条上选中卡片或图层时出现）、吸附开关和吸附时的粉色参考线。
+ * 卡片和图层可以一起对齐：多选时在选中的对象之间对齐，只选一个时对齐到画板。
+ * layers（可选）：{ selectedRects() → [{ id, rect }], offsetLayers([{ id, dx, dy }]) → 新图层列表 }
  */
 const ALIGN = [
   { mode: 'left', icon: 'align-start-vertical', label: '左对齐' },
@@ -28,7 +29,7 @@ const button = (cls, ic, title, onClick) => {
   return b;
 };
 
-export function createAlignment({ ws, viewport, alignSlot, snapSlot }) {
+export function createAlignment({ ws, viewport, alignSlot, snapSlot, layers = () => null }) {
   /* ---------- 参考线 ---------- */
   const guideLayer = Object.assign(document.createElement('div'), { className: 'guide-layer' });
   viewport.append(guideLayer);
@@ -43,20 +44,25 @@ export function createAlignment({ ws, viewport, alignSlot, snapSlot }) {
   }
 
   /* ---------- 对齐 / 分布 ---------- */
+  // 选中的卡片（平面版式）和图层：[{ o | id, r }]
   const selectedRects = () => {
     const map = new Map(ws.itemRects().map(x => [x.order, x.rect]));
-    return ui.selection.filter(o => map.has(o)).map(o => ({ o, r: map.get(o) }));
+    const cards = is3D() ? [] : ui.selection.filter(o => map.has(o)).map(o => ({ o, r: map.get(o) }));
+    const ls = (layers()?.selectedRects() || []).map(x => ({ id: x.id, r: x.rect }));
+    return [...cards, ...ls];
   };
-  // 屏幕上的位移 → 各卡片的手动调整
+  // 屏幕上的位移 → 卡片的手动调整 / 图层的位置，一起提交（一步撤销）
   function applyOffsets(items, offsets) {
-    actions.setItemAdjusts(items.map(({ o }, i) => {
+    const adjusts = [], moves = [];
+    items.forEach((it, i) => {
+      if (it.id) { moves.push({ id: it.id, dx: offsets[i][0], dy: offsets[i][1] }); return; }
       const [lx, ly] = ws.toLayoutDelta(offsets[i][0], offsets[i][1]);
-      const a = getAdjust(o);
-      return { order: o, patch: { dx: (a.dx || 0) + lx, dy: (a.dy || 0) + ly } };
-    }));
+      const a = getAdjust(it.o);
+      adjusts.push({ order: it.o, patch: { dx: (a.dx || 0) + lx, dy: (a.dy || 0) + ly } });
+    });
+    actions.applyEdits({ adjusts, layers: moves.length ? layers().offsetLayers(moves) : null });
   }
   function alignSelection(mode) {
-    if (is3D()) return;
     const items = selectedRects();
     if (!items.length) return;
     const ref = items.length > 1 ? unionRects(items.map(x => x.r)) : ws.boardLocalRect(store.get().activeBoard);
@@ -73,9 +79,9 @@ export function createAlignment({ ws, viewport, alignSlot, snapSlot }) {
   alignSlot.append(...alignButtons.map(x => x.b), Object.assign(document.createElement('span'), { className: 'tb-sep' }), ...distButtons.map(x => x.b));
 
   function refreshAlign() {
-    const n = ui.selection.length;
-    alignSlot.hidden = !n || is3D();
-    for (const a of alignButtons) a.b.title = n > 1 ? `${a.label}（选中的 ${n} 张卡片）` : `${a.label}到画板`;
+    const n = (is3D() ? 0 : ui.selection.length) + ui.layerSel.length;
+    alignSlot.hidden = !n;
+    for (const a of alignButtons) a.b.title = n > 1 ? `${a.label}（选中的 ${n} 个对象）` : `${a.label}到画板`;
     for (const d of distButtons) { d.b.disabled = n < 3; d.b.classList.toggle('disabled', n < 3); }
   }
 

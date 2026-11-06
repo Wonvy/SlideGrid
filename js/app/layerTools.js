@@ -751,6 +751,14 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
 
   return {
     pointerDown, dblclick, keydown, hover, inRect, beginMove, selectionRect, rects, drawOverlay,
+    // 选中图层在屏幕上的范围（对齐用）：[{ id, rect }]
+    selectedRects: () => (info() ? selected().filter(l => !l.locked).map(l => ({ id: l.id, rect: screenRect(l) })) : []),
+    // 按屏幕位移移动若干图层，返回新的图层列表（不写入 store）
+    offsetLayers: moves => {
+      const z = info()?.zoom || 1;
+      const m = new Map(moves.map(v => [v.id, v]));
+      return layersOf().map(l => (m.has(l.id) ? moveLayer(l, m.get(l.id).dx / z, m.get(l.id).dy / z) : l));
+    },
     // 屏幕坐标下当前画板最上层的图层（右键菜单用）
     layerAtClient: (x, y) => (info() ? layerAt(toBoard(local({ clientX: x, clientY: y }))) : null),
     remove: ids => { setLayers(layersOf().filter(l => !ids.includes(l.id))); select(ui.layerSel.filter(id => !ids.includes(id))); },

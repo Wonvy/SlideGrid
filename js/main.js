@@ -1,4 +1,4 @@
-import { store, actions, selectionOf, BOARD_KEYS } from './state.js';
+import { store, actions, selectionOf, libraryOf, BOARD_KEYS } from './state.js';
 import { sizeSchema } from './export/schema.js';
 import { createProjectController } from './project/controller.js';
 import { createHistory } from './project/history.js';
@@ -29,6 +29,8 @@ import { createAlignment } from './app/alignment.js';
 import { createContextMenus } from './app/contextMenus.js';
 import { createLayerTools } from './app/layerTools.js';
 import { createInspector } from './ui/inspector.js';
+import { createContextBar } from './ui/contextBar.js';
+import { applyLayerProp, typeName } from './layers/model.js';
 
 /**
  * 入口：创建各个模块并把它们连起来。
@@ -140,7 +142,7 @@ const importing = createImporting({
 document.querySelectorAll('[data-action="pick-files"]').forEach(b => b.addEventListener('click', importing.pickFiles));
 document.querySelectorAll('[data-action="pick-folder"]').forEach(b => b.addEventListener('click', importing.pickFolder));
 $('clear-btn').addEventListener('click', () => {
-  if (hasRealSlides() && confirm('移除当前项目的全部图片？（设置会保留）')) actions.clearSlides();
+  if (hasRealSlides() && confirm('移除当前画板的全部图片？（其他画板不受影响，设置会保留）')) actions.clearSlides();
 });
 
 /* ---------------- 面板 ---------------- */
@@ -168,6 +170,8 @@ const settings = createSettingsPanel($('settings-panel'), {
     pickImage: importing.pickBackground,
     dropTarget: 'background',
   },
+  // 从工具条「更多背景 / 遮罩设置」跳过来时，先取消选择，回到画板设置
+  onBoardRequest: () => { clearSelection(); layerTools?.clear(); },
 });
 document.querySelector('#settings-panel .rp-tabs').append(panels.collapseButton('right'));
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
@@ -227,7 +231,7 @@ const toolbar = createToolbar($('app'), {
     toast('已重置当前画板的卡片调整');
   },
 });
-const alignment = createAlignment({ ws, viewport, alignSlot: toolbar.alignSlot, snapSlot: toolbar.bgSlot });
+const alignment = createAlignment({ ws, viewport, alignSlot: toolbar.alignSlot, snapSlot: toolbar.viewSlot, layers: () => layerTools });
 
 // 工具条上的「画板背景」：快速切换类型、预设色板、自定义颜色
 const bgPicker = createBgPicker(toolbar.bgSlot, {
@@ -259,13 +263,33 @@ layerTools = createLayerTools({
 ws.hooks.drawOverlay = layerTools.drawOverlay;
 ws.hooks.editingLayer = layerTools.editingId;
 
-// 「参数」页顶部：选中图层的属性、选中卡片的裁切、图层列表
-const inspector = createInspector(settings.inspectorSlot, {
-  store, actions, ui,
+// 检查器：「设计」页里选中对象的属性、「图层」页的图层列表
+const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: settings.layersSlot }, {
+  store, actions, ui, is3D, setTool,
   selectLayers: ids => layerTools.select(ids),
   getCards: () => ui.selection,
   reorder: dir => layerTools.reorder(dir),
+  clearAll: () => { clearSelection(); layerTools.clear(); },
 });
+// 顶部工具条的上下文属性
+const contextBar = createContextBar(toolbar.ctxSlot, {
+  store, ui, typeName,
+  setLayerProp: (key, value) => actions.updateLayers(ui.layerSel, l => applyLayerProp(l, key, value)),
+  setCards: (key, value) => actions.setItemAdjusts(ui.selection.map(order => ({ order, patch: { [key]: value } }))),
+  getCards: () => ui.selection,
+  resetCrop: order => actions.resetCrop(order),
+  reorder: dir => layerTools.reorder(dir),
+  removeLayers: () => layerTools.remove([...ui.layerSel]),
+});
+
+// 设计页：有选中对象时显示它们的属性，否则显示画板设置；顶部工具条同样跟随选择
+const syncInspector = (s = store.get()) => {
+  inspector.update(s);
+  settings.setSelectionMode(inspector.hasSelection());
+  settings.setLayerCount((s.layers || []).length);
+  const ctx = contextBar.update(s);
+  toolbar.bgSlot.hidden = ctx !== 'board'; // 画板背景、遮罩只在没有选择时显示
+};
 
 // 工具条上的「渐隐遮罩」：一键预设
 const fadePicker = createFadePicker(toolbar.bgSlot, {
@@ -363,7 +387,7 @@ interaction = attachViewportInteraction(viewport, {
 
 const hint = $('stage-hint');
 const TOOL_HINTS = {
-  select: '选择：拖动卡片移动 · 空白处拖动框选 · Shift/⌘ 加选 · ⌘A 全选 · 拖角点等比缩放 · 双击卡片复位',
+  select: '选择：拖动移动 · 拖角点缩放 · 拖角外侧旋转 · 空白处框选 · Shift/⌘ 加选 · ⌘A 全选 · 双击卡片复位',
   swap: '交换：把卡片拖到另一张上交换图片',
   rotate: '旋转：拖动卡片旋转 · Shift 按 15° 吸附',
   scale: '比例：拖动以中心等比缩放 · Shift 按 5% 吸附',
@@ -402,12 +426,12 @@ ws.hooks.afterRender = s => {
 
 let hadSelection = false;
 onUiChange(key => {
-  if (key === 'selection') alignment.refreshAlign();
+  if (key === 'selection' || key === 'layerSel') alignment.refreshAlign();
   if (key === 'selection' || key === 'layerSel') {
-    inspector.update();
-    // 选中了图层：右栏切到「参数」页，属性就在最上面（类似 Figma）
-    const has = ui.layerSel.length > 0;
-    if (has && !hadSelection && !settings.isParamsShown()) settings.showMain('params');
+    syncInspector();
+    // 新选中了对象：在「版式」页时切到「设计」页（「图层」页保持不动，方便连续管理图层）
+    const has = inspector.hasSelection();
+    if (has && !hadSelection && settings.currentTab() === 'layouts') settings.showMain('params');
     hadSelection = has;
   }
   ws.scheduleRender();
@@ -422,7 +446,8 @@ store.subscribe(s => {
   if (s.wheelMode !== prev.wheelMode) setWheelMode(s.wheelMode);
   if (s.slides !== prev.slides) {
     slidesPanel.render(s.slides);
-    ws.renderer.prune(new Set(slidesOf(s).map(x => x.id)));
+    // 只释放不再被任何画板使用的纹理
+    ws.renderer.prune(new Set([...libraryOf(s), ...placeholders].map(x => x.id)));
   }
   if (s.layoutId !== prev.layoutId || s.project !== prev.project || s.activeBoard !== prev.activeBoard) {
     resetCardState();
@@ -436,7 +461,7 @@ store.subscribe(s => {
   if (s.layers !== prev.layers || s.activeBoard !== prev.activeBoard || s.project !== prev.project) layerTools.prune();
   if (projectChanged(s, prev)) controller.markDirty();
   settings.update(s);
-  inspector.update(s);
+  syncInspector(s);
   topbarMenus.update(s);
   bgPicker.update(s);
   fadePicker.update(s);

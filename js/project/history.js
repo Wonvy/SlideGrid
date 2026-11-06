@@ -10,7 +10,7 @@ import { boardsOf, BOARD_KEYS } from '../state.js';
  *   - 连续的同类修改（拖滑块、拖卡片、滚轮调参）合并成一步；松开鼠标算一步结束
  *   - 切换项目时清空
  */
-const CONTENT_FIELDS = ['slides', 'assets', ...BOARD_KEYS];
+const CONTENT_FIELDS = [...new Set(['slides', 'assets', ...BOARD_KEYS])];
 const DOC_FIELDS = ['artboards', 'activeBoard', ...CONTENT_FIELDS];
 const LABELS = {
   slides: '幻灯片', assets: '背景图', layoutId: '更换版式', params: '版式参数',
@@ -21,6 +21,13 @@ const MERGE_MS = 800;
 const snapshot = s => Object.fromEntries(DOC_FIELDS.map(k => [k, s[k]]));
 const boardIds = s => s.artboards.map(b => b.id).join(',');
 
+// 所有画板的内容是否完全一样（只是切换了当前画板）
+function sameContent(prev, s) {
+  if (prev.assets !== s.assets) return false;
+  const a = boardsOf(prev), b = boardsOf(s);
+  return a.length === b.length && a.every((x, i) => x.id === b[i].id && BOARD_KEYS.every(k => x.settings[k] === b[i].settings[k]));
+}
+
 // 判断这次变化是什么；返回 null 表示不需要记录
 function classify(prev, s) {
   const changed = CONTENT_FIELDS.filter(k => prev[k] !== s[k]);
@@ -28,7 +35,7 @@ function classify(prev, s) {
   const sameBoards = boardIds(prev) === boardIds(s);
 
   // 只是切换当前画板（顶层设置随之换成另一个画板的）——不记录
-  if (prev.activeBoard !== s.activeBoard && sameBoards && prev.slides === s.slides && prev.assets === s.assets) return null;
+  if (prev.activeBoard !== s.activeBoard && sameBoards && sameContent(prev, s)) return null;
   if (!changed.length && !boardsChanged) return null;
 
   let label;

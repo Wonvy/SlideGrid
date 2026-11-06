@@ -75,3 +75,11 @@ export const cropSchema = [
   { key: 'cropX', label: '水平位置', type: 'range', min: -1, max: 1, step: 0.01, default: 0, show: v => v.fit !== 'contain' },
   { key: 'cropY', label: '垂直位置', type: 'range', min: -1, max: 1, step: 0.01, default: 0, show: v => v.fit !== 'contain' },
 ];
+
+// 选中卡片的位置 / 旋转 / 缩放（手动调整；dx / dy 只在单选时显示）
+export const cardSchema = [
+  { key: 'dx', label: '水平偏移', type: 'number', step: 1, default: 0, show: v => v.single },
+  { key: 'dy', label: '垂直偏移', type: 'number', step: 1, default: 0, show: v => v.single },
+  { key: 'rz', label: '旋转', type: 'range', min: -180, max: 180, step: 0.5, default: 0, unit: '°' },
+  { key: 's', label: '缩放', type: 'range', min: 0.1, max: 4, step: 0.01, default: 1 },
+];

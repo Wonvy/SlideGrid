@@ -20,11 +20,13 @@ const defaultParams = (saved = {}) => {
 };
 
 /**
- * 画板设置：每个画板独立的版式、参数、样式、比例、构图视角和卡片调整。
+ * 画板设置：每个画板独立的图片顺序、版式、参数、样式、比例、构图视角、卡片调整和图层。
  * 读入时与默认值合并（新增参数时旧数据也能用）。
  */
 export function boardSettings(saved = {}) {
   return {
+    // 这个画板用到的图片（按顺序，幻灯片对象）。图片文件是项目共用的，顺序 / 替换 / 移除各画板互不影响
+    slides: Array.isArray(saved.slides) ? saved.slides : [],
     layoutId: getLayout(saved.layoutId) ? saved.layoutId : 'grid',
     params: defaultParams(saved.params),
     style: { ...schemaDefaults(styleSchema), ...(saved.style || {}) },
@@ -39,17 +41,21 @@ export function boardSettings(saved = {}) {
 }
 
 // 每个画板独立的设置字段（当前画板的这些字段展开在 store 顶层）
-export const BOARD_KEYS = ['layoutId', 'params', 'style', 'aspect', 'camera', 'adjust', 'layers'];
+export const BOARD_KEYS = ['slides', 'layoutId', 'params', 'style', 'aspect', 'camera', 'adjust', 'layers'];
 
 export const newBoardId = () => `b_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 /**
- * 项目设置 = 多个画板。当前画板的设置展开在 store 顶层（layoutId / params / style …），
+ * 项目设置 = 多个画板。当前画板的设置展开在 store 顶层（slides / layoutId / params / style …），
  * 其余画板的设置保存在 artboards[i].settings 里；切换画板时互换。
  *   artboards: [{ id, name, x, y, settings }]   x / y：画板在工作区中的位置（世界单位，左上角）
  *   activeBoard: id
+ * 保存时每个画板的图片记为 slideIds；library 为项目里的全部图片（读入时按 id 找回幻灯片对象）。
+ * 没有 slideIds 的画板使用全部图片。
  */
-export function projectSettings(saved = {}) {
+export function projectSettings(saved = {}, library = []) {
+  const byId = new Map(library.map(x => [x.id, x]));
+  const slidesFor = st => (Array.isArray(st?.slideIds) ? st.slideIds.map(id => byId.get(id)).filter(Boolean) : [...library]);
   let boards = Array.isArray(saved.artboards) && saved.artboards.length
     ? saved.artboards
     : [{ name: '画板 1', x: 0, y: 0, settings: saved.layoutId ? saved : {} }];
@@ -58,7 +64,7 @@ export function projectSettings(saved = {}) {
     name: b.name || `画板 ${i + 1}`,
     x: Number(b.x) || 0,
     y: Number(b.y) || 0,
-    settings: boardSettings(b.settings),
+    settings: boardSettings({ ...b.settings, slides: slidesFor(b.settings) }),
   }));
   const active = boards.find(b => b.id === saved.activeBoard) || boards[0];
   return { artboards: boards, activeBoard: active.id, selectedBoards: [active.id], ...active.settings };
@@ -69,13 +75,28 @@ export const boardSettingsOf = s => Object.fromEntries(BOARD_KEYS.map(k => [k, s
 // 所有画板，当前画板的 settings 换成最新值
 export const boardsOf = s => s.artboards.map(b => (b.id === s.activeBoard ? { ...b, settings: boardSettingsOf(s) } : b));
 // 保存到项目的设置
-export const settingsOf = s => ({ artboards: boardsOf(s), activeBoard: s.activeBoard });
+// 保存到项目的设置：幻灯片对象换成 id
+const serializeBoard = b => {
+  const { slides, ...rest } = b.settings;
+  return { ...b, settings: { ...rest, slideIds: (slides || []).map(x => x.id) } };
+};
+export const settingsOf = s => ({ artboards: boardsOf(s).map(serializeBoard), activeBoard: s.activeBoard });
+// 新项目的默认设置（已序列化）
+export const defaultSettings = () => settingsOf({ ...projectSettings() });
+
+// 项目里全部的图片（各画板用到的并集，按画板顺序）
+export function libraryOf(s) {
+  const seen = new Set(), out = [];
+  for (const b of boardsOf(s)) {
+    for (const x of b.settings.slides || []) if (!seen.has(x.id)) { seen.add(x.id); out.push(x); }
+  }
+  return out;
+}
 
 const prefs = loadPrefs();
 
 export const store = createStore({
   project: null, // { id, name }
-  slides: [],
   assets: {},    // 素材（背景图）：{ [id]: { id, name, file, preview, thumb } }
   ...projectSettings(),
   exportOpts: { ...schemaDefaults(exportSchema), ...(prefs.exportOpts || {}) }, // 导出偏好跨项目保留
@@ -164,12 +185,12 @@ export const actions = {
     }
     store.set({ slides: [...slides, ...rest] });
   },
-  // 切换到另一个项目（由项目控制器调用）
+  // 切换到另一个项目（由项目控制器调用）。slides 为项目里的全部图片
   loadProject({ project, settings, slides, assets = {} }) {
     const s = store.get();
-    s.slides.forEach(x => { if (!slides.includes(x)) closeSlide(x); });
+    libraryOf(s).forEach(x => { if (!slides.includes(x)) closeSlide(x); });
     Object.values(s.assets).forEach(a => { if (assets[a.id] !== a) a.preview?.close?.(); });
-    store.set({ project, slides, assets, ...projectSettings(settings) });
+    store.set({ project, assets, ...projectSettings(settings, slides) });
   },
   // 设置背景图（多选画板时一起设置；其他画板仍在用的背景图会保留）
   setBackgroundImage(asset) {
@@ -220,12 +241,15 @@ export const actions = {
     const s = store.get();
     actions.selectBoards(s.artboards.map(b => b.id), s.activeBoard);
   },
-  // 新建画板：duplicate 时复制当前画板的全部设置；位置由调用方算好
+  // 新建画板：duplicate 时复制当前画板的全部设置，否则只沿用比例和图片（顺序之后各自独立）；位置由调用方算好
   addArtboard({ x, y, duplicate = false, name, from = null }) {
     const s = store.get();
     const boards = boardsOf(s);
     const src = from ? boards.find(b => b.id === from) : boards.find(b => b.id === s.activeBoard);
-    const settings = duplicate ? boardSettings(JSON.parse(JSON.stringify(src.settings))) : boardSettings({ aspect: s.aspect });
+    const { slides, ...rest } = src.settings;
+    const settings = duplicate
+      ? boardSettings({ ...JSON.parse(JSON.stringify(rest)), slides: [...slides] })
+      : boardSettings({ aspect: s.aspect, slides: [...slides] });
     const nums = boards.map(b => Number(/^画板 (\d+)$/.exec(b.name)?.[1]) || 0);
     // 名称不重复：「xx 副本」已存在时依次用「xx 副本 2」「xx 副本 3」…
     const taken = new Set(boards.map(b => b.name));

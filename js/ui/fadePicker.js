@@ -4,7 +4,7 @@ import { createMenu } from './menu.js';
 import { FADE_PRESETS, fadeCss } from '../style/schema.js';
 
 /**
- * 工具条上的「渐隐遮罩」：一键套用预设（底部渐隐、四周渐隐…），细调在「参数 → 样式 → 渐隐遮罩」。
+ * 工具条上的「渐隐遮罩」：一键套用预设（底部渐隐、四周渐隐…），细调在「设计 → 样式 → 渐隐遮罩」。
  * 遮罩让幻灯片层逐渐透明、融进背景；多选画板时一起修改。
  */
 export function createFadePicker(parent, { store, actions, onMore }) {

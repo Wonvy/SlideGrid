@@ -126,7 +126,6 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
     fgCtx.setTransform(1, 0, 0, 1, 0, 0);
     fgCtx.clearRect(0, 0, CW, CH);
     const skip = hooks.editingLayer?.() || null;
-    for (const slide of slidesOf(s)) renderer.setTexture(slide.id, slide.preview);
 
     boardInfo.clear();
     lastScene = null;
@@ -141,7 +140,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       const active = b.id === s.activeBoard;
 
       // 画板名称（左上角上方）
-      bgCtx.font = `${(active ? 600 : 400)} ${11.5 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
+      bgCtx.font = `${(active ? 600 : 400)} ${12 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
       bgCtx.fillStyle = active ? '#a3afff' : selected.has(b.id) ? '#8b96d9' : '#6b7385';
       bgCtx.textBaseline = 'bottom';
       const labelText = `${b.name}  ·  ${aspectLabel(b.settings.aspect)}`;
@@ -178,6 +177,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       const vx0 = Math.max(0, Math.floor(px.x)), vy0 = Math.max(0, Math.floor(px.y));
       const vx1 = Math.min(CW, Math.ceil(px.x + px.w)), vy1 = Math.min(CH, Math.ceil(px.y + px.h));
       if (vx1 <= vx0 || vy1 <= vy0) continue;
+      for (const slide of input.slides) renderer.setTexture(slide.id, slide.preview); // 同一来源不会重复上传
       info.scene = cachedScene(input);
       if (active) lastScene = info.scene;
       const tile = tileMatrix(vx0 - px.x, vy0 - px.y, vx1 - vx0, vy1 - vy0, px.w, px.h);

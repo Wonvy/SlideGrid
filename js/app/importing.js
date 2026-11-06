@@ -114,6 +114,7 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     // 幻灯片是所有画板共用的，落在任何画板的卡片上都可以放入 / 替换
     const board = ws.boardAt(e.clientX, e.clientY);
     dropHit = board ? ws.pickOn(board, e.clientX, e.clientY) : null;
+    if (dropHit) dropHit = { ...dropHit, board };
     setUi('dropTarget', dropHit && board === store.get().activeBoard ? dropHit.order : null);
     dropLabel.textContent = !dropHit
       ? '松开以导入图片、文件夹、.slidegrid 项目或版式文件'
@@ -140,6 +141,8 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     if (project) { onProjectFile(project); return; }
     const layoutFile = files.find(isPresetsFile);
     if (layoutFile) { onLayoutFile(layoutFile); return; }
+    // 落在其他画板的卡片上：先切换到那个画板（每个画板有自己的图片顺序）
+    if (target && target.board !== store.get().activeBoard) actions.setActiveBoard(target.board);
     // collectFromDrop 必须在事件里同步调用
     runImport(collectFromDrop(e.dataTransfer), { replaceIndex: target ? target.slideIndex : null });
   });

@@ -14,22 +14,27 @@ const store_ = {
 };
 
 /**
- * 右侧面板：两个标签页，各自独立滚动。
- *   版式：内置 / 我的版式（只负责选版式）
- *   参数：当前版式卡片、版式参数、构图、样式、偏好（只负责调参数，不会误点到版式）
+ * 右侧面板：三个标签页，各自独立滚动。
+ *   设计：跟随选择（类似 Figma）——选中图层时是图层属性，选中卡片时是卡片的裁切 / 位置，
+ *         什么都没选时是画板设置：当前版式、版式参数、构图、样式、偏好
+ *   版式：内置 / 我的版式（只负责选版式，不会误点）
+ *   图层：当前画板的图层列表
  */
-export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {} }) {
+export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null }) {
   root.innerHTML = '';
   root.classList.add('right-panel');
 
   /* ================= 顶层标签 ================= */
+  const layerCount = el('span', { class: 'tab-count' });
   const mainTabs = {
+    params: el('button', { class: 'rp-tab', role: 'tab' }, icon('settings-2', 15), '设计'),
     layouts: el('button', { class: 'rp-tab', role: 'tab' }, icon('layout-grid', 15), '版式'),
-    params: el('button', { class: 'rp-tab', role: 'tab' }, icon('settings-2', 15), '参数'),
+    layers: el('button', { class: 'rp-tab', role: 'tab' }, icon('layers', 15), '图层', layerCount),
   };
   const panes = {
-    layouts: el('div', { class: 'rp-pane', role: 'tabpanel' }),
     params: el('div', { class: 'rp-pane', role: 'tabpanel' }),
+    layouts: el('div', { class: 'rp-pane', role: 'tabpanel' }),
+    layers: el('div', { class: 'rp-pane', role: 'tabpanel' }),
   };
   function showMain(name) {
     for (const k of Object.keys(panes)) {
@@ -39,9 +44,8 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     }
     store_.set(MAIN_TAB_KEY, name);
   }
-  mainTabs.layouts.addEventListener('click', () => showMain('layouts'));
-  mainTabs.params.addEventListener('click', () => showMain('params'));
-  root.append(el('div', { class: 'rp-tabs', role: 'tablist' }, mainTabs.layouts, mainTabs.params), panes.layouts, panes.params);
+  for (const k of Object.keys(mainTabs)) mainTabs[k].addEventListener('click', () => showMain(k));
+  root.append(el('div', { class: 'rp-tabs', role: 'tablist' }, ...Object.values(mainTabs)), ...Object.values(panes));
 
   /* ================= 版式页：内置 / 我的版式 ================= */
   const builtin = el('div', { class: 'tab-body' });
@@ -63,7 +67,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     }
     builtin.append(el('div', { class: 'picker-title' }, title), grid);
   }
-  builtin.append(el('p', { class: 'note pane-hint' }, '单击应用版式 · 双击应用并切到「参数」'));
+  builtin.append(el('p', { class: 'note pane-hint' }, '单击应用版式 · 双击应用并切到「设计」'));
   const mine = el('div', { class: 'tab-body' });
 
   const tabBuiltin = el('button', { class: 'tab', onclick: () => showLayoutTab('builtin') }, '内置');
@@ -79,7 +83,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   showLayoutTab(store_.get(LAYOUT_TAB_KEY) === 'mine' ? 'mine' : 'builtin');
   panes.layouts.append(el('div', { class: 'pane-body' }, el('div', { class: 'tabs' }, tabBuiltin, tabMine), builtin, mine));
 
-  /* ================= 参数页 ================= */
+  /* ================= 设计页（没有选择时：画板设置） ================= */
   // 当前版式卡片：一眼看到在调哪个版式，「更换」回到版式页
   const curIcon = el('span', { class: 'layout-icon' });
   const curName = el('div', { class: 'cur-name' });
@@ -93,26 +97,32 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const multiBanner = el('div', { class: 'multi-banner', hidden: true },
     icon('frame', 14), multiText,
     el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
-  // 检查器（选中图层 / 卡片的属性、图层列表）放在最上面，见 ui/inspector.js
-  const inspectorSlot = el('div', { class: 'inspector' });
-  panes.params.append(inspectorSlot, multiBanner, current);
+  // 设计页：选中图层 / 卡片时显示它们的属性（ui/inspector.js），否则显示画板设置
+  const selectionSlot = el('div', { class: 'inspector', hidden: true });
+  const boardBox = el('div');
+  boardBox.append(multiBanner, current);
+  panes.params.append(selectionSlot, boardBox);
+  // 图层页
+  const layersSlot = el('div', { class: 'inspector' });
+  panes.layers.append(layersSlot);
 
   const paramsBox = el('div');
-  panes.params.append(section('版式参数', paramsBox,
+  boardBox.append(section('版式参数', paramsBox,
     el('button', { class: 'btn ghost small', title: '恢复当前版式的默认参数', onclick: () => actions.resetParams() }, icon('rotate-ccw', 13), '恢复默认')));
 
   const cameraNote = el('p', { class: 'note' });
-  panes.params.append(section('构图', cameraNote,
+  boardBox.append(section('构图', cameraNote,
     el('button', { class: 'btn ghost small', title: '复位构图（缩放、平移、3D 角度）', onclick: () => actions.resetCamera() }, icon('rotate-ccw', 13), '复位')));
 
   const styleBox = el('div');
   const styleSection = section('样式', styleBox);
-  panes.params.append(styleSection);
+  boardBox.append(styleSection);
 
   const prefsBox = el('div');
-  panes.params.append(section('偏好', prefsBox));
+  boardBox.append(section('偏好', prefsBox));
 
-  showMain(store_.get(MAIN_TAB_KEY) === 'layouts' ? 'layouts' : 'params');
+  const saved = store_.get(MAIN_TAB_KEY);
+  showMain(saved in panes ? saved : 'params');
 
   /* ================= 同步 ================= */
   const s0 = store.get();
@@ -149,9 +159,10 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   }
   update(s0);
 
-  // 切到「参数」页，展开「样式」里的某个分组并滚动到那里（工具条背景 / 遮罩面板的「更多设置」）
+  // 切到「设计」页（画板设置），展开「样式」里的某个分组并滚动到那里（工具条背景 / 遮罩面板的「更多设置」）
   function revealStyleGroup(name) {
     showMain('params');
+    onBoardRequest?.(); // 有选中的图层 / 卡片时先取消选择，回到画板设置
     if (styleSection.classList.contains('collapsed')) styleSection.querySelector('.section-toggle').click();
     const group = [...styleBox.querySelectorAll('button.ctrl-group')].find(g => g.textContent === name);
     if (group?.classList.contains('collapsed')) group.click();
@@ -165,8 +176,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     revealBackground: () => revealStyleGroup('背景'),
     revealStyleGroup,
     presetsContainer: mine,
-    inspectorSlot,
-    isParamsShown: () => !panes.params.hidden,
+    selectionSlot,
+    layersSlot,
+    currentTab: () => Object.keys(panes).find(k => !panes[k].hidden),
+    // 设计页显示选中对象的属性（true）还是画板设置（false）
+    setSelectionMode(on) { selectionSlot.hidden = !on; boardBox.hidden = on; },
+    setLayerCount: n => { layerCount.textContent = n ? String(n) : ''; },
     // 打开「版式」页的某个子标签（导入版式文件时用）
     showTab: name => { showMain('layouts'); showLayoutTab(name); },
     showMain,

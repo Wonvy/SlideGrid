@@ -1,84 +1,89 @@
 import { buildControls } from './controls.js';
 import { el, section } from './dom.js';
 import { icon } from './icons.js';
-import { schemaFor, cropSchema } from '../layers/schema.js';
-import { measureText, moveLayer, mapToFrame, typeName } from '../layers/model.js';
+import { schemaFor, cropSchema, cardSchema } from '../layers/schema.js';
+import { applyLayerProp, typeName } from '../layers/model.js';
 
 /**
- * 「参数」页顶部的检查器（类似 Figma 右侧的设计面板）：
- *   选中的图层：位置、文字、填充（可做透明渐变）、描边、外观；多选时只显示共同的属性，一起修改
- *   选中的卡片：裁切（填满 / 完整显示、放大、位置）
- *   图层列表：当前画板的全部图层（上面的在上层）——点击选中、显示 / 隐藏、锁定、上移 / 下移、双击改名、删除
+ * 检查器（类似 Figma 右侧的设计面板），分两处：
+ *   设计页（selectionSlot）：选中图层时显示图层属性；选中卡片时显示卡片的裁切和位置 / 旋转 / 缩放
+ *   图层页（layersSlot）：新建文字 / 形状 / 路径，以及当前画板的图层列表（上面的在上层）——
+ *     点击选中、显示 / 隐藏、锁定、上移 / 下移、双击改名、删除
+ * 返回 hasSelection()：设计页是否在显示选中对象（否则显示画板设置）
  */
 const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool' };
-const TEXT_METRICS = new Set(['text', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'letterSpacing']);
+const ADD_TOOLS = [
+  { tool: 'text', icon: 'type', label: '文字', key: 'T' },
+  { tool: 'rect', icon: 'square', label: '矩形', key: 'M' },
+  { tool: 'ellipse', icon: 'circle', label: '椭圆', key: 'L' },
+  { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
+];
 
-export function createInspector(root, { store, actions, ui, selectLayers, getCards, reorder }) {
+export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D }) {
+  /* ---------- 设计页：选中对象的标题栏 ---------- */
+  const selTitle = el('span', { class: 'sel-title' });
+  const selBar = el('div', { class: 'sel-bar' }, selTitle,
+    el('button', { class: 'btn ghost small', title: '取消选择，回到画板设置（Esc）', onclick: () => clearAll() }, icon('x', 13), '画板设置'));
+
   /* ---------- 选中的图层 ---------- */
   const propsBox = el('div');
-  const propsTitle = el('span', { class: 'inspector-count' });
-  const propsSection = section('图层属性', propsBox, propsTitle, 'section:layer-props');
+  const propsSection = section('图层属性', propsBox, null, 'section:layer-props');
 
-  /* ---------- 选中的卡片：裁切 ---------- */
+  /* ---------- 选中的卡片：裁切 + 位置 ---------- */
+  const cardAdjust = order => ({ fit: 'cover', cropZ: 1, cropX: 0, cropY: 0, dx: 0, dy: 0, rz: 0, s: 1, ...((store.get().adjust[store.get().layoutId] || {})[order]) });
+  const setCards = (key, value) => actions.setItemAdjusts(getCards().map(order => ({ order, patch: { [key]: value } })));
   const cropBox = el('div');
-  const cropSection = section('卡片裁切', cropBox,
+  const cropSection = section('裁切', cropBox,
     el('button', { class: 'btn ghost small', title: '复位选中卡片的裁切', onclick: () => getCards().forEach(o => actions.resetCrop(o)) }, icon('rotate-ccw', 13), '复位'),
     'section:card-crop');
-  const cropAdjust = order => ({ fit: 'cover', cropZ: 1, cropX: 0, cropY: 0, ...((store.get().adjust[store.get().layoutId] || {})[order]) });
-  const updateCrop = buildControls(cropBox, cropSchema, cropAdjust(-1), (key, value) => {
-    actions.setItemAdjusts(getCards().map(order => ({ order, patch: { [key]: value } })));
-  });
+  const updateCrop = buildControls(cropBox, cropSchema, cardAdjust(-1), setCards);
+  const cardBox = el('div');
+  const cardSection = section('位置', cardBox,
+    el('button', { class: 'btn ghost small', title: '复位选中卡片的位置、旋转和缩放', onclick: () => getCards().forEach(o => actions.setItemAdjust(o, { dx: 0, dy: 0, rz: 0, s: 1 })) }, icon('rotate-ccw', 13), '复位'),
+    'section:card-transform');
+  const updateCard = buildControls(cardBox, cardSchema, { ...cardAdjust(-1), single: true }, setCards);
 
-  /* ---------- 图层列表 ---------- */
+  selectionSlot.append(selBar, propsSection, cropSection, cardSection);
+
+  /* ---------- 图层页 ---------- */
+  const addRow = el('div', { class: 'layer-add' }, ADD_TOOLS.map(t =>
+    el('button', { class: 'btn small', title: `${t.label}（${t.key}）`, onclick: () => setTool(t.tool) }, icon(t.icon, 13), t.label)));
   const list = el('div', { class: 'layer-list' });
-  const listSection = section('图层', list, null, 'section:layer-list');
+  const empty = el('p', { class: 'note' }, '还没有图层。用上面的按钮或左侧工具栏添加文字、形状，或用钢笔绘制路径；图层画在幻灯片上面，一起导出。');
+  layersSlot.append(section('图层', el('div', {}, addRow, empty, list), null, 'section:layer-list'));
 
-  root.append(propsSection, cropSection, listSection);
-
-  // 修改选中的图层：文字相关属性要重新测量尺寸；路径的尺寸 / 位置作用在锚点上
-  function setProp(key, value) {
-    const ids = ui.layerSel;
-    actions.updateLayers(ids, l => {
-      if (l.type === 'path' && ['x', 'y'].includes(key)) return moveLayer(l, key === 'x' ? value - l.x : 0, key === 'y' ? value - l.y : 0);
-      if (l.type === 'path' && ['w', 'h'].includes(key)) {
-        const f = { cx: l.x + l.w / 2, cy: l.y + l.h / 2, w: l.w, h: l.h, rotation: 0 };
-        const w = key === 'w' ? value : l.w, h = key === 'h' ? value : l.h;
-        return mapToFrame(l, f, { cx: l.x + w / 2, cy: l.y + h / 2, w, h, rotation: 0 });
-      }
-      const next = { ...l, [key]: value };
-      return l.type === 'text' && TEXT_METRICS.has(key) ? measureText(next) : next;
-    });
-  }
+  // 修改选中的图层（文字会重新测量尺寸，路径作用在锚点上）
+  const setProp = (key, value) => actions.updateLayers(ui.layerSel, l => applyLayerProp(l, key, value));
 
   let propsKey = '';
   let updateProps = () => {};
-  function renderProps(s) {
-    const sel = (s.layers || []).filter(l => ui.layerSel.includes(l.id));
+  function renderProps(sel) {
     propsSection.hidden = !sel.length;
     if (!sel.length) { propsKey = ''; return; }
-    const types = [...new Set(sel.map(l => l.type))];
-    const key = types.sort().join(',');
+    const types = [...new Set(sel.map(l => l.type))].sort();
     const primary = sel[0];
     const values = { ...primary, x: Math.round(primary.x), y: Math.round(primary.y), w: Math.round(primary.w), h: Math.round(primary.h), rotation: Math.round(primary.rotation || 0) };
-    if (key !== propsKey) {
-      propsKey = key;
+    if (types.join() !== propsKey) {
+      propsKey = types.join();
       updateProps = buildControls(propsBox, schemaFor(types), values, setProp, { collapseKey: 'layer' });
     }
     updateProps(values);
-    propsTitle.textContent = sel.length > 1 ? `${sel.length} 个` : typeName(primary.type);
   }
 
-  function renderCrop(s) {
-    const cards = getCards();
-    cropSection.hidden = !cards.length || !s.slides.length;
-    if (cropSection.hidden) return;
-    updateCrop(cropAdjust(cards[0]));
+  function renderCards(s, cards) {
+    const show = cards.length > 0 && !ui.layerSel.length;
+    cropSection.hidden = !show || !s.slides.length;
+    cardSection.hidden = !show || is3D();
+    if (!show) return;
+    const v = cardAdjust(cards[0]);
+    updateCrop(v);
+    updateCard({ ...v, dx: Math.round(v.dx), dy: Math.round(v.dy), rz: Math.round(v.rz * 10) / 10, single: cards.length === 1 });
   }
 
   let listKey = '';
   function renderList(s) {
     const layers = s.layers || [];
-    listSection.hidden = !layers.length;
+    empty.hidden = layers.length > 0;
     // 只在内容变化时重建列表
     const key = JSON.stringify([layers.map(l => [l.id, l.name, l.type, l.hidden, l.locked]), ui.layerSel]);
     if (key === listKey) return;
@@ -114,11 +119,18 @@ export function createInspector(root, { store, actions, ui, selectLayers, getCar
     }
   }
 
+  let has = false;
   function update(s = store.get()) {
-    renderProps(s);
-    renderCrop(s);
+    const sel = (s.layers || []).filter(l => ui.layerSel.includes(l.id));
+    const cards = getCards();
+    has = sel.length > 0 || cards.length > 0;
+    renderProps(sel);
+    renderCards(s, cards);
     renderList(s);
+    selTitle.textContent = sel.length
+      ? (sel.length > 1 ? `已选 ${sel.length} 个图层` : `${typeName(sel[0].type)} · ${sel[0].name}`)
+      : cards.length > 1 ? `已选 ${cards.length} 张卡片` : cards.length ? `卡片 · 第 ${cards[0] + 1} 个位置` : '';
   }
   update();
-  return { update };
+  return { update, hasSelection: () => has };
 }

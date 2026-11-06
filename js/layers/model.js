@@ -245,6 +245,23 @@ export function mapToFrame(l, from, to) {
   return { ...next, x: c.x - w / 2, y: c.y - h / 2, w, h };
 }
 
+/**
+ * 修改图层的一个属性（属性面板、顶部工具条共用）：
+ * 文字的字号 / 内容等变化后重新测量尺寸；路径的位置 / 尺寸作用在锚点上。
+ */
+const TEXT_METRICS = new Set(['text', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'letterSpacing']);
+export function applyLayerProp(l, key, value) {
+  if (!(key in l) && !['x', 'y', 'w', 'h'].includes(key)) return l; // 这种图层没有这个属性
+  if (l.type === 'path' && (key === 'x' || key === 'y')) return moveLayer(l, key === 'x' ? value - l.x : 0, key === 'y' ? value - l.y : 0);
+  if (l.type === 'path' && (key === 'w' || key === 'h')) {
+    const f = { cx: l.x + l.w / 2, cy: l.y + l.h / 2, w: l.w, h: l.h, rotation: 0 };
+    const w = key === 'w' ? value : l.w, h = key === 'h' ? value : l.h;
+    return mapToFrame(l, f, { cx: l.x + w / 2, cy: l.y + h / 2, w, h, rotation: 0 });
+  }
+  const next = { ...l, [key]: value };
+  return l.type === 'text' && TEXT_METRICS.has(key) ? measureText(next) : next;
+}
+
 // 多个图层的轴对齐包围盒（画板坐标）
 export function unionBounds(list) {
   if (!list.length) return null;

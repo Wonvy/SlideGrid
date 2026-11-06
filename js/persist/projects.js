@@ -127,11 +127,26 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
     settings = { ...settings, artboards: settings.artboards.map(b => ({ ...b, settings: { ...b.settings, style: remap(b.settings?.style) } })) };
   }
   const order = [];
+  const slideIds = new Map(); // 旧 id → 新 id
   for (const s of slides) {
     if (s.placeholder) { order.push({ id: s.id, placeholder: true }); continue; }
     const sid = newSlideId();
+    if (s.id) slideIds.set(s.id, sid);
     tx.objectStore('files').put({ id: sid, projectId: id, name: s.name, path: s.path || s.name, file: s.file });
     order.push(sid);
+  }
+  // 每个画板的图片顺序（slideIds）换成新 id；找不到对应关系时（旧文件）让画板使用全部图片
+  if (Array.isArray(settings?.artboards)) {
+    settings = {
+      ...settings,
+      artboards: settings.artboards.map(b => {
+        const ids = b.settings?.slideIds;
+        if (!Array.isArray(ids)) return b;
+        const ok = ids.every(x => slideIds.has(x) || slides.some(s => s.placeholder && s.id === x));
+        const { slideIds: _, ...rest } = b.settings;
+        return { ...b, settings: ok ? { ...rest, slideIds: ids.map(x => slideIds.get(x) || x) } : rest };
+      }),
+    };
   }
   const rec = {
     id, name, createdAt: now, updatedAt: now, settings,
@@ -168,7 +183,7 @@ export async function exportProjectFile(id) {
     if (s.placeholder) return { type: 'placeholder', id: s.id };
     const file = `images/${String(i + 1).padStart(3, '0')}-${safeName(s.name)}`;
     entries.push({ name: file, data: s.file });
-    return { type: 'image', file, name: s.name, path: s.path };
+    return { type: 'image', id: s.id, file, name: s.name, path: s.path };
   });
   const manifestAssets = (await loadProjectAssets(rec)).map(a => {
     const file = `assets/${a.id}-${safeName(a.name)}`;
@@ -192,7 +207,7 @@ export const importProjectFile = file => serial(async () => {
   for (const s of manifest.slides || []) {
     if (s.type === 'placeholder') { slides.push({ id: s.id, placeholder: true }); continue; }
     const bytes = await zip.bytes(s.file);
-    slides.push({ name: s.name, path: s.path, file: new File([bytes], s.name, { type: mimeOf(s.name) }) });
+    slides.push({ id: s.id, name: s.name, path: s.path, file: new File([bytes], s.name, { type: mimeOf(s.name) }) });
   }
   const assets = [];
   for (const a of manifest.assets || []) {

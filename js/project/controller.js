@@ -1,4 +1,4 @@
-import { settingsOf, projectSettings } from '../state.js';
+import { settingsOf, defaultSettings, libraryOf } from '../state.js';
 import { CURRENT_PROJECT_KEY } from '../persist/db.js';
 import {
   listProjects, getProject, loadProjectSlides, loadProjectAssets, createProject, saveProject,
@@ -37,7 +37,7 @@ export function createProjectController({ store, actions, placeholders, snapshot
     status('保存中…');
     const s = store.get();
     try {
-      await saveProject({ id: p.id, name: p.name, settings: settingsOf(s), slides: s.slides, assets: Object.values(s.assets) });
+      await saveProject({ id: p.id, name: p.name, settings: settingsOf(s), slides: libraryOf(s), assets: Object.values(s.assets) });
       status(dirty ? '未保存' : '已保存');
       onChange();
     } catch (err) {
@@ -107,7 +107,7 @@ export function createProjectController({ store, actions, placeholders, snapshot
 
   async function createNew(name) {
     await flush();
-    const rec = await createProject({ name: await uniqueName(name || '未命名项目'), settings: projectSettings() });
+    const rec = await createProject({ name: await uniqueName(name || '未命名项目'), settings: defaultSettings() });
     await open(rec.id);
     return rec;
   }
