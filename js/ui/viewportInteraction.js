@@ -220,6 +220,16 @@ export function attachViewportInteraction(target, opts) {
   });
   target.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
+  // 与框（工作区坐标）相交的卡片 / 画板
+  const cardsInRect = r => {
+    const box = { l: r.x, t: r.y, r: r.x + r.w, b: r.y + r.h };
+    return itemRects().filter(x => intersects(x.rect, box)).map(x => x.order);
+  };
+  const boardsInRect = r => allBoardIds().filter(id => {
+    const b = boardRect(id);
+    return b && b.sx < r.x + r.w && b.sx + b.sw > r.x && b.sy < r.y + r.h && b.sy + b.sh > r.y;
+  });
+
   // 框选画板：记录起点和原有选择（Shift/⌘ 时追加）
   let pendingMarquee = null;
   function startBoardMarquee(e, additive) {
@@ -353,12 +363,21 @@ export function attachViewportInteraction(target, opts) {
         const [cx, cy] = local(e);
         drag.rect = { x: Math.min(drag.sx, cx), y: Math.min(drag.sy, cy), w: Math.abs(cx - drag.sx), h: Math.abs(cy - drag.sy) };
         setMarquee(drag.rect);
+        // 拖动过程中实时选中框到的卡片（高亮跟着变）
+        const next = [...new Set([...drag.base, ...cardsInRect(drag.rect)])];
+        const key = next.join(',');
+        if (key !== drag.liveKey) { drag.liveKey = key; setSelection(next); }
         break;
       }
       case 'marquee': {
         const [cx, cy] = local(e);
         drag.rect = { x: Math.min(drag.sx, cx), y: Math.min(drag.sy, cy), w: Math.abs(cx - drag.sx), h: Math.abs(cy - drag.sy) };
         setMarquee(drag.rect);
+        // 实时选中框到的画板（描边高亮跟着变）
+        const hits = boardsInRect(drag.rect);
+        const next = drag.additive ? [...new Set([...drag.base, ...hits])] : hits.length ? hits : [activeBoard()];
+        const key = next.join(',');
+        if (key !== drag.liveKey) { drag.liveKey = key; selectBoards(next); }
         break;
       }
       case 'orbit':
@@ -428,10 +447,7 @@ export function attachViewportInteraction(target, opts) {
     if (drag.mode === 'cardMarquee') {
       setMarquee(null);
       if (drag.active && drag.rect) {
-        const r = drag.rect;
-        const box = { l: r.x, t: r.y, r: r.x + r.w, b: r.y + r.h };
-        const hits = itemRects().filter(x => intersects(x.rect, box)).map(x => x.order);
-        setSelection([...new Set([...drag.base, ...hits])]);
+        setSelection([...new Set([...drag.base, ...cardsInRect(drag.rect)])]);
       } else if (drag.toggle != null) {
         // 没有拖动：Shift/⌘ + 单击卡片 = 加选 / 减选
         const cur = drag.base;
@@ -443,13 +459,7 @@ export function attachViewportInteraction(target, opts) {
       if (!drag.active || !drag.rect) {
         if (!drag.additive) selectBoards([activeBoard()]); // 单击空白处：只保留当前画板
       } else {
-        // 与框相交的画板
-        const r = drag.rect;
-        const hits = [];
-        for (const id of allBoardIds()) {
-          const b = boardRect(id);
-          if (b && b.sx < r.x + r.w && b.sx + b.sw > r.x && b.sy < r.y + r.h && b.sy + b.sh > r.y) hits.push(id);
-        }
+        const hits = boardsInRect(drag.rect);
         if (hits.length) selectBoards(drag.additive ? [...new Set([...drag.base, ...hits])] : hits);
       }
     }

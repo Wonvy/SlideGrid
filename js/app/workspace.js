@@ -23,10 +23,12 @@ import { ui } from './uiState.js';
 const PASTEBOARD = '#0b0d11';
 const ACCENT = [124 / 255, 140 / 255, 1];
 const HL = {
-  hover: { color: ACCENT, fill: 0.1, ring: 2.5 },
+  hover: { color: ACCENT, fill: 0.08, ring: 2 },
   target: { color: ACCENT, fill: 0.28, ring: 4 },
   source: { color: [0.05, 0.06, 0.08], fill: 0.6, ring: 0 },
-  selected: { color: [1, 1, 1], fill: 0, ring: 2 },
+  // 选中：主题色粗描边 + 浅色填充，浅色 / 深色幻灯片上都看得清
+  selected: { color: ACCENT, fill: 0.2, ring: 3 },
+  selectedEdge: { color: [1, 1, 1], fill: 0, ring: 1 },
 };
 const BG_KEYS = ['bgType', 'bg1', 'bg2', 'bgAngle', 'bgImageId', 'bgFit', 'bgScale', 'bgSlide', 'bgBlur', 'bgDim', 'bgDimColor', 'vignette'];
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
@@ -51,7 +53,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas }) {
     if (ui.listHover != null) for (const it of scene.items) if (it.slideIndex === ui.listHover) add(it, 'hover');
     if (ui.selection.length) {
       const sel = new Set(ui.selection);
-      for (const it of scene.items) if (sel.has(it.order)) add(it, 'selected');
+      for (const it of scene.items) if (sel.has(it.order)) { add(it, 'selected'); add(it, 'selectedEdge'); }
     }
     const targetOrder = ui.dropTarget ?? ui.hover;
     if (targetOrder != null) {
