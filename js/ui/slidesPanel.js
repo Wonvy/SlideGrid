@@ -37,7 +37,7 @@ export function createSlidesPanel({ listEl, countEl, emptyEl, dropzone, footEl, 
     listEl.innerHTML = '';
     const images = slides.filter(s => !s.placeholder).length;
     countEl.textContent = slides.length ? String(images) : '';
-    emptyEl.hidden = slides.length > 0;
+    if (emptyEl) emptyEl.hidden = slides.length > 0;
     dropzone.classList.toggle('compact', slides.length > 0);
     footEl.textContent = slides.length
       ? `共 ${images} 张${slides.length > images ? `（另有 ${slides.length - images} 个空位）` : ''} · 拖动排序 · 悬停在预览中定位`

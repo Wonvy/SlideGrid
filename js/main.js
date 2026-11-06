@@ -151,7 +151,7 @@ $('clear-btn').addEventListener('click', () => {
 /* ---------------- 面板 ---------------- */
 
 const panels = initResizers($('app'));
-document.querySelector('.slides-head .head-actions').append(panels.collapseButton('left'));
+document.querySelector('.slides-head').append(panels.collapseButton('left'));
 
 const slidesPanel = createSlidesPanel({
   listEl: $('slide-list'),

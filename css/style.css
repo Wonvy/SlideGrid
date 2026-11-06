@@ -1238,3 +1238,38 @@ body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: no
 .color-field input[type=color] { width: 34px; height: 34px; }
 .seg-btn { height: 28px; }
 .ctrls .ctrl.stacked { gap: 6px; }
+
+/* 左栏底部固定的操作栏 */
+.slides-bar {
+  flex: none; display: flex; align-items: center; gap: 2px;
+  padding: 8px 10px; border-top: 1px solid var(--line); background: var(--panel);
+}
+.slides-bar .bar-spacer { flex: 1; }
+.slides-bar > .icon-btn.visible { width: 34px; height: 34px; border-radius: 10px; color: var(--muted); }
+.slides-head { justify-content: space-between; }
+/* 画布底部的操作提示：画布太窄时隐藏（否则会被挤成一个字一行的竖排） */
+.stage { container-type: inline-size; }
+@container (max-width: 760px) { .stage .stage-hint { display: none; } }
+
+/* 左栏空状态：拖入区上下居中，内容只留图标、标题、一行说明和两个按钮 */
+.slides-scroll:has(> .dropzone:not(.compact)) { display: flex; flex-direction: column; justify-content: center; padding: 16px; }
+.dropzone:not(.compact) {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 32px 18px 20px; border-radius: 16px; border-color: var(--line-2);
+}
+.dropzone:not(.compact) .dz-icon {
+  width: 52px; height: 52px; margin: 0 0 16px; border-radius: 14px;
+  align-items: center; background: var(--field); color: var(--muted);
+}
+.dropzone:not(.compact) .dz-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.dropzone:not(.compact) .dz-sub { margin-top: 6px; font-size: 12px; line-height: 1.5; color: var(--faint); }
+.dropzone:not(.compact) .dz-actions { flex-direction: column; gap: 8px; width: 100%; margin-top: 22px; }
+.dropzone:not(.compact) .dz-actions .btn {
+  height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--field); font-size: 13px;
+}
+.dropzone:not(.compact) .dz-actions .btn:hover { background: var(--field-hover); }
+.dropzone:not(.compact) .dz-actions .btn:first-child { background: #2c3240; }
+.dropzone:not(.compact) .dz-actions .btn:first-child:hover { background: #343b4b; }
+.dropzone:not(.compact) .dz-actions .btn { background: #252a35; }
+.dropzone:not(.compact) .dz-actions .btn:hover { background: #2f3644; }
+.dropzone:not(.compact) .dz-actions .btn { flex: none; width: 100%; }
