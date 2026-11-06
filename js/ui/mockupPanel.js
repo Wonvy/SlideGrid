@@ -3,12 +3,14 @@ import { icon } from './icons.js';
 import { FRAMES, DEVICE_PRESETS, deviceAspect, drawDevice } from '../layers/devices.js';
 
 const FRAME_KEY = 'slidegrid:mockup-frame';
+export const MOCKUP_DRAG_TYPE = 'application/x-slidegrid-mockup';
 
 /**
  * 右栏「样机」页：选外观（深空灰 / 银色 / 白色），点设备把它加到当前画板中间（样机图层）；
  * 也可以上传 PNG 样机（屏幕区域透明），本项目用过的 PNG 样机列在下面，点击再次添加。
  * 缩略图用当前画板的第一张幻灯片绘制，和实际效果一致。
- *   onAdd(preset, frame)：preset 为 DEVICE_PRESETS 里的一项（设备 + 角度）；onUpload(file)；onAddCustom(template)
+ *   onAdd(preset, frame, at?)：preset 为 DEVICE_PRESETS 里的一项（设备 + 角度）；onUpload(file)；onAddCustom(template, at?)
+ *   卡片可以拖到画板上：拖动数据类型为 DRAG_TYPE，放下时由 main.js 调用 drop(data, at) 加到放下的位置
  *   getSlide() → 缩略图屏幕里显示的图片；getCustom() → [{ frameAssetId, frameW, frameH, screen, name, frameImg }]
  */
 export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddCustom, getCustom = () => [] }) {
@@ -29,8 +31,9 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
 
   const cards = DEVICE_PRESETS.map(p => {
     const canvas = el('canvas', { class: 'mockup-thumb' });
-    const b = el('button', { class: 'mockup-card', title: `添加「${p.label}」样机到当前画板` }, canvas, el('span', { class: 'mockup-name' }, p.label));
+    const b = el('button', { class: 'mockup-card', draggable: 'true', title: `点击添加「${p.label}」到当前画板中间，或拖到画板上` }, canvas, el('span', { class: 'mockup-name' }, p.label));
     b.addEventListener('click', () => onAdd(p, frame));
+    dragSource(b, () => ({ preset: DEVICE_PRESETS.indexOf(p), frame }));
     return { p, canvas };
   });
 
@@ -52,6 +55,23 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     el('p', { class: 'note pane-hint' }, '点击把设备加到当前画板中间。把图片或左栏的幻灯片拖到样机上即可更换屏幕内容；选中样机后，可在「设计」页修改。'),
   );
 
+  // 拖动卡片：拖到画板上放下（drop 由 main.js 处理）；拖动时用缩略图做拖影
+  function dragSource(b, data) {
+    b.addEventListener('dragstart', e => {
+      e.dataTransfer.setData(MOCKUP_DRAG_TYPE, JSON.stringify(data()));
+      e.dataTransfer.effectAllowed = 'copy';
+      const cv = b.querySelector('canvas');
+      if (cv) e.dataTransfer.setDragImage(cv, cv.clientWidth / 2, cv.clientHeight / 2);
+    });
+  }
+  // 放下：按拖动数据加到 at（画板坐标的中心点）
+  function drop(raw, at) {
+    let data;
+    try { data = JSON.parse(raw); } catch { return; }
+    if (Number.isInteger(data.preset) && DEVICE_PRESETS[data.preset]) onAdd(DEVICE_PRESETS[data.preset], data.frame in FRAMES ? data.frame : frame, at);
+    else if (data.custom) { const t = getCustom().find(x => x.frameAssetId === data.custom); if (t) onAddCustom(t, at); }
+  }
+
   // 本项目用过的 PNG 样机
   let customKey = '';
   function renderCustom() {
@@ -62,8 +82,9 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     customKey = key;
     customGrid.replaceChildren(...list.map(t => {
       const canvas = el('canvas', { class: 'mockup-thumb' });
-      const b = el('button', { class: 'mockup-card', title: `添加「${t.name}」到当前画板` }, canvas, el('span', { class: 'mockup-name' }, t.name));
+      const b = el('button', { class: 'mockup-card', draggable: 'true', title: `点击添加「${t.name}」到当前画板中间，或拖到画板上` }, canvas, el('span', { class: 'mockup-name' }, t.name));
       b.addEventListener('click', () => onAddCustom(t));
+      dragSource(b, () => ({ custom: t.frameAssetId }));
       drawCustomThumb(canvas, t);
       return b;
     }));
@@ -99,5 +120,5 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   }
   refresh();
 
-  return { update: refresh };
+  return { update: refresh, drop };
 }

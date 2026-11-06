@@ -404,23 +404,29 @@ function planar(id, outlineRect, depth, extraShapes = []) {
   });
 }
 
-// 笔记本键盘面的贴图（1000 × 680）
+// 笔记本键盘面的贴图（与屏幕盖同宽：DECK_W × DECK_D）
+const DECK_W = 840, DECK_D = 560;
 function paintDeck(g, f) {
-  g.fillStyle = vGrad(g, 0, 680, [f.metal[0], f.rim]);
-  g.fillRect(0, 0, 1000, 680);
-  rr(g, 96, 48, 808, 330, 14);
-  g.fillStyle = 'rgba(0,0,0,0.08)';
+  rr(g, 0, 0, DECK_W, DECK_D, [0, 0, 26, 26]);
+  g.fillStyle = vGrad(g, 0, DECK_D, [f.metal[0], f.rim]);
+  g.fill();
+  // 键盘区：左右各留 52，6 行 14 列（第一行是矮的功能键）
+  const x0 = 52, kbW = DECK_W - x0 * 2, cols = 14, gap = 5, kw = (kbW - gap * (cols - 1)) / cols, kh = 40, y0 = 34;
+  rr(g, x0 - 8, y0 - 8, kbW + 16, 6 * (kh + gap) - 12, 12);
+  g.fillStyle = 'rgba(0,0,0,0.07)';
   g.fill();
   g.fillStyle = f.keys;
-  const cols = 14, rows = 6, kw = 52, kh = 46, gap = 5.5, x0 = 108, y0 = 60;
-  for (let r = 0; r < rows; r++) {
+  for (let r = 0; r < 6; r++) {
+    const h = r === 0 ? kh - 16 : kh, y = y0 + (r === 0 ? 0 : r * (kh + gap) - 16);
     for (let c = 0; c < cols; c++) {
-      rr(g, x0 + c * (kw + gap), y0 + r * (kh + gap) + (r === 0 ? 0 : 6), kw, r === 0 ? kh - 18 : kh, 7);
+      rr(g, x0 + c * (kw + gap), y, kw, h, 6);
       g.fill();
     }
   }
-  rr(g, 350, 420, 300, 220, 18);
-  g.fillStyle = 'rgba(0,0,0,0.07)';
+  // 触控板
+  const tw = 300, th = 180, ty = y0 + 6 * (kh + gap) - 16 + 26;
+  rr(g, (DECK_W - tw) / 2, ty, tw, th, 16);
+  g.fillStyle = 'rgba(0,0,0,0.06)';
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,0.12)';
   g.lineWidth = 2;
@@ -428,15 +434,15 @@ function paintDeck(g, f) {
 }
 
 const deg = a => (a * Math.PI) / 180;
-const LID_TILT = deg(12); // 屏幕盖向后倾斜
+const LID_TILT = deg(14); // 屏幕盖向后倾斜（打开约 104°）
 
 const MODELS = {
   laptop: f => {
     const d = DEVICES.laptop;
-    const hy = 540, depth = 680; // 转轴高度、底座进深（向镜头方向）
+    const hy = 540, depth = DECK_D, x0 = 80, x1 = 80 + DECK_W; // 转轴高度、底座进深（向镜头方向）；底座和屏幕盖同宽
     const lid = (x, y) => [x, hy - (hy - y) * Math.cos(LID_TILT), (hy - y) * Math.sin(LID_TILT)];
     return {
-      center: [500, 380, -depth / 2 + 80],
+      center: [500, 400, -depth / 2 + 60],
       faces: [
         // 屏幕盖（正面贴图：金属边 + 黑边 + 屏幕）
         {
@@ -453,11 +459,11 @@ const MODELS = {
           },
         },
         // 键盘面（水平，从转轴伸向镜头）
-        { pts: [[0, hy, 0], [1000, hy, 0], [1000, hy, -depth], [0, hy, -depth]], tw: 1000, th: 680, paint: g => paintDeck(g, f) },
-        // 底座前沿、两侧
-        { pts: [[0, hy, -depth], [1000, hy, -depth], [1000, hy + 22, -depth], [0, hy + 22, -depth]], color: f.metal[1] },
-        { pts: [[0, hy, 0], [0, hy, -depth], [0, hy + 22, -depth], [0, hy + 22, 0]], color: f.side, when: yaw => yaw < 0 },
-        { pts: [[1000, hy, -depth], [1000, hy, 0], [1000, hy + 22, 0], [1000, hy + 22, -depth]], color: f.side, when: yaw => yaw > 0 },
+        { pts: [[x0, hy, 0], [x1, hy, 0], [x1, hy, -depth], [x0, hy, -depth]], tw: DECK_W, th: DECK_D, paint: g => paintDeck(g, f) },
+        // 底座前沿、两侧（厚度 18）
+        { pts: [[x0, hy, -depth], [x1, hy, -depth], [x1, hy + 18, -depth], [x0, hy + 18, -depth]], color: f.metal[1] },
+        { pts: [[x0, hy, 0], [x0, hy, -depth], [x0, hy + 18, -depth], [x0, hy + 18, 0]], color: f.side, when: yaw => yaw < 0 },
+        { pts: [[x1, hy, -depth], [x1, hy, 0], [x1, hy + 18, 0], [x1, hy + 18, -depth]], color: f.side, when: yaw => yaw > 0 },
       ],
     };
   },
@@ -530,7 +536,7 @@ function projector3d(model, yaw, pitch, size) {
   const [cx, cy, cz] = model.center;
   const a = deg(yaw), b = deg(pitch);
   const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
-  const F = size * 2.6; // 镜头距离：越小透视越强
+  const F = size * 3.4; // 镜头距离：越小透视越强（太小时近处会被放大得失真）
   return ([x, y, z]) => {
     let X = x - cx, Y = y - cy, Z = z - cz;
     [X, Z] = [X * ca + Z * sa, -X * sa + Z * ca];          // 左右

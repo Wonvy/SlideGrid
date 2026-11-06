@@ -646,6 +646,11 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       return layersOf().map(l => (m.has(l.id) ? moveLayer(l, m.get(l.id).dx / z, m.get(l.id).dy / z) : l));
     },
     // 屏幕坐标下当前画板最上层的图层（右键菜单用）
+    // 屏幕坐标 → 某个画板的画板坐标（拖入样机时定位用）
+    pointOnBoard: (x, y, board) => {
+      const bi = ws.boardInfo(board);
+      return bi ? toBoard(local({ clientX: x, clientY: y }), bi) : null;
+    },
     // 鼠标下的样机图层（任何画板）：{ board, layer } | null
     deviceAtClient: (x, y) => {
       const found = layerAtScreen(...local({ clientX: x, clientY: y }));

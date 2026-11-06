@@ -38,7 +38,7 @@ import { openQuadPicker } from './ui/quadPicker.js';
 
 // 矩形 [x, y, w, h] → 四个角（左上、右上、右下、左下）
 const rectQuad = ([x, y, w, h]) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
-import { createMockupPanel } from './ui/mockupPanel.js';
+import { createMockupPanel, MOCKUP_DRAG_TYPE } from './ui/mockupPanel.js';
 
 /**
  * 入口：创建各个模块并把它们连起来。
@@ -322,7 +322,7 @@ ws.hooks.editingLayer = layerTools.editingId;
 
 // 样机：把设备加到当前画板中间（样机图层）；多台时依次显示下一张、稍微错开
 // 把样机加到当前画板中间：宽度不超过画板的 62%、高度不超过 72%；多台时依次显示下一张、稍微错开
-function addDeviceLayer(props, label, asset = null) {
+function addDeviceLayer(props, label, asset = null, at = null) {
   const s = store.get();
   const { W, H } = canvasOf(s);
   const list = s.layers || [];
@@ -332,7 +332,8 @@ function addDeviceLayer(props, label, asset = null) {
   const l = createLayer('device', {
     ...props, w, h,
     slide: (used % slidesOf(s).length) + 1,
-    x: (W - w) / 2 + used * 32, y: (H - h) / 2 + used * 32,
+    // at：拖到画板上放下的位置（中心）；否则放在画板中间，多台时稍微错开
+    x: at ? at.x - w / 2 : (W - w) / 2 + used * 32, y: at ? at.y - h / 2 : (H - h) / 2 + used * 32,
   }, list);
   if (asset) actions.addAssetLayers([asset], [l]);
   else actions.setLayers([...list, l]);
@@ -343,9 +344,9 @@ function addDeviceLayer(props, label, asset = null) {
 }
 const mockupPanel = createMockupPanel(settings.mockupSlot, {
   getSlide: () => slidesOf(store.get())[0]?.preview,
-  onAdd(p, frame) {
+  onAdd(p, frame, at = null) {
     const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === p.device).length + 1;
-    addDeviceLayer({ device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, name: `${deviceOf(p.device).label} ${n}` }, `「${p.label}」`);
+    addDeviceLayer({ device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, name: `${deviceOf(p.device).label} ${n}` }, `「${p.label}」`, null, at);
   },
   // 上传 PNG 样机：先自动识别透明的屏幕区域作为初始位置，再弹窗让用户拖四个角对准屏幕（支持透视）
   async onUpload(file) {
@@ -369,7 +370,7 @@ const mockupPanel = createMockupPanel(settings.mockupSlot, {
     const name = file.name.replace(/\.[^.]+$/, '');
     addDeviceLayer({ device: 'custom', frameAssetId: asset.id, frameW: asset.width, frameH: asset.height, quad, screenOnTop: !found, name }, `「${name}」`, asset);
   },
-  onAddCustom: t => addDeviceLayer({ device: 'custom', frameAssetId: t.frameAssetId, frameW: t.frameW, frameH: t.frameH, screen: t.screen, quad: t.quad, screenOnTop: t.screenOnTop, name: t.name }, `「${t.name}」`),
+  onAddCustom: (t, at = null) => addDeviceLayer({ device: 'custom', frameAssetId: t.frameAssetId, frameW: t.frameW, frameH: t.frameH, screen: t.screen, quad: t.quad, screenOnTop: t.screenOnTop, name: t.name }, `「${t.name}」`, null, at),
   // 本项目所有画板里用到的 PNG 样机（按外框去重）
   getCustom() {
     const s = store.get();
@@ -382,6 +383,23 @@ const mockupPanel = createMockupPanel(settings.mockupSlot, {
     }
     return [...seen.values()];
   },
+});
+
+// 把样机页的卡片拖到画板上：放在松手的位置（落在哪个画板就加到哪个画板，画板外就加到当前画板）
+const isMockupDrag = e => [...(e.dataTransfer?.types || [])].includes(MOCKUP_DRAG_TYPE);
+viewport.addEventListener('dragover', e => {
+  if (!isMockupDrag(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+viewport.addEventListener('drop', e => {
+  if (!isMockupDrag(e)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const board = ws.boardAt(e.clientX, e.clientY);
+  if (board && board !== store.get().activeBoard) actions.setActiveBoard(board);
+  const at = layerTools.pointOnBoard(e.clientX, e.clientY, store.get().activeBoard);
+  mockupPanel.drop(e.dataTransfer.getData(MOCKUP_DRAG_TYPE), at);
 });
 
 // 检查器：「设计」页里选中对象的属性、「图层」页的图层列表
