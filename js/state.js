@@ -30,10 +30,16 @@ export function boardSettings(saved = {}) {
     style: { ...schemaDefaults(styleSchema), ...(saved.style || {}) },
     aspect: isValidAspect(saved.aspect) ? saved.aspect : '16:9',
     camera: { ...DEFAULT_CAMERA, ...(saved.camera || {}) },
-    // 单张卡片的手动调整：{ [layoutId]: { [位置序号]: { dx, dy, rz, s, lift } } }（s 为等比缩放）
+    // 单张卡片的手动调整：{ [layoutId]: { [位置序号]: { dx, dy, rz, s, lift, cropX, cropY, cropZ, fit } } }
+    //   s：等比缩放；cropX / cropY：图片在卡片里的平移（-1 ~ 1，占可移动范围的比例）；cropZ：图片放大；fit：'contain' 完整显示
     adjust: saved.adjust && typeof saved.adjust === 'object' ? saved.adjust : {},
+    // 画板上的图层（文字、形状、钢笔路径），画在幻灯片上面，见 layers/model.js
+    layers: Array.isArray(saved.layers) ? saved.layers : [],
   };
 }
+
+// 每个画板独立的设置字段（当前画板的这些字段展开在 store 顶层）
+export const BOARD_KEYS = ['layoutId', 'params', 'style', 'aspect', 'camera', 'adjust', 'layers'];
 
 export const newBoardId = () => `b_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -59,7 +65,7 @@ export function projectSettings(saved = {}) {
 }
 
 // 当前画板（store 顶层）的设置
-export const boardSettingsOf = s => ({ layoutId: s.layoutId, params: s.params, style: s.style, aspect: s.aspect, camera: s.camera, adjust: s.adjust });
+export const boardSettingsOf = s => Object.fromEntries(BOARD_KEYS.map(k => [k, s[k]]));
 // 所有画板，当前画板的 settings 换成最新值
 export const boardsOf = s => s.artboards.map(b => (b.id === s.activeBoard ? { ...b, settings: boardSettingsOf(s) } : b));
 // 保存到项目的设置
@@ -342,6 +348,31 @@ export const actions = {
       delete cur[order];
       return { adjust: { ...s.adjust, [s.layoutId]: cur } };
     });
+  },
+  /* ---------- 图层（当前画板） ---------- */
+  setLayers(layers) {
+    store.set({ layers });
+  },
+  updateLayers(ids, patch) {
+    const set = new Set(ids);
+    store.set(s => ({ layers: s.layers.map(l => (set.has(l.id) ? (typeof patch === 'function' ? patch(l) : { ...l, ...patch }) : l)) }));
+  },
+  // 图层和卡片一起修改（一起移动时作为一步撤销）。adjusts：[{ order, patch }]
+  applyEdits({ layers = null, adjusts = null }) {
+    store.set(s => {
+      const out = {};
+      if (layers) out.layers = layers;
+      if (adjusts?.length) {
+        const cur = { ...(s.adjust[s.layoutId] || {}) };
+        for (const { order, patch } of adjusts) cur[order] = { ...cur[order], ...patch };
+        out.adjust = { ...s.adjust, [s.layoutId]: cur };
+      }
+      return out;
+    });
+  },
+  // 复位裁切（保留位置、旋转、缩放）
+  resetCrop(order) {
+    actions.setItemAdjust(order, { cropX: 0, cropY: 0, cropZ: 1, fit: 'cover' });
   },
   resetAdjust() {
     store.set(s => ({ adjust: { ...s.adjust, [s.layoutId]: {} } }));

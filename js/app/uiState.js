@@ -11,6 +11,8 @@ export const ui = {
   listHover: null,   // 左侧列表悬停的幻灯片序号
   tool: 'select',    // 当前工具，见 ui/toolbar.js
   tempHand: false,   // 按住空格临时抓手
+  layerSel: [],      // 选中的图层 id（当前画板）
+  layerHover: null,  // 悬停的图层 id
 };
 
 const listeners = new Set();
@@ -33,6 +35,6 @@ export const clearSelection = () => setSelection([]);
 
 // 换版式 / 换画板 / 换项目后，原来的卡片序号不再有意义
 export function resetCardState() {
-  Object.assign(ui, { hover: null, dropTarget: null, selected: null, selection: [] });
+  Object.assign(ui, { hover: null, dropTarget: null, selected: null, selection: [], layerSel: [], layerHover: null });
   emit('selection');
 }

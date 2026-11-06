@@ -1,13 +1,20 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
 
-// 工作区工具条：工具切换（快捷键参照 Illustrator）+ 视图缩放 + 重置卡片调整
+// 工作区：左侧竖排的工具栏（工具切换，快捷键参照 Illustrator）+ 顶部浮动工具条（背景、遮罩、吸附、对齐、视图缩放、重置卡片）
 export const TOOLS = [
   { id: 'select', icon: 'mouse-pointer-2', label: '选择', key: 'V', desc: '点选卡片，拖动移动位置，拖四个角等比缩放（Shift 锁定方向，方向键微调）' },
+  { id: 'crop', icon: 'crop', label: '裁切', key: 'C', desc: '调整卡片里显示图片的哪一部分：拖动平移图片，滚轮放大缩小，双击复位（平面和 3D 版式都可用）' },
   { id: 'swap', icon: 'arrow-left-right', label: '交换', key: 'X', desc: '把卡片拖到另一张上交换图片' },
   { id: 'rotate', icon: 'rotate-cw', label: '旋转', key: 'R', desc: '拖动旋转卡片（Shift 按 15° 吸附）' },
   { id: 'scale', icon: 'scaling', label: '比例', key: 'S', desc: '拖动以卡片中心等比缩放（Shift 按 5% 吸附，+/- 键微调）' },
   { id: 'orbit', icon: 'rotate-3d', label: '构图', key: 'O', desc: '调整画板内的构图（会导出）：3D 拖动旋转 / Shift+拖动平移，平面拖动平移，滚轮缩放' },
+  { sep: true },
+  { id: 'text', icon: 'type', label: '文字', key: 'T', desc: '单击添加文字；选择工具下双击文字可编辑' },
+  { id: 'rect', icon: 'square', label: '矩形', key: 'M', desc: '拖动绘制矩形（Shift 正方形，⌥ 从中心），单击放一个默认大小的' },
+  { id: 'ellipse', icon: 'circle', label: '椭圆', key: 'L', desc: '拖动绘制椭圆（Shift 正圆，⌥ 从中心）' },
+  { id: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P', desc: '单击加直角锚点，按住拖动拉出曲线；点第一个锚点闭合，Enter / Esc 结束，Backspace 删除上一个锚点' },
+  { id: 'direct', icon: 'mouse-pointer', label: '直接选择', key: 'A', desc: '编辑路径锚点：拖锚点 / 控制柄（⌥ 打断对称），⌥ 单击切换直角 / 平滑，双击路径插入锚点，Delete 删除锚点' },
   { sep: true },
   { id: 'hand', icon: 'hand', label: '抓手', key: 'H', desc: '平移视图（任何工具下按住空格或中键也可以）' },
   { id: 'zoom', icon: 'search', label: '放大镜', key: 'Z', desc: '单击放大视图，按住 ⌥ 单击缩小（Ctrl/⌘ + 滚轮也可以）' },
@@ -16,9 +23,9 @@ export const TOOLS = [
 
 export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut, onFit, onFitAll, onActualSize, onResetAdjust }) {
   const buttons = new Map();
-  const tools = el('div', { class: 'tb-group' });
+  const tools = el('div', { class: 'toolstrip', role: 'toolbar', 'aria-label': '工具', 'aria-orientation': 'vertical' });
   for (const t of TOOLS) {
-    if (t.sep) { tools.append(el('span', { class: 'tb-sep' })); continue; }
+    if (t.sep) { tools.append(el('span', { class: 'ts-sep' })); continue; }
     const b = el('button', { class: 'tb-btn', 'aria-label': t.label, onclick: () => onTool(t.id) },
       icon(t.icon, 17), el('span', { class: 'tb-key' }, t.key));
     buttons.set(t.id, b);
@@ -41,8 +48,8 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
   const bgSlot = el('div', { class: 'tb-group' });
   const alignSlot = el('div', { class: 'tb-group tb-align', hidden: true });
 
-  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '工具' }, tools, bgSlot, alignSlot, zoom, extra);
-  root.append(bar);
+  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '画板与视图' }, bgSlot, alignSlot, zoom, extra);
+  root.append(tools, bar);
 
   return {
     bgSlot,

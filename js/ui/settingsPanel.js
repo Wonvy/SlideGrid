@@ -93,7 +93,9 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const multiBanner = el('div', { class: 'multi-banner', hidden: true },
     icon('frame', 14), multiText,
     el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
-  panes.params.append(multiBanner, current);
+  // 检查器（选中图层 / 卡片的属性、图层列表）放在最上面，见 ui/inspector.js
+  const inspectorSlot = el('div', { class: 'inspector' });
+  panes.params.append(inspectorSlot, multiBanner, current);
 
   const paramsBox = el('div');
   panes.params.append(section('版式参数', paramsBox,
@@ -147,21 +149,24 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   }
   update(s0);
 
-  // 切到「参数」页，展开「样式 → 背景」并滚动到那里（工具条背景面板的「更多设置」）
-  function revealBackground() {
+  // 切到「参数」页，展开「样式」里的某个分组并滚动到那里（工具条背景 / 遮罩面板的「更多设置」）
+  function revealStyleGroup(name) {
     showMain('params');
     if (styleSection.classList.contains('collapsed')) styleSection.querySelector('.section-toggle').click();
-    const group = [...styleBox.querySelectorAll('button.ctrl-group')].find(g => g.textContent === '背景');
+    const group = [...styleBox.querySelectorAll('button.ctrl-group')].find(g => g.textContent === name);
     if (group?.classList.contains('collapsed')) group.click();
-    styleSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    (group || styleSection).scrollIntoView({ block: 'start', behavior: 'smooth' });
     styleSection.classList.add('flash');
     setTimeout(() => styleSection.classList.remove('flash'), 900);
   }
 
   return {
     update,
-    revealBackground,
+    revealBackground: () => revealStyleGroup('背景'),
+    revealStyleGroup,
     presetsContainer: mine,
+    inspectorSlot,
+    isParamsShown: () => !panes.params.hidden,
     // 打开「版式」页的某个子标签（导入版式文件时用）
     showTab: name => { showMain('layouts'); showLayoutTab(name); },
     showMain,

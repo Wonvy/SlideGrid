@@ -1,4 +1,4 @@
-import { store, actions, selectionOf } from './state.js';
+import { store, actions, selectionOf, BOARD_KEYS } from './state.js';
 import { sizeSchema } from './export/schema.js';
 import { createProjectController } from './project/controller.js';
 import { createHistory } from './project/history.js';
@@ -11,6 +11,7 @@ import { buildControls } from './ui/controls.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
+import { createFadePicker } from './ui/fadePicker.js';
 import { createResizeHandles } from './ui/resizeHandles.js';
 import { createPresetsPanel } from './ui/presetsPanel.js';
 import { initResizers } from './ui/resizer.js';
@@ -26,6 +27,8 @@ import { createExporting } from './app/exporting.js';
 import { createBoardOps } from './app/boardOps.js';
 import { createAlignment } from './app/alignment.js';
 import { createContextMenus } from './app/contextMenus.js';
+import { createLayerTools } from './app/layerTools.js';
+import { createInspector } from './ui/inspector.js';
 
 /**
  * 入口：创建各个模块并把它们连起来。
@@ -45,7 +48,7 @@ const viewport = $('viewport'); // 工作区：铺满中间区域，所有画板
 
 let ws;
 try {
-  ws = createWorkspace({ viewport, bgCanvas: $('bg-canvas'), glCanvas: $('gl-canvas') });
+  ws = createWorkspace({ viewport, bgCanvas: $('bg-canvas'), glCanvas: $('gl-canvas'), fgCanvas: $('fg-canvas') });
 } catch (err) {
   stage.innerHTML = `<div class="stage-error">${err.message}<br>请使用最新版 Chrome / Edge / Safari / Firefox</div>`;
   throw err;
@@ -186,6 +189,7 @@ const updateSizePicker = buildControls($('size-picker'), sizeSchema, store.get()
 /* ---------------- 工具 ---------------- */
 
 const CARD_TOOLS = ['select', 'rotate', 'scale'];
+const SELECT_TOOLS = [...CARD_TOOLS, 'crop']; // 切换到这些工具时保留卡片选择
 // 工具是否可用：单张卡片调整（选择 / 旋转 / 比例）只用于平面版式
 function toolAvailability(id) {
   if (CARD_TOOLS.includes(id) && is3D()) return { ok: false, reason: '3D 版式暂不支持单张卡片调整，可在平面版式中使用' };
@@ -197,10 +201,12 @@ function setTool(id) {
     return;
   }
   ui.tool = id;
-  if (!CARD_TOOLS.includes(id)) clearSelection();
+  if (!SELECT_TOOLS.includes(id)) clearSelection();
+  layerTools?.onToolChange(id);
   refreshTools();
 }
 let interaction = null;
+let layerTools = null; // 见下方「图层」
 function refreshTools() {
   updateHint();
   interaction?.updateCursor();
@@ -230,6 +236,43 @@ const bgPicker = createBgPicker(toolbar.bgSlot, {
   onMore: () => settings.revealBackground(),
 });
 
+// 图层（文字、形状、钢笔路径）的交互
+// 和选中的卡片一起移动时：屏幕位移 → 各卡片的手动调整（只用于平面版式）
+const cardPatches = orders => {
+  if (is3D()) return null;
+  const starts = orders.map(o => ({ o, adj: { dx: 0, dy: 0, ...getAdjust(o) } }));
+  return (mx, my) => {
+    const [lx, ly] = ws.toLayoutDelta(mx, my);
+    return starts.map(({ o, adj }) => ({ order: o, patch: { dx: adj.dx + lx, dy: adj.dy + ly } }));
+  };
+};
+layerTools = createLayerTools({
+  ws, viewport,
+  getTool: () => ui.tool,
+  setTool,
+  setGuides: alignment.setGuides,
+  snapEnabled: () => store.get().snap,
+  getCardSelection: () => ui.selection,
+  setCardSelection: orders => setSelection(orders),
+  cardPatches,
+});
+ws.hooks.drawOverlay = layerTools.drawOverlay;
+ws.hooks.editingLayer = layerTools.editingId;
+
+// 「参数」页顶部：选中图层的属性、选中卡片的裁切、图层列表
+const inspector = createInspector(settings.inspectorSlot, {
+  store, actions, ui,
+  selectLayers: ids => layerTools.select(ids),
+  getCards: () => ui.selection,
+  reorder: dir => layerTools.reorder(dir),
+});
+
+// 工具条上的「渐隐遮罩」：一键预设
+const fadePicker = createFadePicker(toolbar.bgSlot, {
+  store, actions,
+  onMore: () => settings.revealStyleGroup('渐隐遮罩'),
+});
+
 // 画板框选的矩形
 const marquee = Object.assign(document.createElement('div'), { className: 'marquee', hidden: true });
 viewport.append(marquee);
@@ -253,7 +296,7 @@ const resizeHandles = createResizeHandles(viewport, {
   nextLift,
 });
 
-const onContextMenu = createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool });
+const onContextMenu = createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool, layerTools, ui });
 
 interaction = attachViewportInteraction(viewport, {
   getTool: () => ui.tool,
@@ -301,6 +344,8 @@ interaction = attachViewportInteraction(viewport, {
   nextLift,
   toLayoutDelta: ws.toLayoutDelta,
   itemCenterClient: ws.itemCenterClient,
+  itemCornersClient: ws.itemCornersClient,
+  resetCrop: order => { actions.resetCrop(order); toast('已复位裁切'); },
   setItemAdjust: (order, patch) => actions.setItemAdjust(order, patch),
   resetItemAdjust: order => { actions.resetItemAdjust(order); toast('已复位这张卡片'); },
   getSelection: () => ui.selection,
@@ -308,6 +353,9 @@ interaction = attachViewportInteraction(viewport, {
   setItemAdjusts: list => actions.setItemAdjusts(list),
   itemRects: ws.itemRects,
   boardLocalRect: ws.boardLocalRect,
+  layers: layerTools,
+  getLayerSelection: () => ui.layerSel,
+  applyEdits: edits => actions.applyEdits(edits),
   snapEnabled: () => store.get().snap,
   setGuides: alignment.setGuides,
   allCards: ws.allCards,
@@ -319,6 +367,12 @@ const TOOL_HINTS = {
   swap: '交换：把卡片拖到另一张上交换图片',
   rotate: '旋转：拖动卡片旋转 · Shift 按 15° 吸附',
   scale: '比例：拖动以中心等比缩放 · Shift 按 5% 吸附',
+  crop: '裁切：拖动卡片平移图片 · 滚轮放大缩小 · 双击复位 · 右键切换「完整显示」',
+  text: '文字：单击添加文字 · 输入完按 Esc 或点别处结束 · 双击文字可再次编辑',
+  rect: '矩形：拖动绘制 · Shift 正方形 · ⌥ 从中心',
+  ellipse: '椭圆：拖动绘制 · Shift 正圆 · ⌥ 从中心',
+  pen: '钢笔：单击加锚点 · 按住拖动拉出曲线 · 点第一个锚点闭合 · Enter / Esc 结束 · Backspace 撤回锚点',
+  direct: '直接选择：拖动锚点 / 控制柄 · ⌥ 拖控制柄打断对称 · ⌥ 单击锚点切换直角 / 平滑 · 双击路径加锚点 · Delete 删除锚点',
   orbit: '构图：拖动调整画板内构图（3D 旋转 / Shift 平移）· 滚轮缩放构图',
   hand: '抓手：拖动平移视图',
   zoom: '放大镜：单击放大 · ⌥ 单击缩小',
@@ -337,6 +391,7 @@ function updateHint() {
 // 每帧画完后：缩放手柄跟随卡片、工具条显示缩放比例、左栏高亮悬停的幻灯片
 ws.hooks.afterRender = s => {
   resizeHandles.update();
+  layerTools.syncEditor();
   toolbar.update({ tool: ui.tool, tempHand: ui.tempHand, viewZoom: view.zoom, adjustCount: Object.keys(s.adjust[s.layoutId] || {}).length });
   if (ui.listHover == null) {
     const order = ui.dropTarget ?? ui.hover;
@@ -345,15 +400,21 @@ ws.hooks.afterRender = s => {
   }
 };
 
+let hadSelection = false;
 onUiChange(key => {
   if (key === 'selection') alignment.refreshAlign();
+  if (key === 'selection' || key === 'layerSel') {
+    inspector.update();
+    // 选中了图层：右栏切到「参数」页，属性就在最上面（类似 Figma）
+    const has = ui.layerSel.length > 0;
+    if (has && !hadSelection && !settings.isParamsShown()) settings.showMain('params');
+    hadSelection = has;
+  }
   ws.scheduleRender();
 });
 
-const projectChanged = (a, b) =>
-  a.slides !== b.slides || a.assets !== b.assets || a.layoutId !== b.layoutId || a.params !== b.params ||
-  a.style !== b.style || a.aspect !== b.aspect || a.camera !== b.camera || a.adjust !== b.adjust ||
-  a.artboards !== b.artboards || a.activeBoard !== b.activeBoard;
+const SAVED_KEYS = ['slides', 'assets', 'artboards', 'activeBoard', ...BOARD_KEYS];
+const projectChanged = (a, b) => SAVED_KEYS.some(k => a[k] !== b[k]);
 
 let prev = store.get();
 setWheelMode(prev.wheelMode);
@@ -372,10 +433,13 @@ store.subscribe(s => {
     ws.clearBackgrounds();
     requestAnimationFrame(() => ws.fitBoard()); // 打开项目后显示当前画板
   }
+  if (s.layers !== prev.layers || s.activeBoard !== prev.activeBoard || s.project !== prev.project) layerTools.prune();
   if (projectChanged(s, prev)) controller.markDirty();
   settings.update(s);
+  inspector.update(s);
   topbarMenus.update(s);
   bgPicker.update(s);
+  fadePicker.update(s);
   alignment.refreshSnap();
   updateSizePicker(s.exportOpts);
   exporting.popover.update(s);
@@ -396,7 +460,8 @@ controller.init()
   })
   .catch(err => {
     console.error(err);
-    toast(`无法打开本地项目：${err.message}`, { error: true, duration: 6000 });
+    // 例如浏览器禁用了存储、隐私模式、以某些方式直接打开 HTML 文件：仍然可以正常使用，只是不会自动保存
+    toast('当前环境无法使用浏览器存储：可以正常编辑和导出图片，但项目不会保存，刷新后会丢失。建议用 Chrome / Edge 打开', { error: true, duration: 8000 });
   });
 
 // 便于调试 / 以后扩展

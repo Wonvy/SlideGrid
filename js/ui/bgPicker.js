@@ -117,7 +117,7 @@ export function createBgPicker(parent, { store, actions, pickImage, onMore }) {
       el('div', { class: 'menu-sep' }),
       el('button', { class: 'menu-item', onclick: () => { close(); onMore(); } },
         el('span', { class: 'menu-check' }, icon('settings-2', 14)),
-        el('span', { class: 'menu-label' }, '更多背景设置（模糊、遮罩、暗角…）')),
+        el('span', { class: 'menu-label' }, '更多背景设置（模糊、压暗、暗角…）')),
     );
     return { title, types, solids, grads, c1, c2, c2wrap, customLabel, imageRow };
   }

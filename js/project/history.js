@@ -1,4 +1,4 @@
-import { boardsOf } from '../state.js';
+import { boardsOf, BOARD_KEYS } from '../state.js';
 
 /**
  * 撤销 / 重做。
@@ -10,10 +10,11 @@ import { boardsOf } from '../state.js';
  *   - 连续的同类修改（拖滑块、拖卡片、滚轮调参）合并成一步；松开鼠标算一步结束
  *   - 切换项目时清空
  */
-const DOC_FIELDS = ['slides', 'assets', 'artboards', 'activeBoard', 'layoutId', 'params', 'style', 'aspect', 'camera', 'adjust'];
+const CONTENT_FIELDS = ['slides', 'assets', ...BOARD_KEYS];
+const DOC_FIELDS = ['artboards', 'activeBoard', ...CONTENT_FIELDS];
 const LABELS = {
   slides: '幻灯片', assets: '背景图', layoutId: '更换版式', params: '版式参数',
-  style: '样式', aspect: '画布比例', camera: '构图', adjust: '卡片调整',
+  style: '样式', aspect: '画布比例', camera: '构图', adjust: '卡片调整', layers: '图层',
 };
 const MERGE_MS = 800;
 
@@ -22,7 +23,7 @@ const boardIds = s => s.artboards.map(b => b.id).join(',');
 
 // 判断这次变化是什么；返回 null 表示不需要记录
 function classify(prev, s) {
-  const changed = ['slides', 'assets', 'layoutId', 'params', 'style', 'aspect', 'camera', 'adjust'].filter(k => prev[k] !== s[k]);
+  const changed = CONTENT_FIELDS.filter(k => prev[k] !== s[k]);
   const boardsChanged = prev.artboards !== s.artboards;
   const sameBoards = boardIds(prev) === boardIds(s);
 

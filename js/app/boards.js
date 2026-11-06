@@ -1,4 +1,4 @@
-import { store } from '../state.js';
+import { store, boardSettingsOf } from '../state.js';
 import { getLayout } from '../layouts/index.js';
 import { cachedCanvas } from '../render/scene.js';
 import { createPlaceholders } from '../slides/placeholders.js';
@@ -40,12 +40,12 @@ export function boardInput(s, st) {
     camera: st.camera,
     background: bgSourceOf(s, st.style),
     adjust: st.adjust[st.layoutId] || null,
+    layers: st.layers || [],
   };
 }
 
 // 当前画板的设置在 store 顶层
-const activeSettings = s => ({ layoutId: s.layoutId, params: s.params, style: s.style, aspect: s.aspect, camera: s.camera, adjust: s.adjust });
-export const sceneInput = s => boardInput(s, activeSettings(s));
+export const sceneInput = s => boardInput(s, boardSettingsOf(s));
 export const canvasOf = s => cachedCanvas(sceneInput(s));
 
 // 画板在工作区里的世界坐标范围

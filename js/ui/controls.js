@@ -7,7 +7,7 @@ const decimals = step => (String(step).split('.')[1] || '').length;
 
 /**
  * 根据 schema 自动生成控件。
- * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image', default, show?(values), ... }
+ * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image'|'textarea', default, show?(values), ... }
  *          或 { group: '分组标题' }
  * label 可以是函数 (values) => 文本。
  * ctx（可选）：image 控件需要 { imageThumb(id) → canvas|null, pickImage(key), dropTarget }
@@ -139,6 +139,16 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         if (ctx.dropTarget) row.dataset.drop = ctx.dropTarget;
         row.classList.add('image-ctrl');
         row.append(el('div', { class: 'ctrl-actions' }, choose, clear), thumb);
+        break;
+      }
+      case 'textarea': {
+        // 多行文字：边输入边生效（输入框有焦点时不被外部更新覆盖）
+        const input = el('textarea', { class: 'text-input textarea', rows: def.rows || 3, spellcheck: 'false' });
+        input.addEventListener('input', () => onChange(def.key, input.value));
+        input.addEventListener('keydown', e => e.stopPropagation()); // 输入时不触发工具快捷键
+        render = v => { if (document.activeElement !== input) input.value = v ?? ''; };
+        row.classList.add('stacked');
+        row.append(input);
         break;
       }
       case 'seed': {

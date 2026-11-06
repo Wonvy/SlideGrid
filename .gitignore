@@ -8,3 +8,6 @@ Thumbs.db
 
 # Python
 __pycache__/
+
+# 打包输出（python3 build.py 生成）
+dist/

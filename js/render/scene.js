@@ -74,14 +74,23 @@ export function zoomAround(camera, perspective, cx, cy, nextZoom) {
 // 屏幕上移动 1 个世界单位，对应 pan 需要变化多少
 export const panFactor = (camera, perspective) => (perspective ? 1 / (camera.zoom || 1) : 1);
 
-// 图片按 cover 方式填满单元格
-function coverUV(imgAspect, cellAspect) {
-  if (imgAspect > cellAspect) {
-    const sx = cellAspect / imgAspect;
-    return [sx, 1, (1 - sx) / 2, 0];
-  }
-  const sy = imgAspect / cellAspect;
-  return [1, sy, 0, (1 - sy) / 2];
+const clamp1 = v => Math.max(-1, Math.min(1, Number(v) || 0));
+
+/**
+ * 图片按 cover 方式填满卡片，再按裁切参数放大 / 平移。返回 [sx, sy, ox, oy]：
+ * sx / sy 为卡片里显示的图片宽高占比，ox / oy 为左上角偏移（uv 坐标，y 向下）。
+ * crop：{ cropZ ≥ 1 放大, cropX / cropY ∈ [-1, 1] 在可移动范围内的位置（0 = 居中，正值 = 显示右侧 / 下方） }
+ */
+export function cropUV(imgAspect, cellAspect, crop = null) {
+  let sx = 1, sy = 1;
+  if (imgAspect > cellAspect) sx = cellAspect / imgAspect;
+  else sy = imgAspect / cellAspect;
+  const z = Math.max(1, Number(crop?.cropZ) || 1);
+  sx /= z;
+  sy /= z;
+  const ox = (1 - sx) * (0.5 + clamp1(crop?.cropX) / 2);
+  const oy = (1 - sy) * (0.5 + clamp1(crop?.cropY) / 2);
+  return [sx, sy, ox, oy];
 }
 
 /**
@@ -110,6 +119,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
       rz: (it.rz || 0) + (a.rz || 0),
       z: (it.z || 0) + (a.lift || 0) * 20, // 调整过的卡片按操作顺序叠在上面
       adjusted: true,
+      crop: a,
     };
   });
 
@@ -125,12 +135,18 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
       it.x || 0, it.y || 0, it.z || 0, (it.rx || 0) * DEG, (it.ry || 0) * DEG, (it.rz || 0) * DEG, 1,
     ));
     const depth = m4.multiply(view, model)[14]; // 视图空间中心点的 z
+    const imgAspect = slide.aspect || slideAspect;
+    let w = it.w, h = it.h;
+    if (it.crop?.fit === 'contain') {
+      // 完整显示：卡片收缩到图片比例（居中放在原来的位置里），不裁切
+      if (imgAspect > w / h) h = w / imgAspect; else w = h * imgAspect;
+    }
     // order：在版式结果中的序号（同一版式下稳定，用于悬停/拖放定位）
     // slideIndex：对应第几张幻灯片（铺满型版式中会重复出现）
     return {
-      slide, slideIndex, model, w: it.w, h: it.h, order, depth, adjusted: !!it.adjusted,
+      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted,
       opacity: it.opacity ?? 1,
-      uv: coverUV(slide.aspect || slideAspect, it.w / it.h),
+      uv: it.crop?.fit === 'contain' ? [1, 1, 0, 0] : cropUV(imgAspect, w / h, it.crop),
     };
   });
   items.sort((a, b) => (a.depth - b.depth) || (a.order - b.order));

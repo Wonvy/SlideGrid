@@ -5,6 +5,7 @@ import { decodeImage, resizeBitmap } from '../slides/images.js';
 import { exportSize } from './schema.js';
 import { nextFrame } from '../core/utils.js';
 import { tileMatrix } from '../render/math.js';
+import { drawLayers } from '../layers/draw.js';
 
 const MAX_TILE = 2048;
 
@@ -102,6 +103,16 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
     }
   } finally {
     if (!preview) renderer.dispose();
+  }
+  // 图层（文字、形状、路径）画在最上面，按画板坐标缩放到输出尺寸
+  if (input.layers?.length) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, pxW, pxH);
+    ctx.clip();
+    ctx.setTransform(pxW / scene.W, 0, 0, pxH / scene.H, 0, 0);
+    drawLayers(ctx, input.layers);
+    ctx.restore();
   }
   return { canvas: out, width: pxW, height: pxH };
 }

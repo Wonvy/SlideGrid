@@ -25,6 +25,22 @@ function createProgram(gl, vs, fs) {
   return p;
 }
 
+const IDENTITY = m4.identity();
+const FADE_TYPES = { linear: 1, mirror: 2, radial: 3 };
+
+// 渐隐遮罩参数（见 style/schema.js）；开始位置大于结束位置时对调，效果不变
+function setFade(gl, L, st, aspect) {
+  const type = FADE_TYPES[st.fadeType] || 0;
+  gl.uniform1i(L.uFade, type);
+  if (!type) return;
+  const a = ((st.fadeAngle ?? 180) * Math.PI) / 180;
+  gl.uniform2f(L.uFadeDir, Math.sin(a), -Math.cos(a)); // CSS 角度：0° 向上，90° 向右
+  gl.uniform1f(L.uFadeAspect, aspect);
+  let s0 = st.fadeStart ?? 0.5, s1 = st.fadeEnd ?? 1, o0 = st.fadeFrom ?? 1, o1 = st.fadeTo ?? 0;
+  if (s0 > s1) [s0, s1, o0, o1] = [s1, s0, o1, o0];
+  gl.uniform4f(L.uFadeParams, s0, s1, o0, o1);
+}
+
 // 每张卡片（含投影外扩）投影到 NDC 后的包围盒：[minX, minY, maxX, maxY] × n；跨过镜头平面的记为 NaN
 function cullBoxes(scene) {
   const st = scene.style;
@@ -67,8 +83,9 @@ export class Renderer {
     this.textures = new Map(); // slideId -> { tex, source }
 
     this.program = createProgram(gl, VERT, FRAG);
-    const names = ['uMVP', 'uSize', 'uPad', 'uOffset', 'uRadius', 'uMode', 'uTex', 'uUV',
-      'uBorder', 'uBorderColor', 'uBlur', 'uShadowColor', 'uOpacity', 'uHLColor', 'uHLFill', 'uHLRing'];
+    const names = ['uMVP', 'uTile', 'uSize', 'uPad', 'uOffset', 'uRadius', 'uMode', 'uTex', 'uUV',
+      'uBorder', 'uBorderColor', 'uBlur', 'uShadowColor', 'uOpacity', 'uHLColor', 'uHLFill', 'uHLRing',
+      'uFade', 'uFadeDir', 'uFadeAspect', 'uFadeParams'];
     this.loc = Object.fromEntries(names.map(n => [n, gl.getUniformLocation(this.program, n)]));
 
     this.vao = gl.createVertexArray();
@@ -157,7 +174,9 @@ export class Renderer {
     gl.uniform1i(L.uTex, 0);
 
     const st = scene.style;
-    const vp = tile ? m4.multiply(tile, scene.viewProj) : scene.viewProj;
+    const vp = scene.viewProj;
+    gl.uniformMatrix4fv(L.uTile, false, tile || IDENTITY);
+    setFade(gl, L, st, scene.W / scene.H);
     gl.uniform1f(L.uRadius, st.radius);
     gl.uniform1f(L.uBorder, st.borderWidth);
     gl.uniform3f(L.uBorderColor, ...hexToRgb(st.borderColor));

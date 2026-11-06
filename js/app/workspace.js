@@ -8,6 +8,7 @@ import { paintBackground } from '../render/background.js';
 import { rectOfPoints, intersects } from '../workspace/snap.js';
 import { view, toScreen, zoomViewAt, panView, fitRect, unionRect, MIN_ZOOM, MAX_ZOOM } from '../workspace/view.js';
 import { clamp } from '../core/utils.js';
+import { drawLayers } from '../layers/draw.js';
 import { slidesOf, boardInput, boardWorldRect } from './boards.js';
 import { ui } from './uiState.js';
 
@@ -33,10 +34,12 @@ const HL = {
 const BG_KEYS = ['bgType', 'bg1', 'bg2', 'bgAngle', 'bgImageId', 'bgFit', 'bgScale', 'bgSlide', 'bgBlur', 'bgDim', 'bgDimColor', 'vignette'];
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 
-export function createWorkspace({ viewport, bgCanvas, glCanvas }) {
+export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
   const renderer = new Renderer(glCanvas); // 不支持 WebGL2 时抛错，由调用方提示
   const bgCtx = bgCanvas.getContext('2d');
-  const hooks = { afterRender: null };
+  const fgCtx = fgCanvas.getContext('2d'); // 图层（文字、形状、路径）和选框，画在幻灯片上面
+  // afterRender(s)：每帧画完后；drawOverlay(ctx, dpr)：在当前画板上画选框 / 手柄；editingLayer()：正在编辑、不画的文字图层
+  const hooks = { afterRender: null, drawOverlay: null, editingLayer: null };
 
   let frame = 0;
   let viewDpr = dpr();
@@ -120,6 +123,9 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas }) {
     bgCtx.fillStyle = PASTEBOARD;
     bgCtx.fillRect(0, 0, CW, CH);
     renderer.clear();
+    fgCtx.setTransform(1, 0, 0, 1, 0, 0);
+    fgCtx.clearRect(0, 0, CW, CH);
+    const skip = hooks.editingLayer?.() || null;
     for (const slide of slidesOf(s)) renderer.setTexture(slide.id, slide.preview);
 
     boardInfo.clear();
@@ -178,6 +184,22 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas }) {
       renderer.render(info.scene, tile, active ? buildOverlays(info.scene) : [], {
         viewport: [vx0, CH - vy1, vx1 - vx0, vy1 - vy0], clear: false,
       });
+
+      // 图层：裁切在画板范围内（与导出一致）
+      if (b.settings.layers?.length) {
+        fgCtx.save();
+        fgCtx.beginPath();
+        fgCtx.rect(px.x, px.y, px.w, px.h);
+        fgCtx.clip();
+        fgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, px.x, px.y);
+        drawLayers(fgCtx, b.settings.layers, { skip });
+        fgCtx.restore();
+      }
+    }
+    // 当前画板的选框、手柄、锚点（不裁切，可以超出画板）
+    if (boardInfo.get(s.activeBoard)) {
+      fgCtx.setTransform(1, 0, 0, 1, 0, 0);
+      hooks.drawOverlay?.(fgCtx, d);
     }
     hooks.afterRender?.(s);
   }
@@ -186,8 +208,8 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas }) {
     const w = viewport.clientWidth, h = viewport.clientHeight;
     viewDpr = dpr();
     const pw = Math.max(1, Math.round(w * viewDpr)), ph = Math.max(1, Math.round(h * viewDpr));
-    bgCanvas.width = pw;
-    bgCanvas.height = ph;
+    bgCanvas.width = fgCanvas.width = pw;
+    bgCanvas.height = fgCanvas.height = ph;
     renderer.setSize(pw, ph);
     if (autoFit) (autoFit.all ? fitAll : fitBoard)(autoFit.id); // 没手动调过视图时，窗口变化后重新适配
     scheduleRender();
