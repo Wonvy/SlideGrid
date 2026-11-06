@@ -25,8 +25,12 @@ export const layerSchema = [
     key: 'fit', label: '显示方式', type: 'select', types: ['device'],
     options: [{ value: 'cover', label: '填满屏幕' }, { value: 'contain', label: '完整显示' }],
   },
+  { key: 'screenZoom', label: '画面放大', type: 'range', min: 1, max: 4, step: 0.01, default: 1, types: ['device'] },
+  { key: 'screenX', label: '水平位置', type: 'range', min: -1, max: 1, step: 0.01, default: 0, half: true, types: ['device'], show: v => (v.screenZoom || 1) > 1 || v.fit !== 'contain' },
+  { key: 'screenY', label: '垂直位置', type: 'range', min: -1, max: 1, step: 0.01, default: 0, half: true, types: ['device'], show: v => (v.screenZoom || 1) > 1 || v.fit !== 'contain' },
   { key: 'frame', label: '外观', type: 'select', types: ['device'], show: v => v.device !== 'custom', options: Object.entries(FRAMES).map(([value, f]) => ({ value, label: f.label })) },
   { key: 'shadow', label: '投影', type: 'toggle', types: ['device'] },
+  { key: 'reflection', label: '倒影', type: 'toggle', types: ['device'] },
 
   { group: '文字', types: ['text'] },
   { key: 'text', label: '内容', type: 'textarea', types: ['text'] },

@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""
+SlideGrid 冒烟测试：用无头 Chromium 打开开发版（本地服务）和单文件版（file:// 直接打开），
+把最常用的流程走一遍。任何一步失败，退出码为 1。
+
+    pip install -r tests/requirements.txt
+    python -m playwright install chromium
+    python tests/smoke.py            # 两个版本都测
+    python tests/smoke.py --dev      # 只测开发版
+    python tests/smoke.py --single   # 只测单文件版（根目录的 SlideGrid.html）
+"""
+import argparse
+import socket
+import struct
+import subprocess
+import sys
+import time
+import traceback
+import zlib
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def png(w: int, h: int, rgb: tuple) -> bytes:
+    """生成一张纯色 PNG（只用标准库）。"""
+    raw = b''.join(b'\x00' + bytes(rgb) * w for _ in range(h))
+    chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
+
+
+SLIDES = [{'name': f's{i + 1}.png', 'mimeType': 'image/png', 'buffer': png(320, 180, c)}
+          for i, c in enumerate([(230, 100, 70), (70, 110, 230), (70, 170, 110)])]
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+def start_server():
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, str(ROOT / 'serve.py'), str(port)], cwd=ROOT,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):
+        try:
+            socket.create_connection(('127.0.0.1', port), timeout=0.2).close()
+            return proc, f'http://127.0.0.1:{port}/'
+        except OSError:
+            time.sleep(0.1)
+    proc.kill()
+    raise SystemExit('本地服务没有启动')
+
+
+# ---------------- 测试步骤（按顺序执行，共用同一个页面） ----------------
+
+def wait_app(page):
+    page.wait_for_function('window.SlideGrid && document.querySelector(".rp-rail")', timeout=15000)
+
+
+def t_load(page, errors):
+    wait_app(page)
+    assert not errors, f'页面报错：{errors}'
+    assert page.evaluate('SlideGrid.store.get().artboards.length') == 1
+
+
+def t_import(page, errors):
+    page.set_input_files('#file-input', SLIDES)
+    page.wait_for_function('SlideGrid.store.get().slides.length === 3', timeout=15000)
+    names = page.evaluate('SlideGrid.store.get().slides.map(x => x.name)')
+    assert names == ['s1.png', 's2.png', 's3.png'], names
+
+
+def t_drop(page, errors):
+    # 模拟把两张图片拖到左栏（DataTransfer 里只有文件，没有文件系统入口——和单文件版直接打开时一样）
+    page.evaluate('''async () => {
+      const mk = async n => { const c = new OffscreenCanvas(320, 180); c.getContext('2d').fillRect(0, 0, 320, 180);
+        return new File([await c.convertToBlob({ type: 'image/png' })], `d${n}.png`, { type: 'image/png' }); };
+      const dt = new DataTransfer(); dt.items.add(await mk(1)); dt.items.add(await mk(2));
+      const t = document.querySelector('#slides-panel');
+      for (const type of ['dragenter', 'dragover', 'drop']) t.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }''')
+    page.wait_for_function('SlideGrid.store.get().slides.length === 5', timeout=15000)
+    # 恢复成 3 张，方便后面的检查
+    page.evaluate('''() => { for (const x of SlideGrid.store.get().slides.slice(3)) SlideGrid.actions.removeSlide(x.id); }''')
+    assert page.evaluate('SlideGrid.store.get().slides.length') == 3
+
+
+def t_inherit(page, errors):
+    r = page.evaluate('''async () => {
+      const S = () => SlideGrid.store.get();
+      const names = l => l.map(x => x.name.replace(/\\D/g, '')).join('');
+      const first = S().activeBoard;
+      SlideGrid.addBoard(); await new Promise(r => setTimeout(r, 100));
+      const second = S().activeBoard;
+      const out = { newFollows: !S().slidesOwn };
+      SlideGrid.actions.swapSlides(0, 1);                       // 画布上交换：画板 2 单独设置
+      out.ownAfterSwap = S().slidesOwn; out.second = names(S().slides); out.library = names(S().library);
+      SlideGrid.actions.setActiveBoard(first);
+      SlideGrid.actions.moveSlide(0, 2);                        // 左栏排序：共用列表变，画板 2 不变
+      out.firstAfterMove = names(S().slides);
+      out.secondAfterMove = names(S().artboards.find(b => b.id === second).settings.slides);
+      SlideGrid.actions.setActiveBoard(second);
+      SlideGrid.actions.followLibrary();                        // 恢复跟随
+      out.followed = names(S().slides) === names(S().library);
+      SlideGrid.actions.setActiveBoard(first);
+      return out;
+    }''')
+    assert r['newFollows'], r
+    assert r['ownAfterSwap'] and r['second'] == '213' and r['library'] == '123', r
+    assert r['firstAfterMove'] == '231' and r['secondAfterMove'] == '213', r
+    assert r['followed'], r
+
+
+def t_mockup(page, errors):
+    page.click('.rp-rail [aria-label="样机"]')
+    page.click('.mockup-device[aria-label="笔记本"]')
+    page.locator('.mockup-card:not([hidden])').nth(1).click()   # 笔记本 · 左侧
+    layer = page.evaluate('SlideGrid.store.get().layers.at(-1)')
+    assert layer['type'] == 'device' and layer['device'] == 'laptop' and layer['yaw'] != 0, layer
+
+
+def t_undo(page, errors):
+    n = page.evaluate('SlideGrid.store.get().layers.length')
+    page.evaluate('SlideGrid.history.undo()')
+    assert page.evaluate('SlideGrid.store.get().layers.length') == n - 1
+    page.evaluate('SlideGrid.history.redo()')
+    assert page.evaluate('SlideGrid.store.get().layers.length') == n
+
+
+def t_export(page, errors):
+    r = page.evaluate('''async () => { const { blob, width, height } = await SlideGrid.renderToBlob({ longSide: 1600 });
+      return { width, height, size: blob.size }; }''')
+    assert r['width'] == 1600 and r['height'] == 900 and r['size'] > 20000, r
+
+
+def t_persist(page, errors):
+    page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
+    page.reload()
+    wait_app(page)
+    page.wait_for_function('SlideGrid.store.get().slides.length === 3', timeout=15000)
+    r = page.evaluate('''() => { const s = SlideGrid.store.get();
+      return { boards: s.artboards.length, devices: s.artboards.flatMap(b => b.id === s.activeBoard ? s.layers : b.settings.layers).filter(l => l.type === 'device').length }; }''')
+    assert r['boards'] == 2 and r['devices'] == 1, r
+
+
+STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
+         ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export), ('刷新后数据还在', t_persist)]
+
+
+def run(browser, label, url) -> bool:
+    print(f'\n== {label}：{url}')
+    ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
+    page = ctx.new_page()
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    page.goto(url)
+    ok = True
+    for name, step in STEPS:
+        try:
+            step(page, errors)
+            print(f'  ✓ {name}')
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            print(f'  ✗ {name}：{e}')
+            traceback.print_exc(limit=1)
+            break
+    if errors:
+        ok = False
+        print(f'  ✗ 页面报错：{errors}')
+    ctx.close()
+    return ok
+
+
+def main():
+    ap = argparse.ArgumentParser(description='SlideGrid 冒烟测试')
+    ap.add_argument('--dev', action='store_true', help='只测开发版')
+    ap.add_argument('--single', action='store_true', help='只测单文件版')
+    args = ap.parse_args()
+    both = not args.dev and not args.single
+    results = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        if both or args.dev:
+            proc, url = start_server()
+            try:
+                results.append(run(browser, '开发版', url))
+            finally:
+                proc.kill()
+        if both or args.single:
+            single = ROOT / 'SlideGrid.html'
+            if not single.is_file():
+                raise SystemExit('找不到 SlideGrid.html，请先运行 python3 build.py')
+            results.append(run(browser, '单文件版（直接打开）', single.as_uri()))
+        browser.close()
+    print('\n全部通过' if all(results) else '\n有测试失败')
+    sys.exit(0 if all(results) else 1)
+
+
+if __name__ == '__main__':
+    main()

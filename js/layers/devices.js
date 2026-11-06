@@ -88,8 +88,21 @@ const rr = (ctx, x, y, w, h, r) => {
   ctx.roundRect(x, y, w, h, r);
 };
 
-// 屏幕：黑底 + 幻灯片（填满裁切 / 完整显示）+ 很淡的反光
-function drawScreen(ctx, d, img, fit, gloss) {
+// 屏幕内容的显示方式：fit（cover 填满裁切 / contain 完整显示）、zoom（再放大）、x / y（-1 ~ 1，放大后看哪一部分）
+export const screenView = l => ({ fit: l.fit || 'cover', zoom: l.screenZoom || 1, x: l.screenX || 0, y: l.screenY || 0 });
+const viewKey = v => `${v.fit}|${v.zoom}|${v.x}|${v.y}`;
+
+// 竖屏手机、手表这类屏幕比例和横版幻灯片差很多的设备，默认完整显示（否则只剩中间一条）
+export function autoFit(device, img) {
+  const screen = DEVICES[device]?.screen;
+  if (!screen || !img?.width) return 'cover';
+  const sr = screen[2] / screen[3], ir = img.width / img.height;
+  return Math.max(sr / ir, ir / sr) > 1.6 ? 'contain' : 'cover';
+}
+
+// 屏幕：黑底 + 幻灯片（按 view 显示）+ 很淡的反光。view 也可以只传 fit 字符串
+function drawScreen(ctx, d, img, view, gloss) {
+  const v = typeof view === 'string' ? { fit: view, zoom: 1, x: 0, y: 0 } : view;
   const [x, y, w, h] = d.screen;
   ctx.save();
   rr(ctx, x, y, w, h, d.radius || 0);
@@ -97,10 +110,12 @@ function drawScreen(ctx, d, img, fit, gloss) {
   ctx.fillStyle = '#000';
   ctx.fillRect(x, y, w, h);
   if (img?.width) {
-    const k = fit === 'contain' ? Math.min(w / img.width, h / img.height) : Math.max(w / img.width, h / img.height);
+    const k = (v.fit === 'contain' ? Math.min(w / img.width, h / img.height) : Math.max(w / img.width, h / img.height)) * v.zoom;
     const dw = img.width * k, dh = img.height * k;
+    // 比屏幕大时可以平移：x / y = -1 看左 / 上边，1 看右 / 下边
+    const ox = (w - dw) / 2 - (v.x * Math.max(0, dw - w)) / 2, oy = (h - dh) / 2 - (v.y * Math.max(0, dh - h)) / 2;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    ctx.drawImage(img, x + ox, y + oy, dw, dh);
   } else {
     ctx.fillStyle = '#1b1d22';
     ctx.fillRect(x, y, w, h);
@@ -244,8 +259,66 @@ const BODY = {
 /**
  * 画一个设备图层。img：屏幕里的幻灯片图片（ImageBitmap / canvas），没有时屏幕为深灰
  * 调用前 ctx 已设为画板坐标；旋转、不透明度由 drawLayers 处理。
+ * 依次画：接触阴影（放在桌面上的设备、带角度的设备）→ 倒影（reflection）→ 设备本身
  */
 export function drawDevice(ctx, l, img, frameImg = null) {
+  const standing = ['laptop', 'monitor', 'projector'].includes(l.device) || hasAngle(l);
+  if (l.shadow !== false && standing) drawContactShadow(ctx, l);
+  if (l.reflection) drawReflection(ctx, l, img, frameImg);
+  drawDeviceBody(ctx, l, img, frameImg);
+}
+
+// 接触阴影：设备底部一个压扁的柔和椭圆
+function drawContactShadow(ctx, l) {
+  const cx = l.x + l.w / 2, cy = l.y + l.h * 0.985, rx = l.w * 0.46, ry = Math.max(l.h * 0.035, l.w * 0.012);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, ry / rx);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, 'rgba(0,0,0,0.38)');
+  g.addColorStop(0.55, 'rgba(0,0,0,0.16)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, rx, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// 倒影：把设备画到离屏画布（按当前显示尺寸，图层对象不变时复用），上下翻转、由近到远渐隐，贴在设备下方
+const reflectCache = new WeakMap();
+function drawReflection(ctx, l, img, frameImg) {
+  const m = ctx.getTransform();
+  const px = Math.min(Math.hypot(m.a, m.b), 2048 / Math.max(l.w, l.h));
+  const bucket = 2 ** (Math.round(Math.log2(Math.max(px, 1 / 64)) * 2) / 2);
+  let hit = reflectCache.get(l);
+  if (!hit || hit.bucket !== bucket || hit.img !== img || hit.frameImg !== frameImg) {
+    const W = Math.max(2, Math.round(l.w * bucket)), H = Math.max(2, Math.round(l.h * bucket));
+    const c = new OffscreenCanvas(W, H);
+    const g = c.getContext('2d');
+    g.scale(W / l.w, H / l.h);
+    g.translate(-l.x, -l.y);
+    drawDeviceBody(g, { ...l, shadow: false }, img, frameImg);
+    // 底部（贴近地面）最清楚，往上渐隐
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'destination-in';
+    const fade = g.createLinearGradient(0, H, 0, H * 0.45);
+    fade.addColorStop(0, 'rgba(0,0,0,0.32)');
+    fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = fade;
+    g.fillRect(0, 0, W, H);
+    hit = { bucket, img, frameImg, canvas: c };
+    reflectCache.set(l, hit);
+  }
+  const bottom = l.y + l.h;
+  ctx.save();
+  ctx.translate(0, bottom * 2 + l.h * 0.01);
+  ctx.scale(1, -1);
+  ctx.drawImage(hit.canvas, l.x, l.y, l.w, l.h);
+  ctx.restore();
+}
+
+function drawDeviceBody(ctx, l, img, frameImg = null) {
   if (l.device === 'custom') { drawCustom(ctx, l, img, frameImg); return; }
   if (hasAngle(l)) { drawAngled(ctx, l, img); return; }
   const d = deviceOf(l.device);
@@ -255,7 +328,7 @@ export function drawDevice(ctx, l, img, frameImg = null) {
   ctx.translate(l.x + (l.w - d.w * s) / 2, l.y + (l.h - d.h * s) / 2);
   ctx.scale(s, s);
   const shadow = l.shadow !== false;
-  drawFlat(ctx, l.device, d, f, img, l.fit, shadow, unitPx(ctx, 1));
+  drawFlat(ctx, l.device, d, f, img, screenView(l), shadow, unitPx(ctx, 1));
   ctx.restore();
 }
 
@@ -279,7 +352,7 @@ function drawQuadScreen(ctx, l, img) {
   ctx.closePath();
   ctx.fillStyle = img?.width ? '#000' : '#1b1d22';
   ctx.fill();
-  if (img?.width) drawWarped(ctx, img, q, { fit: l.fit });
+  if (img?.width) drawWarped(ctx, img, q, screenView(l));
 }
 
 // 自定义 PNG 样机：投影 → 屏幕内容 → PNG 外框（屏幕不透明的 PNG：外框 → 屏幕内容）
@@ -575,13 +648,14 @@ export function angledAspect(id, yaw, pitch) {
 
 // 贴图缓存：同一张图片、同一设备 / 外观 / 显示方式 / 尺寸档位复用（工作区每帧重画，不能每次都重做贴图）
 const texCache = new WeakMap();
+const texOrder = [], TEX_LIMIT = 64;
 const NO_IMAGE = {};
 function faceTexture(key, img, face, f, fit, scale) {
   const owner = img || NO_IMAGE;
   let map = texCache.get(owner);
   if (!map) texCache.set(owner, (map = new Map()));
   const k = 2 ** (Math.ceil(Math.log2(Math.max(scale, 1 / 64)) * 2) / 2); // 每 √2 倍一档
-  const id = `${key}|${fit}|${k}`;
+  const id = `${key}|${viewKey(fit)}|${k}`;
   let c = map.get(id);
   if (!c) {
     const w = Math.max(2, Math.min(4096, Math.round(face.tw * k))), h = Math.max(2, Math.min(4096, Math.round(face.th * k)));
@@ -590,7 +664,9 @@ function faceTexture(key, img, face, f, fit, scale) {
     g.scale(w / face.tw, h / face.th);
     face.paint(g, img, fit);
     map.set(id, c);
-    if (map.size > 24) map.delete(map.keys().next().value);
+    // 全局最多保留 TEX_LIMIT 张贴图（最早做的先丢）
+    texOrder.push([map, id]);
+    while (texOrder.length > TEX_LIMIT) { const [m, k2] = texOrder.shift(); m.delete(k2); }
   }
   return c;
 }
@@ -652,7 +728,7 @@ function drawAngled(ctx, l, img) {
     }
     const span = Math.max(Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]), Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]));
     const scale = (span * unitPx(ctx, 1) * 1.15) / Math.max(fc.tw, fc.th);
-    const tex = faceTexture(`${l.device}|${l.frame}|${fc.idx}`, img, fc, f, l.fit, scale);
+    const tex = faceTexture(`${l.device}|${l.frame}|${fc.idx}`, img, fc, f, screenView(l), scale);
     drawWarped(ctx, tex, q, { fit: 'fill' });
   }
 }

@@ -1389,3 +1389,18 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: no
 .qp-foot .bar-spacer { flex: 1; }
 .qp-foot .btn { height: 34px; padding: 0 14px; border-radius: 10px; gap: 6px; }
 .qp-preview { display: flex; align-items: center; gap: 8px; margin-left: 6px; font-size: 13px; color: var(--muted); }
+/* 样机页：设备选择（4 列图标按钮） */
+.mockup-devices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.mockup-device {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 2px 6px;
+  border: 0; border-radius: 10px; background: var(--field); color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.mockup-device:hover { background: var(--field-hover); color: var(--text); }
+.mockup-device.active { background: var(--chip-on); color: var(--chip-on-fg); }
+.mockup-card[hidden] { display: none; }
+/* 样机缩略图用浅色底，深色设备也看得清 */
+.mockup-thumb { background: #e9ebef; border-radius: 8px; }
+/* 工具条：折叠后的填充 / 描边按钮（带当前颜色）和弹出面板 */
+.tb-swatch { width: 14px; height: 14px; margin: 0 2px 0 4px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); background-image: none; }
+.ctx-pop { padding: 8px 10px 10px; }
+.ctx-pop .ctx-controls { display: flex; align-items: center; gap: 6px; }

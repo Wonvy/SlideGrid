@@ -42,6 +42,11 @@ const BARS = {
   mixed: pick(['opacity'], COMPACT),
 };
 const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ');
+// 形状的填充、描边：宽度够时整排显示，放不下时（比排列、对齐更早）折叠成按钮 + 弹出面板
+const SHAPE_GROUPS = [
+  { keys: ['fillType', 'fill', 'fillAlpha'], icon: 'paint-bucket', label: '填充', priority: 0.5, swatch: v => (v.fillType === 'none' ? 'transparent' : v.fill) },
+  { keys: ['strokeWidth', 'stroke'], icon: 'square', label: '描边', priority: 0.4, swatch: v => (v.strokeWidth > 0 ? v.stroke : 'transparent') },
+];
 
 export function createContextBar(slot, { store, ui, setLayerProp, setCards, getCards, resetCrop, reorder, removeLayers, typeName, booleanOp, booleanCount }) {
   const box = el('div', { class: 'ctx-controls' });
@@ -94,6 +99,37 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
   let updateControls = () => {};
   const cardValues = order => ({ fit: 'cover', cropZ: 1, ...((store.get().adjust[store.get().layoutId] || {})[order]) });
 
+  // 形状工具条：填充、描边各成一组（可折叠），其余（整体不透明度）直接放
+  let lastValues = null;
+  function buildShapeBar(schema, values, change, opts) {
+    const updaters = [];
+    for (const g of SHAPE_GROUPS) {
+      const defs = schema.filter(d => g.keys.includes(d.key));
+      const inner = el('div', { class: 'ctx-controls tb-fold-controls' });
+      updaters.push(buildControls(inner, defs, values, change, opts));
+      // 折叠后的按钮：图标 + 当前颜色 + 箭头；点开是同样的控件
+      const swatch = el('span', { class: 'tb-swatch' });
+      const trigger = el('button', { class: 'tb-btn tb-menu-btn', title: g.label, 'aria-label': g.label }, icon(g.icon, 15), swatch, icon('chevron-down', 12));
+      let popUpdate = null;
+      createMenu(trigger, {
+        align: 'center',
+        className: 'ctx-pop',
+        render(pop) {
+          const c = el('div', { class: 'ctx-controls' });
+          popUpdate = buildControls(c, defs, lastValues, change, opts);
+          pop.replaceChildren(el('div', { class: 'menu-title' }, g.label), c);
+        },
+      });
+      updaters.push(v => { popUpdate?.(v); swatch.style.background = g.swatch(v); });
+      box.append(foldGroup({ inline: [inner], trigger, priority: g.priority }));
+    }
+    const grouped = SHAPE_GROUPS.flatMap(g => g.keys);
+    const rest = el('div', { class: 'ctx-controls' });
+    updaters.push(buildControls(rest, schema.filter(d => !grouped.includes(d.key)), values, change, opts));
+    box.append(rest);
+    return v => updaters.forEach(u => u(v));
+  }
+
   // 返回当前上下文：'board' | 'layers' | 'cards'
   function update(s = store.get()) {
     const sel = (s.layers || []).filter(l => ui.layerSel.includes(l.id));
@@ -122,11 +158,14 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
       key = next;
       box.innerHTML = '';
       // 工具条不会滚动：悬停即可用滚轮调参（Shift 加速）
-      updateControls = schema ? buildControls(box, schema, values, (k, v) => onChange(k, v), { wheelImmediate: true, inline: true }) : () => {};
+      const opts = { wheelImmediate: true, inline: true };
+      const change = (k, v) => onChange(k, v);
+      if (next.startsWith('layers:shape')) updateControls = buildShapeBar(schema, values, change, opts);
+      else updateControls = schema ? buildControls(box, schema, values, change, opts) : () => {};
       const bool = ctx === 'layers' && next.endsWith('bool') ? boolActions : [];
       actionsBox.replaceChildren(...bool, ...(ctx === 'layers' ? layerActions : ctx === 'cards' ? cardActions : []));
     }
-    if (values) updateControls(values);
+    if (values) { lastValues = values; updateControls(values); }
     return ctx;
   }
 

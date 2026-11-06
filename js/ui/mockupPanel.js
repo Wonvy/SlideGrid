@@ -1,12 +1,14 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
-import { FRAMES, DEVICE_PRESETS, deviceAspect, drawDevice } from '../layers/devices.js';
+import { DEVICES, FRAMES, DEVICE_PRESETS, deviceAspect, drawDevice, autoFit } from '../layers/devices.js';
 
 const FRAME_KEY = 'slidegrid:mockup-frame';
+const DEVICE_KEY = 'slidegrid:mockup-device';
 export const MOCKUP_DRAG_TYPE = 'application/x-slidegrid-mockup';
 
 /**
- * 右栏「样机」页：选外观（深空灰 / 银色 / 白色），点设备把它加到当前画板中间（样机图层）；
+ * 右栏「样机」页：先选设备（一排图标），再从这种设备的角度（正面 / 左侧 / 右侧 / 俯视）里点一个加到当前画板中间；
+ * 外观（深空灰 / 银色 / 白色）作用于新添加的样机。
  * 也可以上传 PNG 样机（屏幕区域透明），本项目用过的 PNG 样机列在下面，点击再次添加。
  * 缩略图用当前画板的第一张幻灯片绘制，和实际效果一致。
  *   onAdd(preset, frame, at?)：preset 为 DEVICE_PRESETS 里的一项（设备 + 角度）；onUpload(file)；onAddCustom(template, at?)
@@ -29,13 +31,32 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     return b;
   }));
 
+  // 设备选择：一排图标按钮，下面只显示这种设备的角度
+  let device = 'laptop';
+  try { if (localStorage.getItem(DEVICE_KEY) in DEVICES) device = localStorage.getItem(DEVICE_KEY); } catch { /* 忽略 */ }
+  const deviceBtns = new Map();
+  const devicePicker = el('div', { class: 'mockup-devices', role: 'tablist' }, Object.entries(DEVICES).map(([id, d]) => {
+    const b = el('button', { type: 'button', class: 'mockup-device', title: d.label, 'aria-label': d.label }, icon(d.icon, 18), el('span', {}, d.label.replace('（横）', ' 横')));
+    b.addEventListener('click', () => {
+      device = id;
+      try { localStorage.setItem(DEVICE_KEY, id); } catch { /* 忽略 */ }
+      showDevice();
+    });
+    deviceBtns.set(id, b);
+    return b;
+  }));
+
   const cards = DEVICE_PRESETS.map(p => {
     const canvas = el('canvas', { class: 'mockup-thumb' });
     const b = el('button', { class: 'mockup-card', draggable: 'true', title: `点击添加「${p.label}」到当前画板中间，或拖到画板上` }, canvas, el('span', { class: 'mockup-name' }, p.label));
     b.addEventListener('click', () => onAdd(p, frame));
     dragSource(b, () => ({ preset: DEVICE_PRESETS.indexOf(p), frame }));
-    return { p, canvas };
+    return { p, canvas, card: b };
   });
+  function showDevice() {
+    deviceBtns.forEach((b, id) => b.classList.toggle('active', id === device));
+    cards.forEach(c => { c.card.hidden = c.p.device !== device; });
+  }
 
   // 上传 PNG 样机
   const fileInput = el('input', { type: 'file', accept: 'image/png,image/webp', hidden: true });
@@ -47,8 +68,9 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
 
   container.append(
     el('div', { class: 'ctrls' },
+      el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '设备'), devicePicker),
       el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '外观'), seg)),
-    el('div', { class: 'mockup-grid' }, cards.map(c => c.canvas.parentElement)),
+    el('div', { class: 'mockup-grid' }, cards.map(c => c.card)),
     uploadBtn, fileInput,
     el('p', { class: 'note pane-hint' }, 'PNG 样机：屏幕区域要是透明的（被外框包围），上传后自动识别屏幕。'),
     customHead, customGrid,
@@ -110,13 +132,14 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     ctx.clearRect(0, 0, W, H);
     const ar = deviceAspect(p.device, p);
     const pad = 10, w = Math.min(W - pad * 2, (H - pad * 2) / ar), h = w * ar;
-    drawDevice(ctx, { device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, fit: 'cover', shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide());
+    drawDevice(ctx, { device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, fit: autoFit(p.device, getSlide()), shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide());
   }
 
   function refresh() {
     frameBtns.forEach((b, id) => b.classList.toggle('active', id === frame));
     cards.forEach(draw);
     renderCustom();
+    showDevice();
   }
   refresh();
 

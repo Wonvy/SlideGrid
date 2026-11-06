@@ -29,20 +29,30 @@ const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 // 四边形的大致宽高比（对边长度取平均）
 export const quadAspect = q => (dist(q[0], q[1]) + dist(q[3], q[2])) / Math.max(1e-6, dist(q[0], q[3]) + dist(q[1], q[2]));
 
-// 一个三角形：源图里的三点 s → 目标三点 d（目标三角形向外扩 grow 盖住接缝）
+// 三角形的每条边沿法线向外平移 grow（斜接；很尖的角限制外扩长度），细长三角形的长边也能盖住接缝
+function expand(d, grow) {
+  const sign = Math.sign((d[1][0] - d[0][0]) * (d[2][1] - d[0][1]) - (d[1][1] - d[0][1]) * (d[2][0] - d[0][0])) || 1;
+  const normal = (a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+    return [(dy / len) * sign, (-dx / len) * sign]; // 指向三角形外侧
+  };
+  const n = [normal(d[0], d[1]), normal(d[1], d[2]), normal(d[2], d[0])]; // 边 i：顶点 i → i+1
+  return d.map((p, i) => {
+    const a = n[(i + 2) % 3], b = n[i]; // 这个顶点相邻的两条边
+    const k = Math.min(4, 1 / Math.max(0.25, 1 + a[0] * b[0] + a[1] * b[1])); // 斜接长度
+    return [p[0] + (a[0] + b[0]) * grow * k, p[1] + (a[1] + b[1]) * grow * k];
+  });
+}
+
+// 一个三角形：源图里的三点 s → 目标三点 d（目标三角形各边向外扩 grow 盖住接缝）
 function triangle(ctx, img, s, d, grow) {
   const [[u0, v0], [u1, v1], [u2, v2]] = s;
   const [[x0, y0], [x1, y1], [x2, y2]] = d;
   const det = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
   if (Math.abs(det) < 1e-9) return;
-  const cx = (x0 + x1 + x2) / 3, cy = (y0 + y1 + y2) / 3;
   ctx.save();
   ctx.beginPath();
-  d.forEach(([x, y], i) => {
-    const len = Math.hypot(x - cx, y - cy) || 1;
-    const ex = x + ((x - cx) / len) * grow, ey = y + ((y - cy) / len) * grow;
-    if (i) ctx.lineTo(ex, ey); else ctx.moveTo(ex, ey);
-  });
+  expand(d, grow).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.closePath();
   ctx.clip();
   const a = ((x1 - x0) * (v2 - v0) - (x2 - x0) * (v1 - v0)) / det;
@@ -59,9 +69,9 @@ function triangle(ctx, img, s, d, grow) {
 
 /**
  * 把 img 透视填充进四边形 q（当前坐标系下的四个点：左上、右上、右下、左下）。
- * fit：'cover' 裁切填满（按四边形的大致比例），'contain' 完整显示（其余部分留给调用方的底色），'fill' 整张拉伸
+ * fit：'cover' 裁切填满（按四边形的大致比例，zoom 放大、x / y 平移），'contain' 完整显示（其余部分留给调用方的底色），'fill' 整张拉伸
  */
-export function drawWarped(ctx, img, q, { fit = 'cover' } = {}) {
+export function drawWarped(ctx, img, q, { fit = 'cover', zoom = 1, x = 0, y = 0 } = {}) {
   if (!img?.width) return;
   const m = ctx.getTransform();
   const px = Math.hypot(m.a, m.b) || 1; // 1 个单位 = 多少像素
@@ -73,7 +83,13 @@ export function drawWarped(ctx, img, q, { fit = 'cover' } = {}) {
     if (ir > ar) { const k = ar / ir; v0 = (1 - k) / 2; v1 = v0 + k; } else { const k = ir / ar; u0 = (1 - k) / 2; u1 = u0 + k; }
   } else if (fit === 'fill') {
     // 整张拉伸填满（贴图本身已按四边形的形状画好）
-  } else if (ir > ar) { sw = img.height * ar; sx = (img.width - sw) / 2; } else { sh = img.width / ar; sy = (img.height - sh) / 2; }
+  } else {
+    // 填满裁切：取和四边形比例一致的一块；zoom 再放大，x / y（-1 ~ 1）决定取哪一部分
+    if (ir > ar) { sw = img.height * ar; } else { sh = img.width / ar; }
+    sw /= zoom; sh /= zoom;
+    sx = ((img.width - sw) * (1 + x)) / 2;
+    sy = ((img.height - sh) * (1 + y)) / 2;
+  }
   // 网格密度随屏幕上的大小变化：小的时候少切几块
   const span = Math.max(dist(q[0], q[2]), dist(q[1], q[3])) * px;
   const n = Math.max(4, Math.min(16, Math.round(span / 70)));
@@ -84,7 +100,7 @@ export function drawWarped(ctx, img, q, { fit = 'cover' } = {}) {
       grid.push({ d: H(u, v), s: [sx + (sw * i) / n, sy + (sh * j) / n] });
     }
   }
-  const grow = 0.6 / px;
+  const grow = 0.75 / px;
   ctx.save();
   ctx.imageSmoothingQuality = 'high';
   for (let j = 0; j < n; j++) {

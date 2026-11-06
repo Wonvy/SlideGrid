@@ -53,7 +53,8 @@ function classify(prev, s) {
   return { label, sig: `${changed.join('+')}|${boardsChanged ? (sameBoards ? 'b' : 'B') : ''}|${label}` };
 }
 
-export function createHistory(store, { limit = 100, onChange = () => {} } = {}) {
+export function createHistory(store, { limit: initialLimit = 100, onChange = () => {} } = {}) {
+  let limit = initialLimit;
   const undoStack = [];
   const redoStack = [];
   let prev = store.get();
@@ -140,5 +141,11 @@ export function createHistory(store, { limit = 100, onChange = () => {} } = {}) 
     undoLabel: () => undoStack.at(-1)?.label || '',
     redoLabel: () => redoStack.at(-1)?.label || '',
     clear() { undoStack.length = 0; redoStack.length = 0; onChange(); },
+    // 调整最多保留的撤销步数（大项目时调低，释放旧记录引用的图片）
+    setLimit(n) {
+      limit = n;
+      if (undoStack.length > limit) undoStack.splice(0, undoStack.length - limit);
+      onChange();
+    },
   };
 }

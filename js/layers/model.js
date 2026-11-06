@@ -13,7 +13,8 @@
  *            路径不使用 rotation：旋转、缩放直接作用在锚点上；x / y / w / h 为路径的包围盒
  *   image    assetId（项目素材里的图片，见 state.assets）、radius（圆角）；缩放时保持比例
  *   device   设备样机（layers/devices.js）：device（laptop / monitor / tablet / projector / custom）、slide（屏幕显示第几张，从 1 开始）、
- *            imageId（屏幕用自己的图片素材，优先于 slide）、fit（cover / contain）、frame（dark / silver / light）、shadow；
+ *            imageId（屏幕用自己的图片素材，优先于 slide）、fit（cover / contain）、screenZoom / screenX / screenY（画面放大和位置）、
+ *            frame（dark / silver / light）、shadow、reflection（倒影）、yaw / pitch（角度）；
  *            自定义 PNG 样机另有 frameAssetId、frameW / frameH、screen；缩放时保持设备比例
  * 填充：fillType 'solid' | 'linear' | 'none'，fill / fillAlpha，渐变时 fill2 / fill2Alpha / fillAngle（可做透明度渐变）
  * 描边：stroke、strokeWidth（0 = 无描边）
@@ -46,7 +47,7 @@ export function createLayer(type, props = {}, existing = []) {
   if (type === 'image') return { ...base, radius: 0, assetId: null, ...props };
   if (type === 'device') {
     const device = props.device || 'laptop';
-    return { ...base, device, slide: 1, imageId: null, fit: 'cover', frame: 'dark', shadow: true, yaw: 0, pitch: 0, ...deviceSize(device, props.w || 1000, props), ...props };
+    return { ...base, device, slide: 1, imageId: null, fit: 'cover', screenZoom: 1, screenX: 0, screenY: 0, frame: 'dark', shadow: true, reflection: false, yaw: 0, pitch: 0, ...deviceSize(device, props.w || 1000, props), ...props };
   }
   if (type === 'path') {
     const { anchors, closed, ...rest } = props; // 也接受单一路径的写法
