@@ -175,3 +175,32 @@ export function textureNeeds(scene, pxW, pxH) {
   }
   return needs;
 }
+
+/* ---------------- 缓存 ----------------
+ * store 里的数据「改了就换新对象」，所以只要输入的各个字段引用不变，结果就不变。
+ * 工作区每帧要为每个画板取场景 / 尺寸，用缓存避免重复排版（铺满型版式一个画板上千张卡片）；
+ * 场景对象保持不变也让点选、对齐用的投影缓存（按 scene 缓存）在帧之间持续有效。
+ */
+const SCENE_KEYS = ['slides', 'layout', 'params', 'style', 'aspect', 'camera', 'adjust'];
+const CANVAS_KEYS = ['slides', 'layout', 'params', 'aspect'];
+
+function memo(fn, keys, size) {
+  const entries = []; // 最近使用的在最后
+  return input => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (keys.every(k => e.input[k] === input[k])) {
+        if (i !== entries.length - 1) entries.push(...entries.splice(i, 1));
+        return e.out;
+      }
+    }
+    const out = fn(input);
+    entries.push({ input: Object.fromEntries(keys.map(k => [k, input[k]])), out });
+    if (entries.length > size) entries.shift();
+    return out;
+  };
+}
+
+// 与 buildScene / resolveCanvas 相同，但结果按输入缓存（不要修改返回的对象）
+export const cachedScene = memo(buildScene, SCENE_KEYS, 48);
+export const cachedCanvas = memo(resolveCanvas, CANVAS_KEYS, 96);

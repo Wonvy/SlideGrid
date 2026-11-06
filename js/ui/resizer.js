@@ -29,15 +29,26 @@ export function initResizers(app) {
   edges.right.addEventListener('click', () => setHidden('right', false));
   app.append(edges.left, edges.right);
 
+  // 实际显示的宽度：窗口变窄时先收窄右栏、再收窄左栏（不低于最小宽度），尽量给工作区留出 MIN_STAGE
+  // 只影响显示，保存的宽度不变，窗口变宽后自动恢复
+  const effective = () => {
+    let l = st.leftHidden ? 0 : st.left, r = st.rightHidden ? 0 : st.right;
+    let over = l + r - (app.clientWidth - MIN_STAGE);
+    if (over > 0 && r) { const d = Math.min(over, r - LIMITS.right[0]); r -= d; over -= d; }
+    if (over > 0 && l) { const d = Math.min(over, l - LIMITS.left[0]); l -= d; }
+    return [l, r];
+  };
   const apply = () => {
-    app.style.setProperty('--left-w', `${st.leftHidden ? 0 : st.left}px`);
-    app.style.setProperty('--right-w', `${st.rightHidden ? 0 : st.right}px`);
+    const [l, r] = effective();
+    app.style.setProperty('--left-w', `${l}px`);
+    app.style.setProperty('--right-w', `${r}px`);
     app.classList.toggle('left-hidden', st.leftHidden);
     app.classList.toggle('right-hidden', st.rightHidden);
     edges.left.hidden = !st.leftHidden;
     edges.right.hidden = !st.rightHidden;
   };
   apply();
+  window.addEventListener('resize', apply);
 
   function setHidden(side, hidden) {
     st[`${side}Hidden`] = hidden;

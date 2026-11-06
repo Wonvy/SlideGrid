@@ -34,6 +34,14 @@ async function loadBackground(bg, target) {
 }
 
 
+let sharedPreview = null;
+function previewRenderer() {
+  if (!sharedPreview || sharedPreview.gl.isContextLost()) {
+    sharedPreview = new Renderer(document.createElement('canvas'), { preserveDrawingBuffer: true });
+  }
+  return sharedPreview;
+}
+
 /**
  * 离屏渲染到一张 canvas。
  * @param input  与 buildScene 相同的参数
@@ -58,12 +66,14 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
     if (!preview && bgImage && bgImage !== input.background?.source && typeof bgImage.close === 'function') bgImage.close();
   }
 
-  const glCanvas = document.createElement('canvas');
-  const renderer = new Renderer(glCanvas, { preserveDrawingBuffer: true });
+  // 预览共用一个渲染器（WebGL 上下文和预览纹理都留着复用）；正式导出每次新建，用完释放显存
+  const renderer = preview ? previewRenderer() : new Renderer(document.createElement('canvas'), { preserveDrawingBuffer: true });
+  const glCanvas = renderer.canvas;
   try {
     const slides = [...new Map(scene.items.map(it => [it.slide.id, it.slide])).values()];
     if (preview) {
       for (const slide of slides) renderer.setTexture(slide.id, slide.preview);
+      renderer.prune(new Set(slides.map(sl => sl.id)));
     } else {
       const needs = textureNeeds(scene, pxW, pxH);
       const needed = slides.filter(sl => needs.has(sl.id));
@@ -91,7 +101,7 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
       }
     }
   } finally {
-    renderer.dispose();
+    if (!preview) renderer.dispose();
   }
   return { canvas: out, width: pxW, height: pxH };
 }

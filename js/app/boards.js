@@ -1,0 +1,62 @@
+import { store } from '../state.js';
+import { getLayout } from '../layouts/index.js';
+import { cachedCanvas } from '../render/scene.js';
+import { createPlaceholders } from '../slides/placeholders.js';
+
+/**
+ * 画板 → 渲染输入。只读 store，不碰 DOM。
+ * 幻灯片和素材是所有画板共用的；每个画板有自己的版式、参数、样式、比例、构图、卡片调整。
+ */
+
+// 还没有导入图片时显示的示例卡片（同时也是可以放入图片的空位）
+export const placeholders = createPlaceholders(9);
+export const slidesOf = s => (s.slides.length ? s.slides : placeholders);
+export const hasRealSlides = () => store.get().slides.length > 0;
+export const is3D = () => getLayout(store.get().layoutId).category === '3d';
+
+// 背景图 / 幻灯片模糊背景用到的图片：preview 用于预览，source 用于导出时读取原图
+function bgSourceOf(s, style) {
+  if (style.bgType === 'image') {
+    const a = s.assets[style.bgImageId];
+    return a ? { preview: a.preview, source: a.file } : null;
+  }
+  if (style.bgType === 'slide') {
+    const list = slidesOf(s);
+    const sl = list[Math.min(list.length, Math.max(1, Math.round(style.bgSlide || 1))) - 1];
+    return sl ? { preview: sl.preview, source: sl.source } : null;
+  }
+  return null;
+}
+
+// 某个画板（st 为该画板的设置）的渲染输入，与 buildScene / renderToCanvas 的参数一致
+export function boardInput(s, st) {
+  const layout = getLayout(st.layoutId);
+  return {
+    slides: slidesOf(s),
+    layout,
+    params: st.params[layout.id],
+    style: st.style,
+    aspect: st.aspect, // 比例 id，长图为 'long'
+    camera: st.camera,
+    background: bgSourceOf(s, st.style),
+    adjust: st.adjust[st.layoutId] || null,
+  };
+}
+
+// 当前画板的设置在 store 顶层
+const activeSettings = s => ({ layoutId: s.layoutId, params: s.params, style: s.style, aspect: s.aspect, camera: s.camera, adjust: s.adjust });
+export const sceneInput = s => boardInput(s, activeSettings(s));
+export const canvasOf = s => cachedCanvas(sceneInput(s));
+
+// 画板在工作区里的世界坐标范围
+export const boardWorldRect = (s, b) => {
+  const { W, H } = cachedCanvas(boardInput(s, b.settings));
+  return { x: b.x, y: b.y, w: W, h: H };
+};
+
+// 当前画板某张卡片的手动调整（副本）；新调整的卡片叠在最上面
+const currentAdjust = () => store.get().adjust[store.get().layoutId] || {};
+export const getAdjust = order => ({ ...currentAdjust()[order] });
+export const nextLift = () => 1 + Math.max(0, ...Object.values(currentAdjust()).map(a => a.lift || 0));
+
+export const safeName = s => String(s).replace(/[\\/:*?"<>|]/g, '_');

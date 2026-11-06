@@ -23,8 +23,14 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  * 工具（左键只执行当前工具）：
  *   V 选择  X 交换  R 旋转  S 比例  O 构图  H 抓手  Z 放大镜  ⇧O 画板
  *
- * 画板多选：画板工具下 Shift/⌘ + 单击加选减选、在空白处拖动框选、拖动任一选中画板一起移动、
- *          Delete 删除所选；任何工具下 ⌘A 全选画板、Shift/⌘ + 单击其他画板加选。
+ * 选择（与 Illustrator 一致）：
+ *   画板外空白处拖动        框选画板（Shift/⌘ 追加）；单击空白处 = 取消选择
+ *   画板内空白处拖动        框选卡片（平面版式；Shift/⌘ 追加）
+ *   Shift/⌘ + 单击卡片     加选 / 减选；Shift/⌘ + 从卡片上拖动 = 追加框选（铺满型版式没有空白时用）
+ *   Shift/⌘ + 单击其他画板  加选 / 减选画板
+ *   ⌘A                    全选当前画板的卡片（平面版式、卡片工具下）；画板工具 / 3D 版式下全选画板
+ *   ⇧⌘A / Esc             取消选择
+ *   画板工具：单击选择、拖动移动（多选时一起移动）、Delete 删除所选；任何工具下拖画板名称都可以移动画板
  */
 export function attachViewportInteraction(target, opts) {
   const {
@@ -39,7 +45,7 @@ export function attachViewportInteraction(target, opts) {
     getAdjust, nextLift, toLayoutDelta, itemCenterClient,
     setItemAdjusts, resetItemAdjust,
     // 卡片多选 / 吸附
-    getSelection, setSelection, itemRects, boardLocalRect, snapEnabled, setGuides,
+    getSelection, setSelection, itemRects, boardLocalRect, snapEnabled, setGuides, allCards,
   } = opts;
 
   // 吸附目标：当前画板 + 画板内（不在 exclude 里的）卡片，屏幕坐标
@@ -84,7 +90,8 @@ export function attachViewportInteraction(target, opts) {
     return [e.clientX - r.left, e.clientY - r.top];
   };
   const cardTools = new Set(['select', 'rotate', 'scale']);
-  const pickBoard = (id, e) => opts.pickOn?.(id, e.clientX, e.clientY) || null;
+  const isAdditive = e => e.shiftKey || e.metaKey || e.ctrlKey;
+  const deselectAll = () => { setSelection([]); selectBoards([activeBoard()]); };
 
   /* ---------- 键盘 ---------- */
 
@@ -98,7 +105,14 @@ export function attachViewportInteraction(target, opts) {
     if (mod && (e.code === 'Digit1' || e.code === 'Numpad1')) { e.preventDefault(); actualSize(); return; }
     if (mod && (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd')) { e.preventDefault(); zoomViewBy(1.25); return; }
     if (mod && (e.key === '-' || e.code === 'NumpadSubtract')) { e.preventDefault(); zoomViewBy(0.8); return; }
-    if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllBoards(); return; }
+    if (mod && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      if (e.shiftKey) { deselectAll(); return; } // ⇧⌘A：取消选择
+      // 卡片工具 + 平面版式：全选当前画板的卡片；否则全选画板
+      if (cardTools.has(getTool()) && !is3D() && toolAvailable(getTool())) setSelection(allCards());
+      else selectAllBoards();
+      return;
+    }
     if (mod || e.altKey) return;
 
     if (e.code === 'Space') {
@@ -112,7 +126,7 @@ export function attachViewportInteraction(target, opts) {
     const TOOL_KEYS = { v: 'select', x: 'swap', r: 'rotate', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom' };
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
 
-    if (e.key === 'Escape') { setSelection([]); selectBoards([activeBoard()]); setTool('select'); return; }
+    if (e.key === 'Escape') { deselectAll(); if (getTool() !== 'artboard') setTool('select'); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && getTool() === 'artboard') {
       e.preventDefault();
       deleteSelectedBoards();
@@ -165,10 +179,10 @@ export function attachViewportInteraction(target, opts) {
     const b = boardAt(e.clientX, e.clientY);
     if (tool === 'artboard') return b ? 'move' : 'default';
     if (!b) return 'default';
-    if (b !== activeBoard()) return tool === 'select' ? 'move' : 'pointer'; // 点击切换到这个画板
+    if (b !== activeBoard()) return 'pointer'; // 点击切换到这个画板
     if (tool === 'orbit') return is3D() ? 'move' : 'grab';
     const hit = pick(e.clientX, e.clientY);
-    if (!hit) return tool === 'select' ? 'move' : 'default';
+    if (!hit) return cardTools.has(tool) && !is3D() ? 'crosshair' : tool === 'select' ? 'move' : 'default';
     if (tool === 'swap') return canSwap() ? 'grab' : 'default';
     if (!toolAvailable(tool)) return 'not-allowed';
     if (tool === 'select') return 'move';
@@ -206,6 +220,13 @@ export function attachViewportInteraction(target, opts) {
   });
   target.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
+  // 框选画板：记录起点和原有选择（Shift/⌘ 时追加）
+  let pendingMarquee = null;
+  function startBoardMarquee(e, additive) {
+    const [sx, sy] = local(e);
+    pendingMarquee = { sx, sy, additive, base: selectedBoards() };
+  }
+
   target.addEventListener('pointerdown', e => {
     lastEvent = e;
     let mode = null;
@@ -231,12 +252,10 @@ export function attachViewportInteraction(target, opts) {
         zoomViewAt(sx, sy, e.altKey ? 1 / 1.6 : 1.6);
         return;
       } else if (tool === 'artboard') {
-        const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+        const additive = isAdditive(e);
         if (!b) {
-          // 空白处拖动：框选画板（Shift/⌘ 时追加到现有选择）
-          const [sx, sy] = local(e);
+          startBoardMarquee(e, additive);
           mode = 'marquee';
-          Object.assign(extra, { sx, sy, additive, base: selectedBoards() });
         } else if (additive) {
           toggleBoardSelection(b);
           return;
@@ -246,46 +265,38 @@ export function attachViewportInteraction(target, opts) {
           mode = 'moveBoards';
           Object.assign(extra, boardDragState());
         }
+      } else if (!b) {
+        // 画板外的空白处：框选画板；单击 = 取消选择
+        const additive = isAdditive(e);
+        if (!additive) setSelection([]);
+        startBoardMarquee(e, additive);
+        mode = 'marquee';
       } else {
-        if (!b) { setSelection([]); return; }
+        const additive = isAdditive(e);
         if (b !== activeBoard()) {
-          if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleBoardSelection(b); return; } // 加选画板
-          const keep = selectedBoards().includes(b);
-          activateBoard(b, { fit: false, keepSelection: keep }); // 先切换画板
-          // 选择工具：按在画板空白处可以直接拖走这个画板
-          if (tool !== 'select' || pickBoard(b, e)) return;
-          mode = 'moveBoards';
-          Object.assign(extra, boardDragState());
+          if (additive) { toggleBoardSelection(b); return; } // 加选画板
+          // 先切换到这个画板，再按当前工具继续处理（可以直接选中 / 拖动那个画板里的卡片）
+          activateBoard(b, { fit: false, keepSelection: selectedBoards().includes(b) });
         }
-        const hit = mode ? null : pick(e.clientX, e.clientY);
+        const hit = pick(e.clientX, e.clientY);
+        const flat = !is3D();
         if (tool === 'orbit') {
           mode = is3D() && !e.shiftKey ? 'orbit' : 'contentPan';
         } else if (tool === 'swap') {
           if (hit && canSwap()) { mode = 'swap'; Object.assign(extra, { src: hit.slideIndex, ghost: null, target: null }); }
-        } else if (mode === 'moveBoards') {
-          // 已在上面开始拖动画板
         } else if (cardTools.has(tool)) {
           const ok = hit && toolAvailable(tool);
-          const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-          if (ok && additive) {
-            // Shift/⌘ + 单击卡片：加选 / 减选
-            const cur = getSelection();
-            setSelection(cur.includes(hit.order) ? cur.filter(o => o !== hit.order) : [...cur, hit.order]);
-            return;
-          }
-          if (!ok) {
-            if (tool === 'select' && e.shiftKey && !is3D()) {
-              // Shift + 拖动画板空白处：框选卡片
-              const [sx, sy] = local(e);
-              mode = 'cardMarquee';
-              Object.assign(extra, { sx, sy, base: getSelection() });
-            } else {
-              setSelection([]);
-              if (tool === 'select') {
-                // 选择工具：拖画板上没有卡片的地方 = 移动画板（3D 版式里也可以）
-                mode = 'moveBoards';
-                Object.assign(extra, boardDragState());
-              }
+          if (flat && (additive || !hit)) {
+            // 空白处拖动：框选卡片；Shift/⌘：追加框选，没拖动就是单击加选 / 减选卡片
+            if (!additive) setSelection([]);
+            mode = 'cardMarquee';
+            Object.assign(extra, { sx: local(e)[0], sy: local(e)[1], base: getSelection(), toggle: ok ? hit.order : null });
+          } else if (!ok) {
+            // 3D 版式：选择工具拖画板空白处 = 移动画板
+            setSelection([]);
+            if (tool === 'select') {
+              mode = 'moveBoards';
+              Object.assign(extra, boardDragState());
             }
           } else {
             // 按在已选的卡片上：一起操作；否则只选这一张
@@ -304,6 +315,8 @@ export function attachViewportInteraction(target, opts) {
         extra.hit = hit;
       }
     }
+    if (mode === 'marquee') Object.assign(extra, pendingMarquee);
+    pendingMarquee = null;
     if (!mode) return;
     e.preventDefault(); // 中键默认会进入自动滚动
     target.setPointerCapture(e.pointerId);
@@ -419,6 +432,10 @@ export function attachViewportInteraction(target, opts) {
         const box = { l: r.x, t: r.y, r: r.x + r.w, b: r.y + r.h };
         const hits = itemRects().filter(x => intersects(x.rect, box)).map(x => x.order);
         setSelection([...new Set([...drag.base, ...hits])]);
+      } else if (drag.toggle != null) {
+        // 没有拖动：Shift/⌘ + 单击卡片 = 加选 / 减选
+        const cur = drag.base;
+        setSelection(cur.includes(drag.toggle) ? cur.filter(o => o !== drag.toggle) : [...cur, drag.toggle]);
       }
     }
     if (drag.mode === 'marquee') {

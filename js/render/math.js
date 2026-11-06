@@ -3,8 +3,10 @@
 export const identity = () => new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 // a * b
-export function multiply(a, b) {
-  const o = new Float32Array(16);
+export const multiply = (a, b) => multiplyInto(new Float32Array(16), a, b);
+
+// o = a * b（o 不能是 a 或 b；渲染循环里复用同一块内存，避免每帧大量分配）
+export function multiplyInto(o, a, b) {
   for (let c = 0; c < 4; c++) {
     const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
     for (let r = 0; r < 4; r++) {
