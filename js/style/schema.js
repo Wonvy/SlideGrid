@@ -3,6 +3,7 @@
 const isGradient = s => s.bgType === 'linear' || s.bgType === 'radial';
 const isPicture = s => s.bgType === 'image' || s.bgType === 'slide';
 const hasFade = s => s.fadeType && s.fadeType !== 'none';
+const hasGradientFade = s => hasFade(s) && s.fadeType !== 'solid'; // 单色遮罩只有一个不透明度
 
 /**
  * 渐隐遮罩：让幻灯片层（含投影）按渐变逐渐透明，融进背景；背景本身不受影响。
@@ -12,6 +13,7 @@ const hasFade = s => s.fadeType && s.fadeType !== 'none';
  */
 export const FADE_PRESETS = [
   { id: 'none', label: '无', patch: { fadeType: 'none' } },
+  { id: 'solid', label: '单色', patch: { fadeType: 'solid', fadeFrom: 0.5 } },
   { id: 'bottom', label: '底部渐隐', patch: { fadeType: 'linear', fadeAngle: 180, fadeStart: 0.5, fadeEnd: 1, fadeFrom: 1, fadeTo: 0 } },
   { id: 'top', label: '顶部渐隐', patch: { fadeType: 'linear', fadeAngle: 0, fadeStart: 0.5, fadeEnd: 1, fadeFrom: 1, fadeTo: 0 } },
   { id: 'right', label: '右侧渐隐', patch: { fadeType: 'linear', fadeAngle: 90, fadeStart: 0.55, fadeEnd: 1, fadeFrom: 1, fadeTo: 0 } },
@@ -33,6 +35,7 @@ export function fadeCss(st) {
     return `linear-gradient(${st.fadeAngle}deg, ${c(b)} ${h(e)}%, ${c(a)} ${h(s)}%, ${c(a)} ${k(s)}%, ${c(b)} ${k(e)}%)`;
   }
   if (st.fadeType === 'radial') return `radial-gradient(closest-side, ${c(a)} ${s}%, ${c(b)} ${e}%)`;
+  if (st.fadeType === 'solid') return `linear-gradient(${c(a)}, ${c(a)})`;
   return c(1);
 }
 
@@ -83,16 +86,17 @@ export const styleSchema = [
     key: 'fadeType', label: '类型', type: 'select', default: 'none',
     options: [
       { value: 'none', label: '无' },
+      { value: 'solid', label: '单色' },
       { value: 'linear', label: '线性' },
       { value: 'mirror', label: '两端' },
       { value: 'radial', label: '径向' },
     ],
   },
   { key: 'fadeAngle', label: '方向', type: 'range', min: 0, max: 360, default: 180, unit: '°', show: s => s.fadeType === 'linear' || s.fadeType === 'mirror' },
-  { key: 'fadeStart', label: '开始位置', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5, show: hasFade },
-  { key: 'fadeEnd', label: '结束位置', type: 'range', min: 0, max: 1, step: 0.01, default: 1, show: hasFade },
-  { key: 'fadeFrom', label: '起点不透明度', type: 'range', min: 0, max: 1, step: 0.01, default: 1, show: hasFade },
-  { key: 'fadeTo', label: '终点不透明度', type: 'range', min: 0, max: 1, step: 0.01, default: 0, show: hasFade },
+  { key: 'fadeStart', label: '开始位置', type: 'range', min: 0, max: 1, step: 0.01, default: 0.5, show: hasGradientFade },
+  { key: 'fadeEnd', label: '结束位置', type: 'range', min: 0, max: 1, step: 0.01, default: 1, show: hasGradientFade },
+  { key: 'fadeFrom', label: s => (s.fadeType === 'solid' ? '不透明度' : '起点不透明度'), type: 'range', min: 0, max: 1, step: 0.01, default: 1, show: hasFade },
+  { key: 'fadeTo', label: '终点不透明度', type: 'range', min: 0, max: 1, step: 0.01, default: 0, show: hasGradientFade },
 
   { group: '投影' },
   { key: 'shadowOpacity', label: '不透明度', type: 'range', min: 0, max: 1, step: 0.01, default: 0.45 },

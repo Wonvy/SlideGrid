@@ -118,7 +118,9 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
       }
       case 'select': {
         // 面板里：选项少且短时用分段按钮（类似 iOS / Figma），否则用下拉框；名称放在上方
-        const short = def.options.length <= 4 && def.options.every(o => String(o.label).length <= 5);
+        // 选项少且短时用分段按钮：最多 4 个（每个不超过 5 个字），或 5 个都不超过 2 个字
+        const len = o => String(o.label).length;
+        const short = (def.options.length <= 4 && def.options.every(o => len(o) <= 5)) || (def.options.length === 5 && def.options.every(o => len(o) <= 2));
         if (def.segmented !== false && (def.segmented || short)) {
           const seg = el('div', { class: 'seg' });
           // 有图标的选项：工具条里显示图标（面板里 iconInPanel 时也用图标），悬停提示文字

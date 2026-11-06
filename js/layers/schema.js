@@ -26,6 +26,7 @@ export const layerSchema = [
     key: 'align', label: '对齐', type: 'select', types: ['text'], iconInPanel: true,
     options: [{ value: 'left', label: '左对齐', icon: 'align-left' }, { value: 'center', label: '居中', icon: 'align-center' }, { value: 'right', label: '右对齐', icon: 'align-right' }],
   },
+  { key: 'area', label: '自动换行（区块文字）', type: 'toggle', types: ['text'] },
   { key: 'lineHeight', label: '行高', type: 'range', min: 0.8, max: 3, step: 0.05, types: ['text'] },
   { key: 'letterSpacing', label: '字间距', type: 'range', min: -20, max: 60, types: ['text'] },
   { key: 'color', label: '颜色', type: 'color', types: ['text'] },

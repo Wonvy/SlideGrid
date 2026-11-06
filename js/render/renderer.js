@@ -26,7 +26,7 @@ function createProgram(gl, vs, fs) {
 }
 
 const IDENTITY = m4.identity();
-const FADE_TYPES = { linear: 1, mirror: 2, radial: 3 };
+const FADE_TYPES = { linear: 1, mirror: 2, radial: 3, solid: 4 };
 
 // 渐隐遮罩参数（见 style/schema.js）；开始位置大于结束位置时对调，效果不变
 function setFade(gl, L, st, aspect) {

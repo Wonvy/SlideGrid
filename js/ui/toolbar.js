@@ -11,7 +11,7 @@ export const TOOLS = [
   { id: 'scale', icon: 'scaling', label: '比例', key: 'S', desc: '拖动以卡片中心等比缩放（Shift 按 5% 吸附，+/- 键微调）' },
   { id: 'orbit', icon: 'rotate-3d', label: '构图', key: 'O', desc: '调整画板内的构图（会导出）：3D 拖动旋转 / Shift+拖动平移，平面拖动平移，滚轮缩放' },
   { sep: true },
-  { id: 'text', icon: 'type', label: '文字', key: 'T', desc: '单击添加文字；选择工具下双击文字可编辑' },
+  { id: 'text', icon: 'type', label: '文字', key: 'T', desc: '单击添加点状文字，拖动创建区块文字（按框宽自动换行）；选择工具下双击文字可编辑' },
   { id: 'rect', icon: 'square', label: '矩形', key: 'M', desc: '拖动绘制矩形（Shift 正方形，⌥ 从中心），单击放一个默认大小的' },
   { id: 'ellipse', icon: 'circle', label: '椭圆', key: 'L', desc: '拖动绘制椭圆（Shift 正圆，⌥ 从中心）' },
   { id: 'line', icon: 'slash', label: '直线', key: '\\', desc: '拖动绘制直线（Shift 按 45° 吸附，⌥ 从中心），单击放一条默认长度的；画好后可以用直接选择工具拖端点' },

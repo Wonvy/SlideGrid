@@ -172,7 +172,8 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   function transformHandler(h, e) {
     const { f, list } = h.fs;
     const all = layersOf();
-    const keep = list.length === 1 && (list[0].type === 'text' || list[0].type === 'image'); // 文字、图片等比缩放
+    // 点状文字、图片等比缩放；区块文字拖手柄改变框的大小
+    const keep = list.length === 1 && ((list[0].type === 'text' && !list[0].area) || list[0].type === 'image');
     const i = info();
     if (h.kind === 'rotate') {
       const c = toScreen({ x: f.cx, y: f.cy }, i);
@@ -262,6 +263,43 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     };
   }
 
+  // 文字工具：单击 = 点状文字（自动宽度，只在回车处换行）；拖动 = 区块文字（按框宽自动换行）
+  function textHandler(e) {
+    const i = info();
+    const p0 = toBoard(local(e), i);
+    let id = null;
+    return {
+      move(ev) {
+        const p = toBoard(local(ev), i);
+        const box = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.max(1, Math.abs(p.x - p0.x)), boxH: Math.max(1, Math.abs(p.y - p0.y)) };
+        const list = layersOf();
+        if (!id) {
+          const l = measureText(createLayer('text', { text: '', area: true, ...box }, list));
+          id = l.id;
+          setLayers([...list, l]);
+          select([id]);
+        } else {
+          setLayers(list.map(l => (l.id === id ? measureText({ ...l, ...box }) : l)));
+        }
+      },
+      up(ev, moved) {
+        if (!moved || !id) {
+          // 单击：点状文字，以点击处为第一行的中线
+          const list = layersOf();
+          const l = createLayer('text', {}, list);
+          const placed = { ...l, x: p0.x, y: p0.y - (l.fontSize * l.lineHeight) / 2 };
+          setLayers([...list, placed]);
+          id = placed.id;
+          setTool('select');
+          startEdit(id);
+          return;
+        }
+        setTool('select');
+        startEdit(id, { selectAll: false });
+      },
+    };
+  }
+
   // 直线：两个锚点的开放路径（只有描边），画好后可以用直接选择工具调整端点
   function lineHandler(e) {
     const i = info();
@@ -336,7 +374,9 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     const [x, y] = toScreen({ x: l.x, y: l.y }, i);
     Object.assign(editing.box.style, {
       left: `${x}px`, top: `${y}px`,
-      width: `${Math.max(l.w, l.fontSize) * z + l.fontSize * z * 0.6}px`, height: `${l.h * z + 2}px`,
+      // 区块文字按框宽换行；点状文字不换行，留出继续输入的余量
+      width: l.area ? `${l.w * z}px` : `${Math.max(l.w, l.fontSize) * z + l.fontSize * z * 0.6}px`, height: `${l.h * z + 2}px`,
+      whiteSpace: l.area ? 'pre-wrap' : 'pre', overflowWrap: l.area ? 'anywhere' : 'normal',
       font: fontOf({ ...l, fontSize: l.fontSize * z }),
       lineHeight: String(l.lineHeight),
       letterSpacing: `${(l.letterSpacing || 0) * z}px`,
@@ -382,16 +422,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     if (['rect', 'ellipse', 'line', 'text', 'pen'].includes(tool)) {
       // 点在别的画板上先切换过去；画板外也可以画（图层可以超出画板，属于当前画板）
       if (board && board !== s.activeBoard) { paths.finishPen(); actions.setActiveBoard(board); }
-      if (tool === 'text') {
-        const p = toBoard(local(e));
-        const list = layersOf();
-        const l = createLayer('text', {}, list);
-        const placed = { ...l, x: p.x, y: p.y - l.h / 2 };
-        setLayers([...list, placed]);
-        setTool('select');
-        startEdit(placed.id);
-        return true;
-      }
+      if (tool === 'text') return textHandler(e);
       if (tool === 'pen') return paths.penDown(e);
       setCardSelection([]);
       return tool === 'line' ? lineHandler(e) : shapeHandler(tool, e);

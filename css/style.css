@@ -946,7 +946,7 @@ button.size-item:hover { background: var(--panel-2); }
 }
 .fade-preview::before {
   content: ''; position: absolute; inset: 0;
-  background: repeating-linear-gradient(90deg, #7c8cff 0 14px, #5562c9 14px 16px), #7c8cff;
+  background: #7c8cff;
   -webkit-mask-image: var(--mask); mask-image: var(--mask);
 }
 .panel-section.flash { animation: section-flash .9s ease; }
@@ -1356,3 +1356,7 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: no
 .rp-pane.has-footer > .design-body { flex: 1; min-height: 0; overflow-y: auto; }
 .design-footer .preset-toolbar .btn { flex: 1; justify-content: center; }
 .preset-toolbar-note { flex: 1; font-size: 12px; color: var(--faint); }
+/* 渐隐遮罩菜单：10 个预设排成 5 × 2 */
+.bg-menu.fade-menu { width: 336px; }
+.fade-menu .fade-grid { grid-template-columns: repeat(5, 1fr); }
+.fade-menu .fade-chip { padding: 6px 2px 5px; white-space: nowrap; }

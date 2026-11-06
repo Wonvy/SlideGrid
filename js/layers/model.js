@@ -5,7 +5,9 @@
  * 公共字段：{ id, type, name, x, y, w, h, rotation（度，绕中心）, opacity, hidden, locked }
  *   rect     radius、填充、描边
  *   ellipse  填充、描边
- *   text     text、fontSize、fontWeight、fontFamily（sans / serif / mono 或本机字体名）、align、lineHeight、letterSpacing、color（w / h 由文字测量得出）
+ *   text     text、fontSize、fontWeight、fontFamily（sans / serif / mono 或本机字体名）、align、lineHeight、letterSpacing、color
+ *            点状文字（默认）：w / h 由文字测量得出，只在换行符处换行
+ *            区块文字（area: true，文字工具拖动创建）：w 固定、按宽度自动换行；boxH 为框的最小高度，h = max(boxH, 文字高度)
  *   path     contours: [{ anchors: [{ x, y, hi: {x,y}|null, ho: {x,y}|null }], closed }]（一个或多个子路径，绝对坐标，
  *            hi / ho 为进入 / 离开的控制柄）、fillRule（nonzero / evenodd，复合路径的镂空）、填充、描边
  *            路径不使用 rotation：旋转、缩放直接作用在锚点上；x / y / w / h 为路径的包围盒
@@ -51,18 +53,61 @@ export function createLayer(type, props = {}, existing = []) {
 let measureCtx = null;
 const ctx2d = () => (measureCtx ||= document.createElement('canvas').getContext('2d'));
 export const fontOf = l => `${l.fontWeight || 400} ${l.fontSize}px ${fontStack(l.fontFamily || 'sans')}`;
-export const textLines = l => String(l.text ?? '').split('\n');
-
-// 每行的宽度（含字间距），给绘制和测量共用
-export function lineWidths(l) {
+const textCtx = l => {
   const g = ctx2d();
   g.font = fontOf(l);
   if ('letterSpacing' in g) g.letterSpacing = `${l.letterSpacing || 0}px`;
+  return g;
+};
+
+// 自动换行的分词：中日韩文字逐字，西文按单词（连同后面的空格）
+const CJK = '\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F';
+const TOKEN = new RegExp(`[${CJK}]|[^\\s${CJK}]+\\s*|\\s+`, 'g');
+function wrapParagraph(g, text, maxW) {
+  const out = [];
+  let line = '';
+  const push = () => { out.push(line.replace(/\s+$/, '')); line = ''; };
+  for (const tok of text.match(TOKEN) || []) {
+    if (g.measureText(line + tok).width <= maxW || !line) {
+      line += tok;
+    } else {
+      push();
+      line = tok.replace(/^\s+/, '');
+    }
+    // 单个词比框还宽：逐字断开
+    while (g.measureText(line).width > maxW && line.length > 1) {
+      let k = line.length - 1;
+      while (k > 1 && g.measureText(line.slice(0, k)).width > maxW) k--;
+      out.push(line.slice(0, k));
+      line = line.slice(k);
+    }
+  }
+  out.push(line.replace(/\s+$/, ''));
+  return out;
+}
+
+// 排版后的行：点状文字按换行符分行；区块文字再按框宽自动换行（图层对象不变时复用结果）
+const lineCache = new WeakMap();
+export function textLines(l) {
+  if (lineCache.has(l)) return lineCache.get(l);
+  const paras = String(l.text ?? '').split('\n');
+  const lines = l.area ? paras.flatMap(p => wrapParagraph(textCtx(l), p, Math.max(1, l.w))) : paras;
+  lineCache.set(l, lines);
+  return lines;
+}
+
+// 每行的宽度（含字间距），给绘制和测量共用
+export function lineWidths(l) {
+  const g = textCtx(l);
   return textLines(l).map(line => g.measureText(line).width);
 }
 
-// 根据文字内容更新 w / h（左上角不动）
+// 根据文字内容更新 w / h（左上角不动）；区块文字宽度不变，高度至少为 boxH
 export function measureText(l) {
+  if (l.area) {
+    const h = textLines(l).length * l.fontSize * l.lineHeight;
+    return { ...l, h: Math.max(l.boxH || 0, h) };
+  }
   const widths = lineWidths(l);
   const w = Math.max(l.fontSize * 0.5, ...widths);
   const h = textLines(l).length * l.fontSize * l.lineHeight;
@@ -262,8 +307,12 @@ export function mapToFrame(l, from, to) {
   const ky = aligned ? sy : swapped ? sx : Math.sqrt(Math.abs(sx * sy));
   let w = Math.abs(l.w * kx), h = Math.abs(l.h * ky);
   let next = { ...l, rotation: (l.rotation || 0) + dr };
-  if (l.type === 'text') {
-    // 文字：按高度方向的比例缩放字号，宽高由测量得出
+  if (l.type === 'text' && l.area) {
+    // 区块文字：改变框的大小（字号不变），文字按新宽度重新换行
+    next = measureText({ ...next, w, boxH: Math.max(1, l.h * Math.abs(ky)) });
+    w = next.w; h = next.h;
+  } else if (l.type === 'text') {
+    // 点状文字：按高度方向的比例缩放字号，宽高由测量得出
     next = measureText({ ...next, fontSize: Math.max(4, l.fontSize * Math.abs(ky)) });
     w = next.w; h = next.h;
   }
@@ -276,6 +325,8 @@ export function mapToFrame(l, from, to) {
  */
 const TEXT_METRICS = new Set(['text', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'letterSpacing']);
 export function applyLayerProp(l, key, value) {
+  // 文字在点状 / 区块之间切换：区块文字保持当前宽度，按宽度换行
+  if (key === 'area' && l.type === 'text') return value ? measureText({ ...l, area: true, boxH: l.h }) : measureText({ ...l, area: false });
   if (!(key in l) && !['x', 'y', 'w', 'h'].includes(key)) return l; // 这种图层没有这个属性
   if (l.type === 'path' && (key === 'x' || key === 'y')) return moveLayer(l, key === 'x' ? value - l.x : 0, key === 'y' ? value - l.y : 0);
   if (l.type === 'path' && (key === 'w' || key === 'h')) {
@@ -283,6 +334,9 @@ export function applyLayerProp(l, key, value) {
     const w = key === 'w' ? value : l.w, h = key === 'h' ? value : l.h;
     return mapToFrame(l, f, { cx: l.x + w / 2, cy: l.y + h / 2, w, h, rotation: 0 });
   }
+  // 区块文字：宽度改变时重新换行，高度是框的最小高度
+  if (l.type === 'text' && l.area && key === 'w') return measureText({ ...l, w: Math.max(1, value) });
+  if (l.type === 'text' && l.area && key === 'h') return measureText({ ...l, boxH: Math.max(1, value) });
   const next = { ...l, [key]: value };
   return l.type === 'text' && TEXT_METRICS.has(key) ? measureText(next) : next;
 }

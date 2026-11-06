@@ -35,7 +35,7 @@ uniform vec3 uBorderColor;
 uniform float uBlur;
 uniform vec4 uShadowColor;
 uniform float uOpacity;
-uniform int uFade;           // 渐隐遮罩：0 无，1 线性，2 两端，3 径向
+uniform int uFade;           // 渐隐遮罩：0 无，1 线性，2 两端，3 径向，4 单色（整体同一不透明度）
 uniform vec2 uFadeDir;       // 线性方向（画板坐标，y 向下）
 uniform float uFadeAspect;   // 画板宽高比
 uniform vec4 uFadeParams;    // 开始位置、结束位置、起点不透明度、终点不透明度
@@ -44,6 +44,7 @@ out vec4 outColor;
 // 按像素在画板上的位置计算遮罩不透明度（与分块、视图缩放无关，所见即所得）
 float fadeAlpha() {
   if (uFade == 0) return 1.0;
+  if (uFade == 4) return uFadeParams.z;
   vec2 ndc = vClip.xy / vClip.z;
   vec2 q = vec2(ndc.x * 0.5 * uFadeAspect, -ndc.y * 0.5); // 以画板中心为原点，画板高度为 1
   float t;
