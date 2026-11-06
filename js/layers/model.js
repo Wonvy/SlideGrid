@@ -46,7 +46,7 @@ export function createLayer(type, props = {}, existing = []) {
   if (type === 'image') return { ...base, radius: 0, assetId: null, ...props };
   if (type === 'device') {
     const device = props.device || 'laptop';
-    return { ...base, device, slide: 1, imageId: null, fit: 'cover', frame: 'dark', shadow: true, ...deviceSize(device, props.w || 1000, props), ...props };
+    return { ...base, device, slide: 1, imageId: null, fit: 'cover', frame: 'dark', shadow: true, yaw: 0, pitch: 0, ...deviceSize(device, props.w || 1000, props), ...props };
   }
   if (type === 'path') {
     const { anchors, closed, ...rest } = props; // 也接受单一路径的写法
@@ -334,12 +334,14 @@ export function mapToFrame(l, from, to) {
 const TEXT_METRICS = new Set(['text', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'letterSpacing']);
 export function applyLayerProp(l, key, value) {
   // 设备样机：换设备时保持中心和宽度，高度按新设备的比例；改宽 / 高时保持比例
-  if (l.type === 'device' && (key === 'device' || key === 'w' || key === 'h')) {
+  // 换设备 / 改角度：保持中心和宽度，高度按新的比例
+  if (l.type === 'device' && ['device', 'w', 'h', 'yaw', 'pitch'].includes(key)) {
     if (key === 'device' && value === 'custom' && !l.frameAssetId) return l; // 没有上传过 PNG
-    const device = key === 'device' ? value : l.device;
+    const next = { ...l, [key]: value };
     const w = key === 'w' ? value : key === 'h' ? (value * l.w) / l.h : l.w;
-    const size = deviceSize(device, Math.max(1, w), l);
-    return { ...l, device, ...size, x: key === 'device' ? l.x + (l.w - size.w) / 2 : l.x, y: key === 'device' ? l.y + (l.h - size.h) / 2 : l.y };
+    const size = deviceSize(next.device, Math.max(1, w), next);
+    const keepCenter = key !== 'w' && key !== 'h';
+    return { ...next, ...size, x: keepCenter ? l.x + (l.w - size.w) / 2 : l.x, y: keepCenter ? l.y + (l.h - size.h) / 2 : l.y };
   }
   // 文字在点状 / 区块之间切换：区块文字保持当前宽度，按宽度换行
   if (key === 'area' && l.type === 'text') return value ? measureText({ ...l, area: true, boxH: l.h }) : measureText({ ...l, area: false });

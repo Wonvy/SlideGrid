@@ -18,6 +18,8 @@ export const layerSchema = [
 
   { group: '样机', types: ['device'] },
   { key: 'device', label: '设备', type: 'select', types: ['device'], show: v => v.device !== 'custom', options: Object.entries(DEVICES).map(([value, d]) => ({ value, label: d.label, icon: d.icon })) },
+  { key: 'yaw', label: '左右角度', type: 'range', min: -60, max: 60, step: 1, unit: '°', types: ['device'], show: v => v.device !== 'custom' },
+  { key: 'pitch', label: '俯视角度', type: 'range', min: -20, max: 45, step: 1, unit: '°', types: ['device'], show: v => v.device !== 'custom' },
   { key: 'slide', label: '显示第几张', type: 'number', min: 1, max: 999, step: 1, types: ['device'], show: v => !v.imageId },
   {
     key: 'fit', label: '显示方式', type: 'select', types: ['device'],

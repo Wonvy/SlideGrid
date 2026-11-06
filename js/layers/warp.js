@@ -59,7 +59,7 @@ function triangle(ctx, img, s, d, grow) {
 
 /**
  * 把 img 透视填充进四边形 q（当前坐标系下的四个点：左上、右上、右下、左下）。
- * fit：'cover' 裁切填满（按四边形的大致比例），'contain' 完整显示（其余部分留给调用方的底色）
+ * fit：'cover' 裁切填满（按四边形的大致比例），'contain' 完整显示（其余部分留给调用方的底色），'fill' 整张拉伸
  */
 export function drawWarped(ctx, img, q, { fit = 'cover' } = {}) {
   if (!img?.width) return;
@@ -71,6 +71,8 @@ export function drawWarped(ctx, img, q, { fit = 'cover' } = {}) {
   let sx = 0, sy = 0, sw = img.width, sh = img.height, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
   if (fit === 'contain') {
     if (ir > ar) { const k = ar / ir; v0 = (1 - k) / 2; v1 = v0 + k; } else { const k = ir / ar; u0 = (1 - k) / 2; u1 = u0 + k; }
+  } else if (fit === 'fill') {
+    // 整张拉伸填满（贴图本身已按四边形的形状画好）
   } else if (ir > ar) { sw = img.height * ar; sx = (img.width - sw) / 2; } else { sh = img.width / ar; sy = (img.height - sh) / 2; }
   // 网格密度随屏幕上的大小变化：小的时候少切几块
   const span = Math.max(dist(q[0], q[2]), dist(q[1], q[3])) * px;

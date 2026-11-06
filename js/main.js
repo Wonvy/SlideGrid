@@ -343,10 +343,9 @@ function addDeviceLayer(props, label, asset = null) {
 }
 const mockupPanel = createMockupPanel(settings.mockupSlot, {
   getSlide: () => slidesOf(store.get())[0]?.preview,
-  onAdd(device, frame) {
-    const d = deviceOf(device);
-    const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === device).length + 1;
-    addDeviceLayer({ device, frame, name: `${d.label} ${n}` }, d.label);
+  onAdd(p, frame) {
+    const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === p.device).length + 1;
+    addDeviceLayer({ device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, name: `${deviceOf(p.device).label} ${n}` }, `「${p.label}」`);
   },
   // 上传 PNG 样机：先自动识别透明的屏幕区域作为初始位置，再弹窗让用户拖四个角对准屏幕（支持透视）
   async onUpload(file) {

@@ -24,6 +24,9 @@ const ICONS = {
   'monitor': '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
   'tablet': '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M18 12h.01"/>',
   'presentation': '<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>',
+  'smartphone': '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  'smartphone-land': '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M18 12h.01"/>',
+  'watch': '<circle cx="12" cy="12" r="6"/><polyline points="12 10 12 12 13 13"/><path d="m16.13 7.66-.81-4.05a2 2 0 0 0-2-1.61h-2.68a2 2 0 0 0-2 1.61l-.78 4.05"/><path d="m7.88 16.36.8 4a2 2 0 0 0 2 1.61h2.72a2 2 0 0 0 2-1.61l.81-4.05"/>',
   'ban': '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
   // 线性渐变：方框里从实到透明的填充（同一个渐变定义可以重复出现，内容相同不冲突）
   'gradient': '<defs><linearGradient id="sg-icon-grad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="currentColor" stop-opacity=".95"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><rect x="3" y="3" width="18" height="18" rx="2" fill="url(#sg-icon-grad)"/>',

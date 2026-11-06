@@ -1,6 +1,6 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
-import { DEVICES, FRAMES, drawDevice } from '../layers/devices.js';
+import { FRAMES, DEVICE_PRESETS, deviceAspect, drawDevice } from '../layers/devices.js';
 
 const FRAME_KEY = 'slidegrid:mockup-frame';
 
@@ -8,7 +8,7 @@ const FRAME_KEY = 'slidegrid:mockup-frame';
  * 右栏「样机」页：选外观（深空灰 / 银色 / 白色），点设备把它加到当前画板中间（样机图层）；
  * 也可以上传 PNG 样机（屏幕区域透明），本项目用过的 PNG 样机列在下面，点击再次添加。
  * 缩略图用当前画板的第一张幻灯片绘制，和实际效果一致。
- *   onAdd(device, frame)；onUpload(file)；onAddCustom(template)
+ *   onAdd(preset, frame)：preset 为 DEVICE_PRESETS 里的一项（设备 + 角度）；onUpload(file)；onAddCustom(template)
  *   getSlide() → 缩略图屏幕里显示的图片；getCustom() → [{ frameAssetId, frameW, frameH, screen, name, frameImg }]
  */
 export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddCustom, getCustom = () => [] }) {
@@ -27,11 +27,11 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     return b;
   }));
 
-  const cards = Object.entries(DEVICES).map(([id, d]) => {
+  const cards = DEVICE_PRESETS.map(p => {
     const canvas = el('canvas', { class: 'mockup-thumb' });
-    const b = el('button', { class: 'mockup-card', title: `添加${d.label}样机到当前画板` }, canvas, el('span', {}, d.label));
-    b.addEventListener('click', () => onAdd(id, frame));
-    return { id, canvas };
+    const b = el('button', { class: 'mockup-card', title: `添加「${p.label}」样机到当前画板` }, canvas, el('span', { class: 'mockup-name' }, p.label));
+    b.addEventListener('click', () => onAdd(p, frame));
+    return { p, canvas };
   });
 
   // 上传 PNG 样机
@@ -80,16 +80,16 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
 
   // 缩略图：按设备比例画在 2 倍分辨率的小画布上
   function draw(c) {
-    const d = DEVICES[c.id];
+    const { p } = c;
     const W = 132, H = 96, dpr = 2;
     c.canvas.width = W * dpr;
     c.canvas.height = H * dpr;
     const ctx = c.canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    const pad = 10, w = Math.min(W - pad * 2, ((H - pad * 2) * d.w) / d.h);
-    const h = (w * d.h) / d.w;
-    drawDevice(ctx, { device: c.id, frame, fit: 'cover', shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide());
+    const ar = deviceAspect(p.device, p);
+    const pad = 10, w = Math.min(W - pad * 2, (H - pad * 2) / ar), h = w * ar;
+    drawDevice(ctx, { device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, fit: 'cover', shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide());
   }
 
   function refresh() {
