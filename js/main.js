@@ -14,6 +14,7 @@ import { resolveLongSide, exportSize, sizeSchema } from './export/schema.js';
 import { copyPngToClipboard } from './export/clipboard.js';
 import { createZip } from './persist/zip.js';
 import { createProjectController } from './project/controller.js';
+import { createHistory } from './project/history.js';
 import { view, toScreen, zoomViewAt, panView, fitRect, unionRect, MIN_ZOOM, MAX_ZOOM } from './workspace/view.js';
 import { createSlidesPanel } from './ui/slidesPanel.js';
 import { createSettingsPanel } from './ui/settingsPanel.js';
@@ -400,6 +401,38 @@ async function importProject(file) {
     toast(`导入失败：${err.message}`, { error: true, duration: 5000 });
   }
 }
+
+/* ---------------- 撤销 / 重做 ---------------- */
+
+const isMac = navigator.platform.includes('Mac');
+const undoBtn = $('undo-btn');
+const redoBtn = $('redo-btn');
+const history = createHistory(store, {
+  onChange: () => {
+    undoBtn.disabled = !history.canUndo();
+    redoBtn.disabled = !history.canRedo();
+    undoBtn.title = history.canUndo() ? `撤销：${history.undoLabel()}（${isMac ? '⌘Z' : 'Ctrl+Z'}）` : '没有可撤销的操作';
+    redoBtn.title = history.canRedo() ? `重做：${history.redoLabel()}（${isMac ? '⇧⌘Z' : 'Ctrl+Y'}）` : '没有可重做的操作';
+  },
+});
+function doUndo() {
+  const label = history.undo();
+  if (label) { ui.selected = null; toast(`已撤销：${label}`); }
+}
+function doRedo() {
+  const label = history.redo();
+  if (label) { ui.selected = null; toast(`已重做：${label}`); }
+}
+undoBtn.addEventListener('click', doUndo);
+redoBtn.addEventListener('click', doRedo);
+window.addEventListener('keydown', e => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+  const t = e.target;
+  if (/^(INPUT|TEXTAREA)$/.test(t?.tagName) || t?.isContentEditable) return; // 输入框里保留自己的撤销
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); doRedo(); }
+});
 
 /* ---------------- 画板管理 ---------------- */
 
@@ -1054,6 +1087,7 @@ window.SlideGrid = {
   renderToBlob: opts => renderToBlob(sceneInput(store.get()), opts),
   pickAt,
   boardAt,
+  history,
   ui,
   view,
   setTool,

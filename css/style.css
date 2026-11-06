@@ -806,3 +806,9 @@ body.resizing .app { transition: none; }
 .edge-right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
 
 html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止双击缩放和回弹 */
+
+/* ---------- 撤销 / 重做 ---------- */
+.history-btns { display: inline-flex; gap: 1px; margin-left: 2px; }
+.history-btns .icon-btn.visible { width: 28px; height: 28px; color: var(--muted); }
+.history-btns .icon-btn.visible:hover:not(:disabled) { color: var(--text); background: var(--panel-2); }
+.history-btns .icon-btn:disabled { opacity: .3; cursor: default; }

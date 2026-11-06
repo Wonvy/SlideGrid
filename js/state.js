@@ -85,6 +85,7 @@ store.subscribe(s => {
   }, 300);
 });
 
+// 只在切换项目时主动释放图片内存；项目内删除的图片可能被「撤销」找回，交给浏览器回收
 const closeSlide = slide => slide?.preview?.close?.();
 
 // 当前选中的画板（至少包含当前画板）
@@ -108,8 +109,7 @@ function pruneAssets(s, assets) {
   const used = new Set(boardsOf(s).map(b => b.settings.style?.bgImageId).filter(Boolean));
   const out = {};
   for (const [id, a] of Object.entries(assets)) {
-    if (used.has(id)) out[id] = a;
-    else a.preview?.close?.();
+    if (used.has(id)) out[id] = a; // 不再使用的素材交给浏览器回收（撤销时可能还会用到）
   }
   return out;
 }
@@ -120,11 +120,9 @@ export const actions = {
   },
   removeSlide(id) {
     const s = store.get();
-    closeSlide(s.slides.find(x => x.id === id));
     store.set({ slides: s.slides.filter(x => x.id !== id) });
   },
   clearSlides() {
-    store.get().slides.forEach(closeSlide);
     store.set({ slides: [] });
   },
   moveSlide(from, to) {
@@ -147,8 +145,7 @@ export const actions = {
   replaceSlide(index, newSlides, base = null) {
     const slides = [...(store.get().slides.length ? store.get().slides : base || [])];
     if (!newSlides.length || !slides[index]) return;
-    const [old] = slides.splice(index, 1, ...newSlides);
-    closeSlide(old);
+    slides.splice(index, 1, ...newSlides);
     store.set({ slides });
   },
   // 追加图片：先依次填进示例空位，剩下的追加到末尾
