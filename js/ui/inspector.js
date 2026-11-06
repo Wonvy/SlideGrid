@@ -26,21 +26,19 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     el('button', { class: 'btn ghost small', title: '取消选择，回到画板设置（Esc）', onclick: () => clearAll() }, icon('x', 13), '画板设置'));
 
   /* ---------- 选中的图层 ---------- */
+  // 图层属性的各个分组（位置、文字、填充、描边、外观）直接作为一级分组
   const propsBox = el('div');
-  const propsSection = section('图层属性', propsBox, null, 'section:layer-props');
+  const propsSection = el('div', { class: 'groups-box' }, propsBox);
+  const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
 
   /* ---------- 选中的卡片：裁切 + 位置 ---------- */
   const cardAdjust = order => ({ fit: 'cover', cropZ: 1, cropX: 0, cropY: 0, dx: 0, dy: 0, rz: 0, s: 1, ...((store.get().adjust[store.get().layoutId] || {})[order]) });
   const setCards = (key, value) => actions.setItemAdjusts(getCards().map(order => ({ order, patch: { [key]: value } })));
   const cropBox = el('div');
-  const cropSection = section('裁切', cropBox,
-    el('button', { class: 'btn ghost small', title: '复位选中卡片的裁切', onclick: () => getCards().forEach(o => actions.resetCrop(o)) }, icon('rotate-ccw', 13), '复位'),
-    'section:card-crop');
+  const cropSection = section('裁切', cropBox, resetBtn('复位选中卡片的裁切', () => getCards().forEach(o => actions.resetCrop(o))), 'section:card-crop');
   const updateCrop = buildControls(cropBox, cropSchema, cardAdjust(-1), setCards);
   const cardBox = el('div');
-  const cardSection = section('位置', cardBox,
-    el('button', { class: 'btn ghost small', title: '复位选中卡片的位置、旋转和缩放', onclick: () => getCards().forEach(o => actions.setItemAdjust(o, { dx: 0, dy: 0, rz: 0, s: 1 })) }, icon('rotate-ccw', 13), '复位'),
-    'section:card-transform');
+  const cardSection = section('位置', cardBox, resetBtn('复位选中卡片的位置、旋转和缩放', () => getCards().forEach(o => actions.setItemAdjust(o, { dx: 0, dy: 0, rz: 0, s: 1 }))), 'section:card-transform');
   const updateCard = buildControls(cardBox, cardSchema, { ...cardAdjust(-1), single: true }, setCards);
 
   selectionSlot.append(selBar, propsSection, cropSection, cardSection);

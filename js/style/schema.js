@@ -50,11 +50,11 @@ export const styleSchema = [
     ],
   },
   {
-    key: 'bg1', type: 'color', default: '#2b3040',
+    key: 'bg1', type: 'color', default: '#2b3040', half: true,
     label: s => (isGradient(s) ? '起始色' : isPicture(s) ? '底色' : '颜色'),
     show: s => s.bgType !== 'transparent' && !(s.bgType === 'slide') && !(s.bgType === 'image' && s.bgFit === 'cover'),
   },
-  { key: 'bg2', label: '结束色', type: 'color', default: '#0d0f14', show: isGradient },
+  { key: 'bg2', label: '结束色', type: 'color', default: '#0d0f14', half: true, show: isGradient },
   { key: 'bgAngle', label: '渐变角度', type: 'range', min: 0, max: 360, default: 160, unit: '°', show: s => s.bgType === 'linear' },
 
   { key: 'bgImageId', label: '背景图', type: 'image', default: null, show: s => s.bgType === 'image' },
@@ -73,7 +73,7 @@ export const styleSchema = [
   { key: 'bgDimColor', label: '压暗颜色', type: 'color', default: '#000000', show: s => isPicture(s) && s.bgDim > 0 },
   { key: 'vignette', label: '暗角', type: 'range', min: 0, max: 1, step: 0.01, default: 0, show: s => s.bgType !== 'transparent' },
 
-  { group: '幻灯片' },
+  { group: '卡片' },
   { key: 'radius', label: '圆角', type: 'range', min: 0, max: 60, default: 10 },
   { key: 'borderWidth', label: '描边', type: 'range', min: 0, max: 30, default: 0 },
   { key: 'borderColor', label: '描边颜色', type: 'color', default: '#ffffff', show: s => s.borderWidth > 0 },

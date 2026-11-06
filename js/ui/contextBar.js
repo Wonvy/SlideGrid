@@ -80,7 +80,7 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
       key = next;
       box.innerHTML = '';
       // 工具条不会滚动：悬停即可用滚轮调参（Shift 加速）
-      updateControls = schema ? buildControls(box, schema, values, (k, v) => onChange(k, v), { wheelImmediate: true }) : () => {};
+      updateControls = schema ? buildControls(box, schema, values, (k, v) => onChange(k, v), { wheelImmediate: true, inline: true }) : () => {};
       const bool = ctx === 'layers' && next.endsWith('bool') ? boolActions : [];
       actionsBox.replaceChildren(...bool, ...(ctx === 'layers' ? layerActions : ctx === 'cards' ? cardActions : []));
     }

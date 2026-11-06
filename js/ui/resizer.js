@@ -8,8 +8,8 @@ import { icon } from './icons.js';
  * 宽度和折叠状态保存到 localStorage。
  */
 const KEY = 'slidegrid:panels:v1';
-const DEFAULTS = { left: 248, right: 300, leftHidden: false, rightHidden: false };
-const LIMITS = { left: [180, 560], right: [240, 600] };
+const DEFAULTS = { left: 248, right: 340, leftHidden: false, rightHidden: false };
+const LIMITS = { left: [180, 560], right: [300, 640] }; // 右栏含左侧 56px 的图标栏
 const MIN_STAGE = 360;
 
 function load() {
@@ -18,6 +18,7 @@ function load() {
 
 export function initResizers(app) {
   const st = load();
+  for (const side of ['left', 'right']) st[side] = clamp(st[side], ...LIMITS[side]); // 旧版本保存的宽度可能太窄
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* 忽略 */ } };
 
   // 收起后贴在屏幕边缘的展开按钮

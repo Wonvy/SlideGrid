@@ -8,10 +8,10 @@ const fillOn = v => v.fillType !== 'none';
 
 export const layerSchema = [
   { group: '位置', types: ALL },
-  { key: 'x', label: 'X', type: 'number', step: 1, types: ALL },
-  { key: 'y', label: 'Y', type: 'number', step: 1, types: ALL },
-  { key: 'w', label: '宽', type: 'number', step: 1, min: 1, types: [...SHAPES, 'image'] },
-  { key: 'h', label: '高', type: 'number', step: 1, min: 1, types: [...SHAPES, 'image'] },
+  { key: 'x', label: 'X', type: 'number', step: 1, half: true, types: ALL },
+  { key: 'y', label: 'Y', type: 'number', step: 1, half: true, types: ALL },
+  { key: 'w', label: '宽', type: 'number', step: 1, min: 1, half: true, types: [...SHAPES, 'image'] },
+  { key: 'h', label: '高', type: 'number', step: 1, min: 1, half: true, types: [...SHAPES, 'image'] },
   { key: 'rotation', label: '旋转', type: 'number', step: 1, unit: '°', types: ['rect', 'ellipse', 'text', 'image'] },
 
   { group: '文字', types: ['text'] },
@@ -35,10 +35,10 @@ export const layerSchema = [
     key: 'fillType', label: '类型', type: 'select', types: SHAPES,
     options: [{ value: 'none', label: '无' }, { value: 'solid', label: '纯色' }, { value: 'linear', label: '线性渐变' }],
   },
-  { key: 'fill', label: v => (v.fillType === 'linear' ? '起始色' : '颜色'), type: 'color', types: SHAPES, show: fillOn },
-  { key: 'fillAlpha', label: v => (v.fillType === 'linear' ? '起始不透明度' : '不透明度'), type: 'range', min: 0, max: 1, step: 0.01, types: SHAPES, show: fillOn },
-  { key: 'fill2', label: '结束色', type: 'color', types: SHAPES, show: v => v.fillType === 'linear' },
-  { key: 'fill2Alpha', label: '结束不透明度', type: 'range', min: 0, max: 1, step: 0.01, types: SHAPES, show: v => v.fillType === 'linear' },
+  { key: 'fill', label: v => (v.fillType === 'linear' ? '起始色' : '颜色'), type: 'color', half: true, types: SHAPES, show: fillOn },
+  { key: 'fill2', label: '结束色', type: 'color', half: true, types: SHAPES, show: v => v.fillType === 'linear' },
+  { key: 'fillAlpha', label: v => (v.fillType === 'linear' ? '起始' : '不透明度'), type: 'range', min: 0, max: 1, step: 0.01, half: true, types: SHAPES, show: fillOn },
+  { key: 'fill2Alpha', label: '结束', type: 'range', min: 0, max: 1, step: 0.01, half: true, types: SHAPES, show: v => v.fillType === 'linear' },
   { key: 'fillAngle', label: '渐变方向', type: 'range', min: 0, max: 360, unit: '°', types: SHAPES, show: v => v.fillType === 'linear' },
 
   { group: '描边', types: SHAPES },
@@ -76,8 +76,8 @@ export const cropSchema = [
 
 // 选中卡片的位置 / 旋转 / 缩放（手动调整；dx / dy 只在单选时显示）
 export const cardSchema = [
-  { key: 'dx', label: '水平偏移', type: 'number', step: 1, default: 0, show: v => v.single },
-  { key: 'dy', label: '垂直偏移', type: 'number', step: 1, default: 0, show: v => v.single },
+  { key: 'dx', label: 'X', type: 'number', step: 1, default: 0, half: true, show: v => v.single },
+  { key: 'dy', label: 'Y', type: 'number', step: 1, default: 0, half: true, show: v => v.single },
   { key: 'rz', label: '旋转', type: 'range', min: -180, max: 180, step: 0.5, default: 0, unit: '°' },
   { key: 's', label: '缩放', type: 'range', min: 0.1, max: 4, step: 0.01, default: 1 },
 ];

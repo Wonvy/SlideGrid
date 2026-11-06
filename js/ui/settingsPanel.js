@@ -25,12 +25,16 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   root.classList.add('right-panel');
 
   /* ================= 顶层标签 ================= */
+  // 左侧竖排的图标栏切换页面，右边是页面标题 + 内容
+  const TITLES = { params: '设计', layouts: '版式', layers: '图层' };
   const layerCount = el('span', { class: 'tab-count' });
+  const tab = (k, ic, ...extra) => el('button', { class: 'rp-tab', role: 'tab', title: TITLES[k], 'aria-label': TITLES[k] }, icon(ic, 18), ...extra);
   const mainTabs = {
-    params: el('button', { class: 'rp-tab', role: 'tab' }, icon('settings-2', 15), '设计'),
-    layouts: el('button', { class: 'rp-tab', role: 'tab' }, icon('layout-grid', 15), '版式'),
-    layers: el('button', { class: 'rp-tab', role: 'tab' }, icon('layers', 15), '图层', layerCount),
+    params: tab('params', 'settings-2'),
+    layouts: tab('layouts', 'layout-grid'),
+    layers: tab('layers', 'layers', layerCount),
   };
+  const pageTitle = el('div', { class: 'rp-title' });
   const panes = {
     params: el('div', { class: 'rp-pane', role: 'tabpanel' }),
     layouts: el('div', { class: 'rp-pane', role: 'tabpanel' }),
@@ -42,10 +46,14 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       mainTabs[k].classList.toggle('active', k === name);
       mainTabs[k].setAttribute('aria-selected', String(k === name));
     }
+    pageTitle.textContent = TITLES[name];
     store_.set(MAIN_TAB_KEY, name);
   }
   for (const k of Object.keys(mainTabs)) mainTabs[k].addEventListener('click', () => showMain(k));
-  root.append(el('div', { class: 'rp-tabs', role: 'tablist' }, ...Object.values(mainTabs)), ...Object.values(panes));
+  root.append(
+    el('div', { class: 'rp-tabs rp-rail', role: 'tablist', 'aria-orientation': 'vertical' }, ...Object.values(mainTabs)),
+    el('div', { class: 'rp-main' }, pageTitle, ...Object.values(panes)),
+  );
 
   /* ================= 版式页：内置 / 我的版式 ================= */
   const builtin = el('div', { class: 'tab-body' });
@@ -91,7 +99,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const current = el('div', { class: 'current-layout' },
     curIcon,
     el('div', { class: 'cur-text' }, curName, curMeta),
-    el('button', { class: 'btn small', title: '去「版式」页选择其他版式', onclick: () => showMain('layouts') }, icon('layout-grid', 13), '更换'));
+    el('button', { class: 'btn ghost small', title: '去「版式」页选择其他版式', onclick: () => showMain('layouts') }, '更换'));
   // 多选画板时的提示：修改会同步到所有选中的画板
   const multiText = el('span', {});
   const multiBanner = el('div', { class: 'multi-banner', hidden: true },
@@ -100,26 +108,27 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   // 设计页：选中图层 / 卡片时显示它们的属性（ui/inspector.js），否则显示画板设置
   const selectionSlot = el('div', { class: 'inspector', hidden: true });
   const boardBox = el('div');
-  boardBox.append(multiBanner, current);
+  boardBox.append(multiBanner);
   panes.params.append(selectionSlot, boardBox);
   // 图层页
   const layersSlot = el('div', { class: 'inspector' });
   panes.layers.append(layersSlot);
 
+  // 画板设置只有一级分组（标题 14px，都可折叠）：版式 → 构图 → 背景 / 卡片 / 渐隐遮罩 / 投影 → 偏好
+  const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
   const paramsBox = el('div');
-  boardBox.append(section('版式参数', paramsBox,
-    el('button', { class: 'btn ghost small', title: '恢复当前版式的默认参数', onclick: () => actions.resetParams() }, icon('rotate-ccw', 13), '恢复默认')));
+  boardBox.append(section('版式', el('div', {}, current, paramsBox), resetBtn('恢复当前版式的默认参数', () => actions.resetParams())));
 
-  const cameraNote = el('p', { class: 'note' });
-  boardBox.append(section('构图', cameraNote,
-    el('button', { class: 'btn ghost small', title: '复位构图（缩放、平移、3D 角度）', onclick: () => actions.resetCamera() }, icon('rotate-ccw', 13), '复位')));
+  const cameraNote = el('p', { class: 'note compact' });
+  boardBox.append(section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度）', () => actions.resetCamera())));
 
-  const styleBox = el('div');
-  const styleSection = section('样式', styleBox);
-  boardBox.append(styleSection);
+  // 样式的各个分组直接作为一级分组（不再套一层「样式」）
+  const styleBox = el('div', { class: 'groups-box' });
+  const styleSection = styleBox;
+  boardBox.append(styleBox);
 
   const prefsBox = el('div');
-  boardBox.append(section('偏好', prefsBox));
+  boardBox.append(section('偏好', prefsBox, null, 'section:偏好', { collapsed: true }));
 
   const saved = store_.get(MAIN_TAB_KEY);
   showMain(saved in panes ? saved : 'params');
@@ -141,8 +150,8 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       curName.textContent = layout.name;
       curMeta.textContent = `${layout.category === '3d' ? '3D 透视' : '平面'}版式${layout.long ? ' · 支持长图' : ''}`;
       cameraNote.textContent = layout.category === '3d'
-        ? '用「构图」工具（O）调整：拖动旋转 3D 视角，Shift + 拖动平移，滚轮缩放。构图会一起导出。'
-        : '用「构图」工具（O）调整：拖动平移，滚轮缩放。构图会一起导出（与工作区的视图缩放无关）。';
+        ? '构图工具（O）：拖动旋转视角 · Shift 拖动平移 · 滚轮缩放'
+        : '构图工具（O）：拖动平移 · 滚轮缩放';
     }
     const long = s.aspect === 'long';
     layoutButtons.forEach((b, id) => {
@@ -155,7 +164,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     updatePrefs(s);
     const n = selectionOf(s).length;
     multiBanner.hidden = n <= 1;
-    multiText.textContent = `正在同时编辑 ${n} 个画板：样式、比例、版式和参数会一起修改（构图、卡片调整除外）`;
+    multiText.textContent = `同时编辑 ${n} 个画板（构图、卡片调整除外）`;
   }
   update(s0);
 
@@ -163,7 +172,6 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   function revealStyleGroup(name) {
     showMain('params');
     onBoardRequest?.(); // 有选中的图层 / 卡片时先取消选择，回到画板设置
-    if (styleSection.classList.contains('collapsed')) styleSection.querySelector('.section-toggle').click();
     const group = [...styleBox.querySelectorAll('button.ctrl-group')].find(g => g.textContent === name);
     if (group?.classList.contains('collapsed')) group.click();
     (group || styleSection).scrollIntoView({ block: 'start', behavior: 'smooth' });
