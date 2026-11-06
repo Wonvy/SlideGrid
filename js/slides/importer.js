@@ -31,23 +31,44 @@ async function walk(entry, prefix, out) {
 
 /**
  * 必须在 drop 事件处理函数里同步调用（DataTransfer 在事件结束后失效）。
- * async 函数在第一个 await 之前的代码是同步执行的，所以这里先把 entries 取出来。
+ * async 函数在第一个 await 之前的代码是同步执行的，所以这里先把 entries / 文件取出来。
+ *
+ * 文件直接用 getAsFile() 读取；只有文件夹才用文件系统接口（webkitGetAsEntry）递归读取。
+ * 直接双击打开的单文件版（file:// 页面）里，Chrome 会拦截文件系统接口，这时文件照常导入，
+ * 读不了的文件夹给出提示（改用「选择文件夹」按钮）。
  */
 export async function collectFromDrop(dataTransfer) {
-  const entries = [];
+  const items = [];
   for (const item of dataTransfer.items || []) {
     if (item.kind !== 'file') continue;
-    const entry = item.webkitGetAsEntry?.();
-    if (entry) entries.push(entry);
+    items.push({ entry: item.webkitGetAsEntry?.() || null, file: item.getAsFile() });
   }
-  const files = [...(dataTransfer.files || [])];
-
-  if (!entries.length) {
-    return sortByPath(files.filter(isImageFile).map(file => ({ file, path: file.name })));
+  if (!items.length) {
+    return sortByPath([...(dataTransfer.files || [])].filter(isImageFile).map(file => ({ file, path: file.name })));
   }
   const out = [];
-  for (const entry of entries) await walk(entry, '', out);
-  return sortByPath(out.filter(x => isImageFile(x.file)));
+  let folderFailed = false;
+  for (const { entry, file } of items) {
+    if (entry?.isDirectory) {
+      try {
+        await walk(entry, '', out);
+      } catch (err) {
+        console.warn('无法读取拖入的文件夹', err);
+        folderFailed = true;
+      }
+    } else if (file) {
+      out.push({ file, path: file.name });
+    } else if (entry?.isFile) {
+      try { await walk(entry, '', out); } catch (err) { console.warn(err); }
+    }
+  }
+  const images = sortByPath(out.filter(x => isImageFile(x.file)));
+  if (!images.length && folderFailed) {
+    const err = new Error('浏览器不允许这个页面读取拖入的文件夹（直接打开的单文件版会这样），请用左栏的「选择文件夹」按钮');
+    err.userMessage = err.message;
+    throw err;
+  }
+  return images;
 }
 
 export function collectFromInput(fileList) {

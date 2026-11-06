@@ -34,7 +34,7 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
       list = await listPromise;
     } catch (err) {
       console.error(err);
-      toast('读取文件失败', { error: true });
+      toast(err.userMessage || '读取文件失败', { error: true, duration: err.userMessage ? 6000 : undefined });
       return;
     }
     if (!list.length) {
