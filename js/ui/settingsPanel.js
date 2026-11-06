@@ -14,11 +14,13 @@ const store_ = {
 };
 
 /**
- * 右侧面板：三个标签页，各自独立滚动。
+ * 右侧面板：左边竖排图标栏切换页面（参照 Screen Studio），每页独立滚动。
  *   设计：跟随选择（类似 Figma）——选中图层时是图层属性，选中卡片时是卡片的裁切 / 位置，
- *         什么都没选时是画板设置：当前版式、版式参数、构图、样式、偏好
+ *         什么都没选时是当前画板的版式参数和构图
  *   版式：内置 / 我的版式（只负责选版式，不会误点）
+ *   背景 / 卡片 / 投影 / 渐隐遮罩：画板样式，各自一页（与选择无关，随时可调）
  *   图层：当前画板的图层列表
+ *   偏好：滚轮等操作习惯（图标栏底部）
  */
 export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null }) {
   root.innerHTML = '';
@@ -26,20 +28,24 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
 
   /* ================= 顶层标签 ================= */
   // 左侧竖排的图标栏切换页面，右边是页面标题 + 内容
-  const TITLES = { params: '设计', layouts: '版式', layers: '图层' };
+  const TITLES = { params: '设计', layouts: '版式', bg: '背景', card: '卡片', shadow: '投影', fade: '渐隐遮罩', layers: '图层', prefs: '偏好' };
+  // 样式页对应 style/schema.js 里的分组
+  const STYLE_PAGES = { bg: '背景', card: '卡片', shadow: '投影', fade: '渐隐遮罩' };
   const layerCount = el('span', { class: 'tab-count' });
   const tab = (k, ic, ...extra) => el('button', { class: 'rp-tab', role: 'tab', title: TITLES[k], 'aria-label': TITLES[k] }, icon(ic, 18), ...extra);
   const mainTabs = {
-    params: tab('params', 'settings-2'),
+    params: tab('params', 'sliders-horizontal'),
     layouts: tab('layouts', 'layout-grid'),
+    bg: tab('bg', 'paint-bucket'),
+    card: tab('card', 'square'),
+    shadow: tab('shadow', 'sun-dim'),
+    fade: tab('fade', 'blend'),
     layers: tab('layers', 'layers', layerCount),
+    prefs: tab('prefs', 'cog'),
   };
+  mainTabs.prefs.classList.add('rp-bottom');
   const pageTitle = el('div', { class: 'rp-title' });
-  const panes = {
-    params: el('div', { class: 'rp-pane', role: 'tabpanel' }),
-    layouts: el('div', { class: 'rp-pane', role: 'tabpanel' }),
-    layers: el('div', { class: 'rp-pane', role: 'tabpanel' }),
-  };
+  const panes = Object.fromEntries(Object.keys(TITLES).map(k => [k, el('div', { class: 'rp-pane', role: 'tabpanel' })]));
   function showMain(name) {
     for (const k of Object.keys(panes)) {
       panes[k].hidden = k !== name;
@@ -50,9 +56,17 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     store_.set(MAIN_TAB_KEY, name);
   }
   for (const k of Object.keys(mainTabs)) mainTabs[k].addEventListener('click', () => showMain(k));
+  // 多选画板时的提示：修改会同步到所有选中的画板（在任何页都显示）
+  const multiText = el('span', {});
+  const multiBanner = el('div', { class: 'multi-banner', hidden: true },
+    icon('frame', 14), multiText,
+    el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
+  const sep = () => el('span', { class: 'rp-sep' });
+  const t = mainTabs;
   root.append(
-    el('div', { class: 'rp-tabs rp-rail', role: 'tablist', 'aria-orientation': 'vertical' }, ...Object.values(mainTabs)),
-    el('div', { class: 'rp-main' }, pageTitle, ...Object.values(panes)),
+    el('div', { class: 'rp-tabs rp-rail', role: 'tablist', 'aria-orientation': 'vertical' },
+      t.params, t.layouts, sep(), t.bg, t.card, t.shadow, t.fade, sep(), t.layers, t.prefs),
+    el('div', { class: 'rp-main' }, pageTitle, multiBanner, ...Object.values(panes)),
   );
 
   /* ================= 版式页：内置 / 我的版式 ================= */
@@ -100,21 +114,15 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     curIcon,
     el('div', { class: 'cur-text' }, curName, curMeta),
     el('button', { class: 'btn ghost small', title: '去「版式」页选择其他版式', onclick: () => showMain('layouts') }, '更换'));
-  // 多选画板时的提示：修改会同步到所有选中的画板
-  const multiText = el('span', {});
-  const multiBanner = el('div', { class: 'multi-banner', hidden: true },
-    icon('frame', 14), multiText,
-    el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
   // 设计页：选中图层 / 卡片时显示它们的属性（ui/inspector.js），否则显示画板设置
   const selectionSlot = el('div', { class: 'inspector', hidden: true });
   const boardBox = el('div');
-  boardBox.append(multiBanner);
   panes.params.append(selectionSlot, boardBox);
   // 图层页
   const layersSlot = el('div', { class: 'inspector' });
   panes.layers.append(layersSlot);
 
-  // 画板设置只有一级分组（标题 14px，都可折叠）：版式 → 构图 → 背景 / 卡片 / 渐隐遮罩 / 投影 → 偏好
+  // 设计页（没有选择时）：版式参数、构图
   const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
   const paramsBox = el('div');
   boardBox.append(section('版式', el('div', {}, current, paramsBox), resetBtn('恢复当前版式的默认参数', () => actions.resetParams())));
@@ -122,20 +130,30 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const cameraNote = el('p', { class: 'note compact' });
   boardBox.append(section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度）', () => actions.resetCamera())));
 
-  // 样式的各个分组直接作为一级分组（不再套一层「样式」）
-  const styleBox = el('div', { class: 'groups-box' });
-  const styleSection = styleBox;
-  boardBox.append(styleBox);
-
+  // 样式各页：直接放这一组的参数（页面标题就是分组名）
+  const styleBoxes = {};
+  for (const k of Object.keys(STYLE_PAGES)) {
+    styleBoxes[k] = el('div');
+    panes[k].append(el('div', { class: 'page-body' }, styleBoxes[k]));
+  }
+  // 偏好页
   const prefsBox = el('div');
-  boardBox.append(section('偏好', prefsBox, null, 'section:偏好', { collapsed: true }));
+  panes.prefs.append(el('div', { class: 'page-body' }, prefsBox));
 
   const saved = store_.get(MAIN_TAB_KEY);
   showMain(saved in panes ? saved : 'params');
 
   /* ================= 同步 ================= */
   const s0 = store.get();
-  const updateStyle = buildControls(styleBox, styleSchema, s0.style, actions.setStyle, { ...imageCtx, collapseKey: 'style' });
+  // styleSchema 按分组切开，每页一份
+  const groupItems = name => {
+    const i = styleSchema.findIndex(d => d.group === name);
+    const j = styleSchema.findIndex((d, k) => k > i && d.group);
+    return styleSchema.slice(i + 1, j < 0 ? undefined : j);
+  };
+  const styleUpdaters = Object.entries(STYLE_PAGES).map(([k, name]) =>
+    buildControls(styleBoxes[k], groupItems(name), s0.style, actions.setStyle, imageCtx));
+  const updateStyle = st => styleUpdaters.forEach(u => u(st));
   const updatePrefs = buildControls(prefsBox, wheelModeSchema, s0, actions.setPref);
   let updateParams = () => {};
   let currentLayout = null;
@@ -168,15 +186,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   }
   update(s0);
 
-  // 切到「设计」页（画板设置），展开「样式」里的某个分组并滚动到那里（工具条背景 / 遮罩面板的「更多设置」）
+  // 打开某个样式页（工具条背景 / 遮罩面板的「更多设置」）
   function revealStyleGroup(name) {
-    showMain('params');
-    onBoardRequest?.(); // 有选中的图层 / 卡片时先取消选择，回到画板设置
-    const group = [...styleBox.querySelectorAll('button.ctrl-group')].find(g => g.textContent === name);
-    if (group?.classList.contains('collapsed')) group.click();
-    (group || styleSection).scrollIntoView({ block: 'start', behavior: 'smooth' });
-    styleSection.classList.add('flash');
-    setTimeout(() => styleSection.classList.remove('flash'), 900);
+    const page = Object.keys(STYLE_PAGES).find(k => STYLE_PAGES[k] === name) || 'bg';
+    showMain(page);
+    panes[page].classList.add('flash');
+    setTimeout(() => panes[page].classList.remove('flash'), 900);
   }
 
   return {

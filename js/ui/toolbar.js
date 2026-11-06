@@ -49,13 +49,15 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
   //   ctxSlot   选中图层 / 卡片时的常用属性（ui/contextBar.js）
   //   bgSlot    没有选择时：画板背景、渐隐遮罩
   //   alignSlot 选中卡片 / 图层时：对齐、分布
-  //   viewSlot + 缩放：始终显示
+  //   viewSlot + 缩放：在画布右下角的视图条里，始终显示
   const ctxSlot = el('div', { class: 'tb-group tb-ctx', hidden: true });
   const bgSlot = el('div', { class: 'tb-group' });
   const alignSlot = el('div', { class: 'tb-group tb-align', hidden: true });
 
-  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '属性与视图' }, ctxSlot, bgSlot, alignSlot, viewSlot, zoom, extra);
-  root.append(tools, bar);
+  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '属性' }, ctxSlot, bgSlot, alignSlot, extra);
+  // 吸附开关和视图缩放放在画布右下角（类似 Figma），顶部工具条只放和选择相关的属性
+  const viewbar = el('div', { class: 'viewbar', role: 'toolbar', 'aria-label': '视图' }, viewSlot, zoom);
+  root.append(tools, bar, viewbar);
 
   return {
     ctxSlot,

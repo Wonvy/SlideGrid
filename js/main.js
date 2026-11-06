@@ -294,7 +294,7 @@ const contextBar = createContextBar(toolbar.ctxSlot, {
   setCards: (key, value) => actions.setItemAdjusts(ui.selection.map(order => ({ order, patch: { [key]: value } }))),
   getCards: () => ui.selection,
   resetCrop: order => actions.resetCrop(order),
-  reorder: dir => layerTools.reorder(dir),
+  reorder: (dir, toEnd) => layerTools.reorder(dir, toEnd),
   removeLayers: () => layerTools.remove([...ui.layerSel]),
   booleanOp: op => layerTools.booleanOp(op),
   booleanCount: () => layerTools.booleanCount(),

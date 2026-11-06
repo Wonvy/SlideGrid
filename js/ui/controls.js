@@ -47,6 +47,8 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
     label.addEventListener('dblclick', () => onChange(def.key, def.default));
     row.append(label);
 
+    // 工具条里名称可能省略显示，悬停时用提示说明是什么参数
+    if (!panel) row.title = labelText(values);
     let current = values?.[def.key];
     let render = () => {};
     let wheel = null; // (steps, fast) => 新值
@@ -54,7 +56,6 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
     switch (def.type) {
       case 'range': {
         const step = def.step ?? 1;
-        const input = el('input', { type: 'range', min: def.min, max: def.max, step });
         const display = el('span', { class: 'ctrl-value' });
         // 0 ~ 1 的比例（不透明度、位置…）显示成百分比
         const percent = !def.unit && def.min >= 0 && def.max <= 1 && step < 1;
@@ -62,8 +63,8 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         const ws = def.wheelStep ?? step;
         const snap = v => Number(clampTo(Math.round(v / step) * step, def).toFixed(decimals(step)));
         wheel = (steps, fast) => Number(clampTo(current + steps * ws * (fast ? 10 : 1), def).toFixed(decimals(ws)));
-        if (panel) {
-          // 面板里：整行是一个「数值条」——名称在左、数值在右，底色按比例填充；左右拖动整条调整
+        {
+          // 数值条：名称在左、数值在右，底色按比例填充；左右拖动整条调整（面板和工具条共用，工具条里更紧凑）
           const fill = el('span', { class: 'sfield-fill' });
           row.classList.add('sfield');
           row.tabIndex = 0;
@@ -103,23 +104,19 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
             display.textContent = fmt(v);
             row.setAttribute('aria-valuenow', String(v));
           };
-        } else {
-          input.addEventListener('input', () => onChange(def.key, Number(input.value)));
-          render = v => {
-            if (Number(input.value) !== v) input.value = v;
-            display.textContent = fmt(v);
-          };
-          row.append(display, input);
         }
         break;
       }
       case 'select': {
         // 面板里：选项少且短时用分段按钮（类似 iOS / Figma），否则用下拉框；名称放在上方
         const short = def.options.length <= 4 && def.options.every(o => String(o.label).length <= 5);
-        if (panel && def.segmented !== false && (def.segmented || short)) {
+        if (def.segmented !== false && (def.segmented || short)) {
           const seg = el('div', { class: 'seg' });
+          // 有图标的选项：工具条里显示图标（面板里 iconInPanel 时也用图标），悬停提示文字
+          const useIcon = o => o.icon && (!panel || def.iconInPanel);
           const btns = def.options.map(o => {
-            const b = el('button', { type: 'button', class: 'seg-btn', title: o.label }, o.label);
+            const b = el('button', { type: 'button', class: `seg-btn${useIcon(o) ? ' icon-only' : ''}`, title: o.label, 'aria-label': o.label },
+              useIcon(o) ? icon(o.icon, 16) : o.label);
             b.addEventListener('click', () => onChange(def.key, o.value));
             seg.append(b);
             return b;
@@ -129,7 +126,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
             const idx = Math.max(0, def.options.findIndex(o => o.value === current));
             return def.options[Math.min(def.options.length - 1, Math.max(0, idx + steps))].value;
           };
-          row.classList.add('stacked');
+          if (panel) row.classList.add('stacked');
           row.append(seg);
           break;
         }
@@ -162,7 +159,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         };
         row.append(el('div', { class: 'ctrl-actions' }, input, def.unit ? el('span', { class: 'ctrl-unit' }, def.unit) : null));
         row.classList.add('inline');
-        if (panel) row.classList.add('nfield'); // 面板里：名称和数值在同一个输入条里
+        row.classList.add('nfield'); // 名称和数值在同一个输入条里
         break;
       }
       case 'toggle': {
@@ -262,6 +259,40 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         row.classList.add('inline');
         break;
       }
+    }
+
+    // 按住名称上下（或左右）拖动调整数值，类似 Photoshop：向上 / 向右增大
+    //   数值条：拖过约 240 像素走完整个范围，Shift 精调；数字：每像素一步，Shift ×10
+    if (def.type === 'range' || def.type === 'number') {
+      label.classList.add('scrub');
+      label.title = '按住上下拖动调整（Shift 精调 / 加速）· 双击恢复默认 · 悬停后可用滚轮';
+      label.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.stopPropagation(); // 不触发数值条本身的拖动
+        e.preventDefault();
+        label.setPointerCapture(e.pointerId);
+        const start = Number(current) || 0, x0 = e.clientX, y0 = e.clientY;
+        const step = def.step ?? 1;
+        const span = Number.isFinite(def.max - def.min) ? def.max - def.min : null;
+        let moved = false;
+        const move = ev => {
+          const d = (ev.clientX - x0) - (ev.clientY - y0);
+          if (!moved && Math.abs(d) < 2) return;
+          if (!moved) { moved = true; document.body.classList.add('scrubbing'); }
+          const perPx = def.type === 'range' && span ? (span / 240) * (ev.shiftKey ? 0.1 : 1) : step * (ev.shiftKey ? 10 : 1);
+          const v = Number(clampTo(Math.round((start + d * perPx) / step) * step, def).toFixed(decimals(step)));
+          if (v !== current) onChange(def.key, v);
+        };
+        const up = () => {
+          label.removeEventListener('pointermove', move);
+          label.removeEventListener('pointerup', up);
+          label.removeEventListener('pointercancel', up);
+          document.body.classList.remove('scrubbing');
+        };
+        label.addEventListener('pointermove', move);
+        label.addEventListener('pointerup', up);
+        label.addEventListener('pointercancel', up);
+      });
     }
 
     if (wheel && !def.nowheel) {

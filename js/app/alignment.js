@@ -1,6 +1,7 @@
 import { store, actions } from '../state.js';
 import { unionRects, alignOffsets, distributeOffsets } from '../workspace/snap.js';
 import { icon } from '../ui/icons.js';
+import { createMenu } from '../ui/menu.js';
 import { getAdjust, is3D } from './boards.js';
 import { ui } from './uiState.js';
 
@@ -74,15 +75,37 @@ export function createAlignment({ ws, viewport, alignSlot, snapSlot, layers = ()
     applyOffsets(items, distributeOffsets(items.map(x => x.r), axis));
   }
 
-  const alignButtons = ALIGN.map(a => ({ ...a, b: button('tb-btn', a.icon, a.label, () => alignSelection(a.mode)) }));
-  const distButtons = DISTRIBUTE.map(d => ({ ...d, b: button('tb-btn', d.icon, `${d.label}（选中 3 张以上）`, () => distributeSelection(d.axis)) }));
-  alignSlot.append(...alignButtons.map(x => x.b), Object.assign(document.createElement('span'), { className: 'tb-sep' }), ...distButtons.map(x => x.b));
+  // 工具条上只放一个「对齐」按钮，点开是 6 个对齐 + 2 个分布（节省工具条宽度）
+  const count = () => (is3D() ? 0 : ui.selection.length) + ui.layerSel.length;
+  const trigger = button('tb-btn tb-menu-btn', 'align-center-vertical', '对齐与分布', () => {});
+  trigger.append(icon('chevron-down', 12));
+  alignSlot.append(trigger);
+  createMenu(trigger, {
+    className: 'align-menu',
+    align: 'center',
+    render(pop, close) {
+      const n = count();
+      const cell = (ic, label, fn, disabled = false) => {
+        const b = button('align-cell', ic, label, () => { close(); fn(); });
+        b.disabled = disabled;
+        return b;
+      };
+      pop.replaceChildren(
+        Object.assign(document.createElement('div'), { className: 'menu-title', textContent: n > 1 ? `对齐选中的 ${n} 个对象` : '对齐到画板' }),
+        Object.assign(document.createElement('div'), { className: 'align-grid' }),
+        Object.assign(document.createElement('div'), { className: 'menu-title', textContent: '等距分布（选中 3 个以上）' }),
+        Object.assign(document.createElement('div'), { className: 'align-grid two' }),
+      );
+      const [, grid, , dist] = pop.children;
+      grid.append(...ALIGN.map(a => cell(a.icon, a.label, () => alignSelection(a.mode))));
+      dist.append(...DISTRIBUTE.map(d => cell(d.icon, d.label, () => distributeSelection(d.axis), n < 3)));
+    },
+  });
 
   function refreshAlign() {
-    const n = (is3D() ? 0 : ui.selection.length) + ui.layerSel.length;
+    const n = count();
     alignSlot.hidden = !n;
-    for (const a of alignButtons) a.b.title = n > 1 ? `${a.label}（选中的 ${n} 个对象）` : `${a.label}到画板`;
-    for (const d of distButtons) { d.b.disabled = n < 3; d.b.classList.toggle('disabled', n < 3); }
+    trigger.title = n > 1 ? `对齐与分布（选中的 ${n} 个对象）` : '对齐到画板';
   }
 
   /* ---------- 吸附开关 ---------- */

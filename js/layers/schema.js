@@ -23,8 +23,8 @@ export const layerSchema = [
     options: [{ value: 300, label: '细' }, { value: 400, label: '常规' }, { value: 600, label: '中粗' }, { value: 700, label: '粗' }, { value: 900, label: '特粗' }],
   },
   {
-    key: 'align', label: '对齐', type: 'select', types: ['text'],
-    options: [{ value: 'left', label: '左对齐' }, { value: 'center', label: '居中' }, { value: 'right', label: '右对齐' }],
+    key: 'align', label: '对齐', type: 'select', types: ['text'], iconInPanel: true,
+    options: [{ value: 'left', label: '左对齐', icon: 'align-left' }, { value: 'center', label: '居中', icon: 'align-center' }, { value: 'right', label: '右对齐', icon: 'align-right' }],
   },
   { key: 'lineHeight', label: '行高', type: 'range', min: 0.8, max: 3, step: 0.05, types: ['text'] },
   { key: 'letterSpacing', label: '字间距', type: 'range', min: -20, max: 60, types: ['text'] },
@@ -33,7 +33,7 @@ export const layerSchema = [
   { group: '填充', types: SHAPES },
   {
     key: 'fillType', label: '类型', type: 'select', types: SHAPES,
-    options: [{ value: 'none', label: '无' }, { value: 'solid', label: '纯色' }, { value: 'linear', label: '线性渐变' }],
+    options: [{ value: 'none', label: '无', icon: 'ban' }, { value: 'solid', label: '纯色', icon: 'square' }, { value: 'linear', label: '线性渐变', icon: 'blend' }],
   },
   { key: 'fill', label: v => (v.fillType === 'linear' ? '起始色' : '颜色'), type: 'color', half: true, types: SHAPES, show: fillOn },
   { key: 'fill2', label: '结束色', type: 'color', half: true, types: SHAPES, show: v => v.fillType === 'linear' },

@@ -3,6 +3,7 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 import { layerSchema, cropSchema } from '../layers/schema.js';
 import { BOOLEAN_OPS } from '../layers/boolean.js';
+import { createMenu } from './menu.js';
 
 /**
  * 顶部工具条的「上下文」部分：跟随当前选择显示最常用的属性（类似 Illustrator 的控制栏）。
@@ -27,8 +28,15 @@ const COMPACT = {
   opacity: { label: '不透明度' },
 };
 const BARS = {
-  text: pick(['fontFamily', 'fontSize', 'fontWeight', 'align', 'color', 'opacity'], COMPACT),
-  shape: pick(['fillType', 'fill', 'strokeWidth', 'stroke', 'opacity'], { ...COMPACT, fillType: { label: '填充' }, fill: { label: '', show: v => v.fillType !== 'none' } }),
+  text: pick(['fontFamily', 'fontSize', 'fontWeight', 'align', 'color'], COMPACT),
+  // 填充：类型、颜色、填充不透明度（渐变时为起点的不透明度）；然后是描边和整体不透明度
+  shape: pick(['fillType', 'fill', 'fillAlpha', 'strokeWidth', 'stroke', 'opacity'], {
+    ...COMPACT,
+    fillType: { label: '填充类型' },
+    fill: { label: '填充颜色', show: v => v.fillType !== 'none' },
+    fillAlpha: { label: v => (v.fillType === 'linear' ? '起点' : '填充'), show: v => v.fillType !== 'none' },
+    opacity: { label: '整体' },
+  }),
   mixed: pick(['opacity'], COMPACT),
 };
 const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ');
@@ -40,14 +48,39 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
   slot.append(title, box, actionsBox);
 
   const btn = (ic, label, fn) => el('button', { class: 'tb-btn', title: label, 'aria-label': label, onclick: fn }, icon(ic, 15));
-  const layerActions = [
-    btn('arrow-up', '上移一层（⌘ ]）', () => reorder(1)),
-    btn('arrow-down', '下移一层（⌘ [）', () => reorder(-1)),
-    btn('trash-2', '删除（Delete）', () => removeLayers()),
-  ];
+  // 下拉按钮：点开是一列菜单项（节省工具条宽度）
+  const mod = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
+  function menuBtn(ic, label, items) {
+    const b = el('button', { class: 'tb-btn tb-menu-btn', title: label, 'aria-label': label }, icon(ic, 15), icon('chevron-down', 12));
+    createMenu(b, {
+      align: 'center',
+      render(pop, close) {
+        const list = typeof items === 'function' ? items() : items;
+        pop.replaceChildren(el('div', { class: 'menu-title' }, label), ...list.map(it => {
+          if (it.sep) return el('div', { class: 'menu-sep' });
+          if (it.title) return el('div', { class: 'menu-title' }, it.title);
+          const row = el('button', { class: 'menu-item' },
+            el('span', { class: 'menu-check' }, it.icon ? icon(it.icon, 14) : null),
+            el('span', { class: 'menu-label' }, it.label),
+            it.shortcut ? el('span', { class: 'menu-meta' }, it.shortcut) : null);
+          row.addEventListener('click', () => { close(); it.action(); });
+          return row;
+        }));
+      },
+    });
+    return b;
+  }
+  // 排列（层级），选中两个以上形状时下面还有布尔运算（合在一个菜单里，节省工具条宽度）
+  const arrange = menuBtn('layers', '排列', () => [
+    { label: '上移一层', icon: 'arrow-up', shortcut: `${mod}]`, action: () => reorder(1) },
+    { label: '下移一层', icon: 'arrow-down', shortcut: `${mod}[`, action: () => reorder(-1) },
+    { label: '置于顶层', shortcut: `⇧${mod}]`, action: () => reorder(1, true) },
+    { label: '置于底层', shortcut: `⇧${mod}[`, action: () => reorder(-1, true) },
+    ...(booleanCount() >= 2 ? [{ sep: true }, { title: '布尔运算' }, ...BOOLEAN_OPS.map(o => ({ label: o.label, icon: o.icon, action: () => booleanOp(o.id) }))] : []),
+  ]);
+  const layerActions = [arrange, btn('trash-2', '删除（Delete）', () => removeLayers())];
   const cardActions = [btn('rotate-ccw', '复位裁切', () => getCards().forEach(resetCrop))];
-  // 选中两个以上形状时：布尔运算
-  const boolActions = [el('span', { class: 'tb-sep' }), ...BOOLEAN_OPS.map(o => btn(o.icon, `${o.label}（布尔运算）`, () => booleanOp(o.id))), el('span', { class: 'tb-sep' })];
+  const boolActions = []; // 布尔运算在「排列」菜单里
 
   let key = '';
   let updateControls = () => {};
