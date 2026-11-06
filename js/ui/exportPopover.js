@@ -53,14 +53,16 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info 
     const o = s.exportOpts;
     updateControls(o);
     const { width, height, defaultName } = info(s);
-    sizeInfo.textContent = `输出尺寸：${width} × ${height} px`;
+    sizeInfo.textContent = o.scope === 'all' ? `当前画板：${width} × ${height} px` : `输出尺寸：${width} × ${height} px`;
     if (!nameEdited) nameInput.value = defaultName;
-    ext.textContent = o.format === 'jpg' ? '.jpg' : '.png';
+    ext.textContent = o.scope === 'all' ? '.zip' : o.format === 'jpg' ? '.jpg' : '.png';
     const transparent = s.style.bgType === 'transparent';
     preview.classList.toggle('checker', transparent && o.format === 'png');
-    hint.textContent = transparent
-      ? (o.format === 'png' ? '背景透明：导出 PNG 时保留透明' : 'JPG 不支持透明，背景将以白色填充')
-      : '尺寸在左侧下拉框中选择 · 点击「导出图片」开始导出';
+    hint.textContent = o.scope === 'all'
+      ? `将导出全部 ${s.artboards.length} 个画板，打包为 ZIP（各画板按自己的比例）`
+      : transparent
+        ? (o.format === 'png' ? '背景透明：导出 PNG 时保留透明' : 'JPG 不支持透明，背景将以白色填充')
+        : '尺寸在左侧下拉框中选择 · 点击「导出」开始导出';
     hint.classList.toggle('warn', transparent && o.format === 'jpg');
     drawPreview(preview, { maxW: 300, maxH: 200, whiteFill: transparent && o.format === 'jpg' });
   }
@@ -93,8 +95,8 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info 
 
   const filename = () => {
     const s = store.get();
-    const base = (isOpen() && nameEdited ? nameInput.value.trim() : '').replace(/\.(png|jpe?g)$/i, '') || info(s).defaultName;
-    return `${base}.${s.exportOpts.format === 'jpg' ? 'jpg' : 'png'}`;
+    const base = (isOpen() && nameEdited ? nameInput.value.trim() : '').replace(/\.(png|jpe?g|zip)$/i, '') || info(s).defaultName;
+    return `${base}.${s.exportOpts.scope === 'all' ? 'zip' : s.exportOpts.format === 'jpg' ? 'jpg' : 'png'}`;
   };
 
   return {

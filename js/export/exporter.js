@@ -4,6 +4,7 @@ import { paintBackground } from '../render/background.js';
 import { decodeImage, resizeBitmap } from '../slides/images.js';
 import { exportSize } from './schema.js';
 import { nextFrame } from '../core/utils.js';
+import { tileMatrix } from '../render/math.js';
 
 const MAX_TILE = 2048;
 
@@ -32,20 +33,15 @@ async function loadBackground(bg, target) {
   return src || bg.preview || null;
 }
 
-// 只放大 NDC 中 [l,r]×[b,t] 这一块，用于分块渲染
-function tileMatrix(x0, y0, tw, th, W, H) {
-  const l = (x0 / W) * 2 - 1, r = ((x0 + tw) / W) * 2 - 1;
-  const t = 1 - (y0 / H) * 2, b = 1 - ((y0 + th) / H) * 2;
-  const sx = 2 / (r - l), sy = 2 / (t - b);
-  return new Float32Array([sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, 1, 0, (-sx * (l + r)) / 2, (-sy * (t + b)) / 2, 0, 1]);
-}
 
 /**
- * 离屏渲染出高清图片。
+ * 离屏渲染到一张 canvas。
  * @param input  与 buildScene 相同的参数
- * @returns { blob, width, height }
+ * @param opts   longSide：导出尺寸；fill：透明背景时的填充（'white' 或不填 = 保留透明）；
+ *               preview：true 时直接用内存里的预览图（快，用于缩略图 / 导出面板预览），否则重新读取原图
+ * @returns { canvas, width, height }
  */
-export async function renderToBlob(input, { longSide, format = 'png', quality = 0.92, onProgress } = {}) {
+export async function renderToCanvas(input, { longSide, fill = null, preview = false, onProgress } = {}) {
   const scene = buildScene(input);
   const { width: pxW, height: pxH } = exportSize(scene, longSide);
 
@@ -55,26 +51,30 @@ export async function renderToBlob(input, { longSide, format = 'png', quality = 
   const ctx = out.getContext('2d');
   if (!ctx) throw new Error('无法创建画布，请降低导出尺寸');
   if (scene.style.bgType === 'transparent') {
-    if (format === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pxW, pxH); } // JPG 不支持透明
+    if (fill) { ctx.fillStyle = fill; ctx.fillRect(0, 0, pxW, pxH); }
   } else {
-    const bgImage = await loadBackground(input.background, Math.max(pxW, pxH));
+    const bgImage = preview ? input.background?.preview || null : await loadBackground(input.background, Math.max(pxW, pxH));
     paintBackground(ctx, pxW, pxH, scene.style, { image: bgImage, unit: pxH / scene.H });
-    if (bgImage && bgImage !== input.background?.source && typeof bgImage.close === 'function') bgImage.close();
+    if (!preview && bgImage && bgImage !== input.background?.source && typeof bgImage.close === 'function') bgImage.close();
   }
 
   const glCanvas = document.createElement('canvas');
   const renderer = new Renderer(glCanvas, { preserveDrawingBuffer: true });
   try {
-    const needs = textureNeeds(scene, pxW, pxH);
-    const slides = [...new Map(scene.items.map(it => [it.slide.id, it.slide])).values()]
-      .filter(s => needs.has(s.id));
-    let done = 0;
-    for (const slide of slides) {
-      const target = Math.max(256, Math.min(renderer.maxTextureSize, Math.ceil(needs.get(slide.id))));
-      const src = await loadExportSource(slide, target);
-      renderer.setTexture(slide.id, src);
-      if (src !== slide.source && typeof src.close === 'function') src.close();
-      onProgress?.((0.7 * ++done) / slides.length);
+    const slides = [...new Map(scene.items.map(it => [it.slide.id, it.slide])).values()];
+    if (preview) {
+      for (const slide of slides) renderer.setTexture(slide.id, slide.preview);
+    } else {
+      const needs = textureNeeds(scene, pxW, pxH);
+      const needed = slides.filter(sl => needs.has(sl.id));
+      let done = 0;
+      for (const slide of needed) {
+        const target = Math.max(256, Math.min(renderer.maxTextureSize, Math.ceil(needs.get(slide.id))));
+        const src = await loadExportSource(slide, target);
+        renderer.setTexture(slide.id, src);
+        if (src !== slide.source && typeof src.close === 'function') src.close();
+        onProgress?.((0.7 * ++done) / needed.length);
+      }
     }
 
     const T = Math.min(MAX_TILE, renderer.maxViewport);
@@ -87,18 +87,25 @@ export async function renderToBlob(input, { longSide, format = 'png', quality = 
         renderer.render(scene, tileMatrix(x0, y0, tw, th, pxW, pxH));
         ctx.drawImage(glCanvas, x0, y0);
         onProgress?.(0.7 + (0.25 * (ty * cols + tx + 1)) / (rows * cols));
-        await nextFrame();
+        if (!preview) await nextFrame();
       }
     }
   } finally {
     renderer.dispose();
   }
+  return { canvas: out, width: pxW, height: pxH };
+}
 
+/** 离屏渲染出高清图片：{ blob, width, height } */
+export async function renderToBlob(input, { longSide, format = 'png', quality = 0.92, onProgress, preview = false } = {}) {
+  const { canvas, width, height } = await renderToCanvas(input, {
+    longSide, preview, onProgress, fill: format === 'jpg' ? '#ffffff' : null, // JPG 不支持透明
+  });
   const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-  const blob = await new Promise(resolve => out.toBlob(resolve, mime, quality));
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, quality));
   if (!blob) throw new Error('编码失败，尺寸可能超出浏览器限制，请降低导出尺寸');
   onProgress?.(1);
-  return { blob, width: pxW, height: pxH };
+  return { blob, width, height };
 }
 
 export function downloadBlob(blob, filename) {

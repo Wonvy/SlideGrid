@@ -3,7 +3,7 @@ import { schemaDefaults } from './core/utils.js';
 import { layouts, getLayout } from './layouts/index.js';
 import { styleSchema, backgroundTypeDefaults } from './style/schema.js';
 import { exportSchema } from './export/schema.js';
-import { ASPECTS, DEFAULT_CAMERA } from './config.js';
+import { DEFAULT_CAMERA, isValidAspect } from './config.js';
 
 // 项目（图片 + 版式/样式/视图设置）保存在 IndexedDB，见 project/controller.js；
 // localStorage 只存跨项目的偏好（导出设置）。
@@ -19,20 +19,51 @@ const defaultParams = (saved = {}) => {
   return params;
 };
 
-// 项目级设置：读入时与默认值合并（新增参数时旧项目也能用）
-export function projectSettings(saved = {}) {
+/**
+ * 画板设置：每个画板独立的版式、参数、样式、比例、构图视角和卡片调整。
+ * 读入时与默认值合并（新增参数时旧数据也能用）。
+ */
+export function boardSettings(saved = {}) {
   return {
     layoutId: getLayout(saved.layoutId) ? saved.layoutId : 'grid',
     params: defaultParams(saved.params),
     style: { ...schemaDefaults(styleSchema), ...(saved.style || {}) },
-    aspect: ASPECTS.some(a => a.id === saved.aspect) ? saved.aspect : '16:9',
+    aspect: isValidAspect(saved.aspect) ? saved.aspect : '16:9',
     camera: { ...DEFAULT_CAMERA, ...(saved.camera || {}) },
     // 单张卡片的手动调整：{ [layoutId]: { [位置序号]: { dx, dy, rz, s, lift } } }（s 为等比缩放）
     adjust: saved.adjust && typeof saved.adjust === 'object' ? saved.adjust : {},
   };
 }
 
-export const settingsOf = s => ({ layoutId: s.layoutId, params: s.params, style: s.style, aspect: s.aspect, camera: s.camera, adjust: s.adjust });
+export const newBoardId = () => `b_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/**
+ * 项目设置 = 多个画板。当前画板的设置展开在 store 顶层（layoutId / params / style …），
+ * 其余画板的设置保存在 artboards[i].settings 里；切换画板时互换。
+ *   artboards: [{ id, name, x, y, settings }]   x / y：画板在工作区中的位置（世界单位，左上角）
+ *   activeBoard: id
+ */
+export function projectSettings(saved = {}) {
+  let boards = Array.isArray(saved.artboards) && saved.artboards.length
+    ? saved.artboards
+    : [{ name: '画板 1', x: 0, y: 0, settings: saved.layoutId ? saved : {} }];
+  boards = boards.map((b, i) => ({
+    id: b.id || newBoardId(),
+    name: b.name || `画板 ${i + 1}`,
+    x: Number(b.x) || 0,
+    y: Number(b.y) || 0,
+    settings: boardSettings(b.settings),
+  }));
+  const active = boards.find(b => b.id === saved.activeBoard) || boards[0];
+  return { artboards: boards, activeBoard: active.id, ...active.settings };
+}
+
+// 当前画板（store 顶层）的设置
+export const boardSettingsOf = s => ({ layoutId: s.layoutId, params: s.params, style: s.style, aspect: s.aspect, camera: s.camera, adjust: s.adjust });
+// 所有画板，当前画板的 settings 换成最新值
+export const boardsOf = s => s.artboards.map(b => (b.id === s.activeBoard ? { ...b, settings: boardSettingsOf(s) } : b));
+// 保存到项目的设置
+export const settingsOf = s => ({ artboards: boardsOf(s), activeBoard: s.activeBoard });
 
 const prefs = loadPrefs();
 
@@ -54,6 +85,17 @@ store.subscribe(s => {
 });
 
 const closeSlide = slide => slide?.preview?.close?.();
+
+// 只保留仍被某个画板引用的素材
+function pruneAssets(s, assets) {
+  const used = new Set(boardsOf(s).map(b => b.settings.style?.bgImageId).filter(Boolean));
+  const out = {};
+  for (const [id, a] of Object.entries(assets)) {
+    if (used.has(id)) out[id] = a;
+    else a.preview?.close?.();
+  }
+  return out;
+}
 
 export const actions = {
   addSlides(newSlides) {
@@ -109,13 +151,58 @@ export const actions = {
     store.set({ project, slides, assets, ...projectSettings(settings) });
   },
   // 设置背景图（只保留当前这一张素材）
+  // 设置当前画板的背景图（其他画板仍在用的背景图会保留）
   setBackgroundImage(asset) {
     const s = store.get();
-    Object.values(s.assets).forEach(a => { if (a !== asset) a.preview?.close?.(); });
-    store.set({ assets: { [asset.id]: asset }, style: { ...s.style, bgType: 'image', bgImageId: asset.id } });
+    const style = { ...s.style, bgType: 'image', bgImageId: asset.id };
+    store.set({ style, assets: pruneAssets({ ...s, style }, { ...s.assets, [asset.id]: asset }) });
   },
   setProjectName(name) {
     store.set(s => ({ project: s.project ? { ...s.project, name } : s.project }));
+  },
+  /* ---------- 画板 ---------- */
+  setActiveBoard(id) {
+    const s = store.get();
+    if (id === s.activeBoard) return;
+    const boards = boardsOf(s);
+    const b = boards.find(x => x.id === id);
+    if (!b) return;
+    store.set({ artboards: boards, activeBoard: id, ...b.settings });
+  },
+  // 新建画板：duplicate 时复制当前画板的全部设置；位置由调用方算好
+  addArtboard({ x, y, duplicate = false, name }) {
+    const s = store.get();
+    const boards = boardsOf(s);
+    const settings = duplicate ? boardSettings(JSON.parse(JSON.stringify(boardSettingsOf(s)))) : boardSettings({ aspect: s.aspect });
+    const nums = boards.map(b => Number(/^画板 (\d+)$/.exec(b.name)?.[1]) || 0);
+    const board = {
+      id: newBoardId(),
+      name: name || (duplicate ? `${boards.find(b => b.id === s.activeBoard).name} 副本` : `画板 ${Math.max(boards.length, ...nums) + 1}`),
+      x, y, settings,
+    };
+    store.set({ artboards: [...boards, board], activeBoard: board.id, ...settings });
+    return board;
+  },
+  removeArtboard(id) {
+    const s = store.get();
+    if (s.artboards.length <= 1) return false;
+    const boards = boardsOf(s).filter(b => b.id !== id);
+    let patch;
+    if (id !== s.activeBoard) {
+      patch = { artboards: boards };
+    } else {
+      const idx = s.artboards.findIndex(b => b.id === id);
+      const next = boards[Math.max(0, idx - 1)];
+      patch = { artboards: boards, activeBoard: next.id, ...next.settings };
+    }
+    store.set({ ...patch, assets: pruneAssets({ ...s, ...patch }, s.assets) }); // 删掉的画板独用的背景图一并释放
+    return true;
+  },
+  renameArtboard(id, name) {
+    store.set(s => ({ artboards: s.artboards.map(b => (b.id === id ? { ...b, name } : b)) }));
+  },
+  moveArtboard(id, x, y) {
+    store.set(s => ({ artboards: s.artboards.map(b => (b.id === id ? { ...b, x, y } : b)) }));
   },
   setLayout(id) {
     const layout = getLayout(id);
@@ -133,12 +220,19 @@ export const actions = {
   setStyle(key, value) {
     store.set(s => {
       const extra = key === 'bgType' ? backgroundTypeDefaults(s.style, value) : {};
-      // 移除背景图时一并释放素材
+      // 移除背景图时，没有画板再用的素材一并释放
       if (key === 'bgImageId' && !value) {
-        Object.values(s.assets).forEach(a => a.preview?.close?.());
-        return { assets: {}, style: { ...s.style, bgImageId: null } };
+        const style = { ...s.style, bgImageId: null };
+        return { style, assets: pruneAssets({ ...s, style }, s.assets) };
       }
       return { style: { ...s.style, [key]: value, ...extra } };
+    });
+  },
+  // 一次改多个样式字段（工具条背景面板用）
+  patchStyle(patch) {
+    store.set(s => {
+      const extra = patch.bgType && patch.bgType !== s.style.bgType ? backgroundTypeDefaults(s.style, patch.bgType) : {};
+      return { style: { ...s.style, ...extra, ...patch } };
     });
   },
   setAspect(id) {
@@ -176,7 +270,7 @@ export const actions = {
     const layout = getLayout(p.layoutId);
     if (!layout) return { ok: false, reason: `版式「${p.layoutId}」在当前版本中不存在` };
     store.set(s => {
-      let aspect = ASPECTS.some(a => a.id === p.aspect) ? p.aspect : s.aspect;
+      let aspect = isValidAspect(p.aspect) ? p.aspect : s.aspect;
       if (aspect === 'long' && !layout.long) aspect = '16:9';
       const style = p.style ? { ...s.style, ...p.style, bgImageId: s.style.bgImageId } : s.style;
       return {

@@ -120,8 +120,12 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
     assetIds.set(a.id, aid);
     tx.objectStore('files').put({ id: aid, projectId: id, name: a.name, file: a.file, kind: 'asset' });
   }
-  const style = settings?.style;
-  if (style?.bgImageId) settings = { ...settings, style: { ...style, bgImageId: assetIds.get(style.bgImageId) || null } };
+  // 背景图引用在每个画板的样式里（旧数据在顶层 style）
+  const remap = st => (st?.bgImageId ? { ...st, bgImageId: assetIds.get(st.bgImageId) || null } : st);
+  if (settings?.style) settings = { ...settings, style: remap(settings.style) };
+  if (Array.isArray(settings?.artboards)) {
+    settings = { ...settings, artboards: settings.artboards.map(b => ({ ...b, settings: { ...b.settings, style: remap(b.settings?.style) } })) };
+  }
   const order = [];
   for (const s of slides) {
     if (s.placeholder) { order.push({ id: s.id, placeholder: true }); continue; }

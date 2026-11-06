@@ -1,25 +1,29 @@
-import { store, actions } from './state.js';
-import { isLongAspect } from './config.js';
+import { store, actions, boardsOf } from './state.js';
+import { aspectLabel } from './config.js';
 import { getLayout } from './layouts/index.js';
 import { Renderer } from './render/renderer.js';
 import { buildScene, resolveCanvas } from './render/scene.js';
+import { tileMatrix } from './render/math.js';
 import { pickItem, itemCenterNdc, itemCornersNdc, ndcDeltaToLayout } from './render/picking.js';
 import { paintBackground } from './render/background.js';
 import { createPlaceholders } from './slides/placeholders.js';
 import { createSlides, createAsset } from './slides/slideFactory.js';
 import { collectFromDrop, collectFromInput } from './slides/importer.js';
-import { renderToBlob, downloadBlob } from './export/exporter.js';
+import { renderToBlob, renderToCanvas, downloadBlob } from './export/exporter.js';
 import { resolveLongSide, exportSize, sizeSchema } from './export/schema.js';
 import { copyPngToClipboard } from './export/clipboard.js';
+import { createZip } from './persist/zip.js';
 import { createProjectController } from './project/controller.js';
+import { view, toScreen, zoomViewAt, panView, fitRect, unionRect, MIN_ZOOM, MAX_ZOOM } from './workspace/view.js';
 import { createSlidesPanel } from './ui/slidesPanel.js';
 import { createSettingsPanel } from './ui/settingsPanel.js';
-import { createAspectBar } from './ui/aspectBar.js';
+import { createTopbarMenus } from './ui/topbarMenus.js';
 import { createExportPopover } from './ui/exportPopover.js';
 import { createProjectDialog } from './ui/projectDialog.js';
 import { buildControls } from './ui/controls.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
+import { createBgPicker } from './ui/bgPicker.js';
 import { createResizeHandles } from './ui/resizeHandles.js';
 import { createPresetsPanel } from './ui/presetsPanel.js';
 import { isPresetsFile } from './persist/presets.js';
@@ -27,12 +31,13 @@ import { initResizers } from './ui/resizer.js';
 import { toast } from './ui/toast.js';
 import { setWheelMode } from './ui/wheel.js';
 import { applyIcons } from './ui/icons.js';
+import { clamp } from './core/utils.js';
 
 applyIcons();
 
 const $ = id => document.getElementById(id);
 const stage = $('stage');
-const viewport = $('viewport');
+const viewport = $('viewport'); // 工作区：铺满中间区域，所有画板画在同一张画布上
 const bgCanvas = $('bg-canvas');
 const glCanvas = $('gl-canvas');
 const bgCtx = bgCanvas.getContext('2d');
@@ -49,37 +54,46 @@ const placeholders = createPlaceholders(9);
 const slidesOf = s => (s.slides.length ? s.slides : placeholders);
 const hasRealSlides = () => store.get().slides.length > 0;
 const is3D = () => getLayout(store.get().layoutId).category === '3d';
-const isLong = () => isLongAspect(store.get().aspect);
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+const safe = s => String(s).replace(/[\\/:*?"<>|]/g, '_');
+
+/* ---------------- 画板 → 渲染输入 ---------------- */
 
 // 背景图 / 幻灯片模糊背景用到的图片：preview 用于预览，source 用于导出时读取原图
-function bgSourceOf(s) {
-  if (s.style.bgType === 'image') {
-    const a = s.assets[s.style.bgImageId];
+function bgSourceOf(s, style) {
+  if (style.bgType === 'image') {
+    const a = s.assets[style.bgImageId];
     return a ? { preview: a.preview, source: a.file } : null;
   }
-  if (s.style.bgType === 'slide') {
+  if (style.bgType === 'slide') {
     const list = slidesOf(s);
-    const sl = list[Math.min(list.length, Math.max(1, Math.round(s.style.bgSlide || 1))) - 1];
+    const sl = list[Math.min(list.length, Math.max(1, Math.round(style.bgSlide || 1))) - 1];
     return sl ? { preview: sl.preview, source: sl.source } : null;
   }
   return null;
 }
 
-function sceneInput(s) {
-  const layout = getLayout(s.layoutId);
+// 某个画板（settings 为该画板的设置）的渲染输入
+function boardInput(s, st) {
+  const layout = getLayout(st.layoutId);
   return {
     slides: slidesOf(s),
     layout,
-    params: s.params[layout.id],
-    style: s.style,
-    aspect: s.aspect, // 比例 id，长图为 'long'
-    camera: s.camera,
-    background: bgSourceOf(s),
-    adjust: s.adjust[s.layoutId] || null,
+    params: st.params[layout.id],
+    style: st.style,
+    aspect: st.aspect, // 比例 id，长图为 'long'
+    camera: st.camera,
+    background: bgSourceOf(s, st.style),
+    adjust: st.adjust[st.layoutId] || null,
   };
 }
+const activeSettings = s => ({ layoutId: s.layoutId, params: s.params, style: s.style, aspect: s.aspect, camera: s.camera, adjust: s.adjust });
+const sceneInput = s => boardInput(s, activeSettings(s));
 const canvasOf = s => resolveCanvas(sceneInput(s));
+const boardWorldRect = (s, b) => {
+  const { W, H } = resolveCanvas(boardInput(s, b.settings));
+  return { x: b.x, y: b.y, w: W, h: H };
+};
 
 /* ---------------- 交互高亮状态（只影响预览，不进 store） ---------------- */
 
@@ -87,7 +101,7 @@ const ui = {
   hover: null,       // 悬停的 item（order）
   dragSource: null,  // 正在拖动的幻灯片序号
   dropTarget: null,  // 拖放目标 item（order）
-  selected: null,    // 移动 / 旋转工具选中的 item（order）
+  selected: null,    // 选择 / 旋转 / 比例工具选中的 item（order）
   listHover: null,   // 左侧列表悬停的幻灯片序号
   tool: 'select',    // 当前工具，见 ui/toolbar.js
   tempHand: false,   // 按住空格临时抓手
@@ -106,22 +120,20 @@ function setUi(key, value) {
   scheduleRender();
 }
 
-/* ---------------- 渲染 ---------------- */
+/* ---------------- 工作区渲染 ---------------- */
 
+const PASTEBOARD = '#0b0d11';
 let frame = 0;
-let lastScene = null;
 let viewDpr = dpr();
+const boardInfo = new Map(); // 画板 id → { sx, sy, sw, sh（屏幕 CSS 像素）, W, H, zoom, scene }
+let lastScene = null;        // 当前画板的场景
 const scheduleRender = () => { if (!frame) frame = requestAnimationFrame(render); };
 
 function buildOverlays(scene) {
   const overlays = [];
   const add = (item, kind) => overlays.push({ item, ...HL[kind], ring: HL[kind].ring * viewDpr });
-  if (ui.dragSource != null) {
-    for (const it of scene.items) if (it.slideIndex === ui.dragSource) add(it, 'source');
-  }
-  if (ui.listHover != null) {
-    for (const it of scene.items) if (it.slideIndex === ui.listHover) add(it, 'hover');
-  }
+  if (ui.dragSource != null) for (const it of scene.items) if (it.slideIndex === ui.dragSource) add(it, 'source');
+  if (ui.listHover != null) for (const it of scene.items) if (it.slideIndex === ui.listHover) add(it, 'hover');
   if (ui.selected != null) {
     const it = scene.items.find(x => x.order === ui.selected);
     if (it) add(it, 'selected');
@@ -134,124 +146,206 @@ function buildOverlays(scene) {
   return overlays;
 }
 
+// 每个画板的背景缓存成一张小图（模糊等效果很耗时），再按视图缩放画到工作区
+const BG_KEYS = ['bgType', 'bg1', 'bg2', 'bgAngle', 'bgImageId', 'bgFit', 'bgScale', 'bgSlide', 'bgBlur', 'bgDim', 'bgDimColor', 'vignette'];
+const bgCache = new Map();
+function boardBackground(id, style, background, W, H, screenLong) {
+  const res = Math.min(2048, Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(1, screenLong)))));
+  const cw = W >= H ? res : Math.max(1, Math.round((res * W) / H));
+  const ch = W >= H ? Math.max(1, Math.round((res * H) / W)) : res;
+  const image = background?.preview || null;
+  const key = `${BG_KEYS.map(k => style[k]).join('|')}|${cw}x${ch}`;
+  const hit = bgCache.get(id);
+  if (hit && hit.key === key && hit.image === image) return hit.canvas;
+  const canvas = hit?.canvas || document.createElement('canvas');
+  canvas.width = cw;
+  canvas.height = ch;
+  paintBackground(canvas.getContext('2d'), cw, ch, style, { image, unit: ch / H });
+  bgCache.set(id, { key, image, canvas });
+  return canvas;
+}
+
+let checkerPattern = null;
+function checker() {
+  if (checkerPattern) return checkerPattern;
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a2e37'; g.fillRect(0, 0, 16, 16);
+  g.fillStyle = '#3a3f4b'; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8);
+  checkerPattern = bgCtx.createPattern(c, 'repeat');
+  return checkerPattern;
+}
+
 function render() {
   frame = 0;
   const s = store.get();
-  const input = sceneInput(s);
-  for (const slide of input.slides) renderer.setTexture(slide.id, slide.preview);
-  lastScene = buildScene(input);
-  renderer.render(lastScene, null, buildOverlays(lastScene));
-  paintBg(s, input.background);
+  const d = viewDpr;
+  const CW = bgCanvas.width, CH = bgCanvas.height;
+
+  bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+  bgCtx.fillStyle = PASTEBOARD;
+  bgCtx.fillRect(0, 0, CW, CH);
+  renderer.clear();
+  for (const slide of slidesOf(s)) renderer.setTexture(slide.id, slide.preview);
+
+  boardInfo.clear();
+  lastScene = null;
+  const boards = boardsOf(s);
+  for (const b of boards) {
+    const input = boardInput(s, b.settings);
+    const { W, H } = resolveCanvas(input);
+    const [sx, sy] = toScreen(b.x, b.y);
+    const sw = W * view.zoom, sh = H * view.zoom;
+    const info = { id: b.id, name: b.name, sx, sy, sw, sh, W, H, x: b.x, y: b.y, zoom: view.zoom, scene: null };
+    boardInfo.set(b.id, info);
+    const active = b.id === s.activeBoard;
+
+    // 画板名称（左上角上方）
+    bgCtx.font = `${(active ? 600 : 400)} ${11.5 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
+    bgCtx.fillStyle = active ? '#a3afff' : '#6b7385';
+    bgCtx.textBaseline = 'bottom';
+    bgCtx.fillText(`${b.name}  ·  ${aspectLabel(b.settings.aspect)}`, sx * d, (sy - 6) * d);
+
+    const px = { x: sx * d, y: sy * d, w: sw * d, h: sh * d };
+    if (px.x > CW || px.y > CH || px.x + px.w < 0 || px.y + px.h < 0) continue; // 在视野外
+
+    // 画板投影 + 背景
+    bgCtx.save();
+    bgCtx.shadowColor = 'rgba(0,0,0,.5)';
+    bgCtx.shadowBlur = 24 * d;
+    bgCtx.shadowOffsetY = 6 * d;
+    bgCtx.fillStyle = '#000';
+    bgCtx.fillRect(px.x, px.y, px.w, px.h);
+    bgCtx.restore();
+    if (b.settings.style.bgType === 'transparent') {
+      bgCtx.fillStyle = checker();
+      bgCtx.fillRect(px.x, px.y, px.w, px.h);
+    } else {
+      bgCtx.drawImage(boardBackground(b.id, b.settings.style, input.background, W, H, Math.max(px.w, px.h)), px.x, px.y, px.w, px.h);
+    }
+    if (active && s.artboards.length > 1) {
+      bgCtx.strokeStyle = 'rgba(124,140,255,.9)';
+      bgCtx.lineWidth = 1.5 * d;
+      bgCtx.strokeRect(px.x - 1.5 * d, px.y - 1.5 * d, px.w + 3 * d, px.h + 3 * d);
+    }
+
+    // WebGL：只画画板在视野内的部分（用裁切矩阵，放大很多时也不会超出 WebGL 视口上限）
+    const vx0 = Math.max(0, Math.floor(px.x)), vy0 = Math.max(0, Math.floor(px.y));
+    const vx1 = Math.min(CW, Math.ceil(px.x + px.w)), vy1 = Math.min(CH, Math.ceil(px.y + px.h));
+    if (vx1 <= vx0 || vy1 <= vy0) continue;
+    info.scene = buildScene(input);
+    if (active) lastScene = info.scene;
+    const tile = tileMatrix(vx0 - px.x, vy0 - px.y, vx1 - vx0, vy1 - vy0, px.w, px.h);
+    renderer.render(info.scene, tile, active ? buildOverlays(info.scene) : [], {
+      viewport: [vx0, CH - vy1, vx1 - vx0, vy1 - vy0], clear: false,
+    });
+  }
 
   resizeHandles?.update();
+  toolbar?.update({ tool: ui.tool, tempHand: ui.tempHand, viewZoom: view.zoom, adjustCount: Object.keys(s.adjust[s.layoutId] || {}).length });
 
   if (ui.listHover == null) {
     const hoverItem = ui.dropTarget ?? ui.hover;
-    const item = hoverItem != null && hasRealSlides() ? lastScene.items.find(x => x.order === hoverItem) : null;
+    const item = hoverItem != null && hasRealSlides() && lastScene ? lastScene.items.find(x => x.order === hoverItem) : null;
     slidesPanel.highlight(item ? item.slideIndex : null);
   }
 }
 
-// 背景只在相关参数、图片或尺寸变化时重绘（模糊比较耗时）
-const BG_KEYS = ['bgType', 'bg1', 'bg2', 'bgAngle', 'bgImageId', 'bgFit', 'bgScale', 'bgSlide', 'bgBlur', 'bgDim', 'bgDimColor', 'vignette'];
-let bgCache = { key: '', image: null };
-function paintBg(s, background) {
-  const image = background?.preview || null;
-  const key = `${BG_KEYS.map(k => s.style[k]).join('|')}|${bgCanvas.width}x${bgCanvas.height}|${lastScene.H}`;
-  if (key === bgCache.key && image === bgCache.image) return;
-  bgCache = { key, image };
-  paintBackground(bgCtx, bgCanvas.width, bgCanvas.height, s.style, { image, unit: bgCanvas.height / lastScene.H });
-}
-
-// 普通画布：等比放进舞台；长图：按舞台宽度铺开，舞台纵向滚动
-let canvasKey = '';
-function fitViewport() {
-  const s = store.get();
-  const { W, H, long } = canvasOf(s);
-  canvasKey = `${Math.round(W)}x${Math.round(H)}`;
-  stage.classList.toggle('long', long);
-  const rect = stage.getBoundingClientRect();
-  const pad = 40;
-  const availW = Math.max(50, rect.width - pad * 2);
-  const availH = Math.max(50, rect.height - pad * 2 - 16 - 48); // 48：顶部工具条
-  const a = W / H;
-  let w, h;
-  if (long) {
-    w = Math.min(availW, 900);
-    h = w / a;
-  } else {
-    w = availW; h = w / a;
-    if (h > availH) { h = availH; w = h * a; }
-  }
-  viewport.style.width = `${Math.round(w)}px`;
-  viewport.style.height = `${Math.round(h)}px`;
-  // 长图很高时降低像素密度，避免超出 WebGL 限制
-  viewDpr = Math.min(dpr(), renderer.maxViewport / h, Math.sqrt(48e6 / (w * h)));
-  const pw = Math.round(w * viewDpr), ph = Math.round(h * viewDpr);
+function resizeWorkspace() {
+  const w = viewport.clientWidth, h = viewport.clientHeight;
+  viewDpr = dpr();
+  const pw = Math.max(1, Math.round(w * viewDpr)), ph = Math.max(1, Math.round(h * viewDpr));
   bgCanvas.width = pw;
   bgCanvas.height = ph;
-  bgCache.key = ''; // 改尺寸会清空画布，需要重画背景
   renderer.setSize(pw, ph);
+  if (autoFit) (autoFit.all ? fitAll : fitBoard)(autoFit.id); // 没手动调过视图时，窗口变化后重新适配
   scheduleRender();
 }
+new ResizeObserver(resizeWorkspace).observe(viewport);
 
-new ResizeObserver(fitViewport).observe(stage);
+/* ---------------- 视图（缩放 / 平移 / 适合窗口） ---------------- */
 
-// 屏幕坐标 → 命中的 item（不在预览区内返回 null）
-function pickAt(clientX, clientY) {
+const stageSize = () => [viewport.clientWidth, viewport.clientHeight];
+// 最近一次是自动适配（而不是手动平移 / 缩放）时记下来，窗口大小变化后重新适配
+let autoFit = null;
+function fitBoard(id = store.get().activeBoard) {
+  const s = store.get();
+  const b = boardsOf(s).find(x => x.id === id);
+  if (!b) return;
+  fitRect(boardWorldRect(s, b), ...stageSize());
+  autoFit = { id };
+  scheduleRender();
+}
+function fitAll() {
+  const s = store.get();
+  fitRect(unionRect(boardsOf(s).map(b => boardWorldRect(s, b))), ...stageSize());
+  autoFit = { all: true };
+  scheduleRender();
+}
+function zoomAtScreen(sx, sy, factor) {
+  zoomViewAt(sx, sy, clamp(view.zoom * factor, MIN_ZOOM, MAX_ZOOM));
+  autoFit = null;
+  scheduleRender();
+}
+const zoomViewBy = k => { const [w, h] = stageSize(); zoomAtScreen(w / 2, h / 2, k); };
+const actualSize = () => { const [w, h] = stageSize(); zoomAtScreen(w / 2, h / 2, 1 / view.zoom); };
+
+/* ---------------- 坐标换算（当前画板） ---------------- */
+
+const activeInfo = () => boardInfo.get(store.get().activeBoard);
+function boardAt(clientX, clientY) {
   const r = viewport.getBoundingClientRect();
-  if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
-  return pickItem(lastScene, ((clientX - r.left) / r.width) * 2 - 1, 1 - ((clientY - r.top) / r.height) * 2);
-}
-
-function drawChecker(ctx, w, h, size = 8) {
-  ctx.fillStyle = '#2a2e37';
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = '#3a3f4b';
-  for (let y = 0; y < h; y += size) for (let x = (y / size) % 2 ? size : 0; x < w; x += size * 2) ctx.fillRect(x, y, size, size);
-}
-
-// 把当前画面画进一个小画布（导出面板预览、项目缩略图）
-// cover：铺满目标尺寸并从顶部裁切（缩略图用）；whiteFill：透明背景以白色填充（JPG 预览）
-function drawPreview(canvas, { maxW = 440, maxH = 320, cover = false, whiteFill = false } = {}) {
-  const transparent = store.get().style.bgType === 'transparent';
-  const sw = bgCanvas.width, sh = bgCanvas.height;
-  let w, h, sx = 0, cw = sw, ch = sh;
-  if (cover) {
-    w = maxW; h = maxH;
-    const scale = Math.max(w / sw, h / sh);
-    cw = w / scale; ch = h / scale;
-    sx = (sw - cw) / 2;
-  } else {
-    const a = sw / sh;
-    w = maxW; h = w / a;
-    if (h > maxH) { h = maxH; w = h * a; }
+  const x = clientX - r.left, y = clientY - r.top;
+  const boards = [...boardInfo.values()];
+  for (let i = boards.length - 1; i >= 0; i--) {
+    const b = boards[i];
+    if (x >= b.sx && x <= b.sx + b.sw && y >= b.sy && y <= b.sy + b.sh) return b.id;
   }
-  const k = cover ? 1 : dpr();
-  canvas.width = Math.max(1, Math.round(w * k));
-  canvas.height = Math.max(1, Math.round(h * k));
-  if (!cover) {
-    canvas.style.width = `${Math.round(w)}px`;
-    canvas.style.height = `${Math.round(h)}px`;
-  }
-  const ctx = canvas.getContext('2d');
-  const saved = { ...ui };
-  Object.assign(ui, { hover: null, dragSource: null, dropTarget: null, selected: null, listHover: null });
-  render(); // WebGL 画布在下一帧会被清空，所以同步渲染后立即拷贝
-  Object.assign(ui, saved);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!transparent) ctx.drawImage(bgCanvas, sx, 0, cw, ch, 0, 0, canvas.width, canvas.height);
-  else if (whiteFill) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-  else if (cover) drawChecker(ctx, canvas.width, canvas.height, 10); // 缩略图是 JPG，画上棋盘格表示透明
-  ctx.drawImage(glCanvas, sx, 0, cw, ch, 0, 0, canvas.width, canvas.height);
-  scheduleRender();
+  return null;
 }
-
-const snapshot = width => {
-  const c = document.createElement('canvas');
-  drawPreview(c, { maxW: width, maxH: Math.round(width * 0.625), cover: true });
-  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+// 屏幕坐标 → 某个画板里的卡片（默认当前画板）
+function pickIn(info, clientX, clientY) {
+  if (!info?.scene) return null;
+  const r = viewport.getBoundingClientRect();
+  const x = clientX - r.left - info.sx, y = clientY - r.top - info.sy;
+  if (x < 0 || y < 0 || x > info.sw || y > info.sh) return null;
+  return pickItem(info.scene, (x / info.sw) * 2 - 1, 1 - (y / info.sh) * 2);
+}
+const pickAt = (clientX, clientY) => pickIn(activeInfo(), clientX, clientY);
+const ndcToClient = ([x, y]) => {
+  const r = viewport.getBoundingClientRect();
+  const info = activeInfo();
+  return [r.left + info.sx + ((x + 1) / 2) * info.sw, r.top + info.sy + ((1 - y) / 2) * info.sh];
 };
+const toLayoutDelta = (dxPx, dyPx) => {
+  const info = activeInfo();
+  return ndcDeltaToLayout(lastScene, (dxPx / info.sw) * 2, (-dyPx / info.sh) * 2);
+};
+const getAdjust = order => ({ ...((store.get().adjust[store.get().layoutId] || {})[order]) });
+const nextLift = () => 1 + Math.max(0, ...Object.values(store.get().adjust[store.get().layoutId] || {}).map(a => a.lift || 0));
+
+// 预览渲染（导出面板、项目缩略图、我的版式缩略图）：离屏渲染当前画板，用内存中的预览图，速度快
+async function renderPreview(longSide, opts = {}) {
+  return renderToCanvas(sceneInput(store.get()), { longSide, preview: true, ...opts });
+}
+let previewToken = 0;
+async function drawPreview(canvas, { maxW = 300, maxH = 200, whiteFill = false } = {}) {
+  const token = ++previewToken;
+  const { W, H } = canvasOf(store.get());
+  const a = W / H;
+  let w = maxW, h = w / a;
+  if (h > maxH) { h = maxH; w = h * a; }
+  const k = dpr();
+  const { canvas: src } = await renderPreview(Math.round(Math.max(w, h) * k), { fill: whiteFill ? '#ffffff' : null });
+  if (token !== previewToken) return; // 已有更新的请求
+  canvas.width = src.width;
+  canvas.height = src.height;
+  canvas.style.width = `${Math.round(w)}px`;
+  canvas.style.height = `${Math.round(h)}px`;
+  canvas.getContext('2d').drawImage(src, 0, 0);
+}
+const snapshot = async width => (await renderToBlob(sceneInput(store.get()), { longSide: Math.round(width * 1.6), format: 'jpg', quality: 0.85, preview: true })).blob;
 
 /* ---------------- 项目 ---------------- */
 
@@ -290,6 +384,36 @@ async function importProject(file) {
   }
 }
 
+/* ---------------- 画板管理 ---------------- */
+
+function activateBoard(id, { fit = true } = {}) {
+  actions.setActiveBoard(id);
+  if (fit) fitBoard(id);
+}
+function addBoard({ duplicate = false } = {}) {
+  const s = store.get();
+  const rects = boardsOf(s).map(b => boardWorldRect(s, b));
+  const cur = s.artboards.find(b => b.id === s.activeBoard);
+  const x = Math.max(...rects.map(r => r.x + r.w)) + 160; // 放在最右侧画板的右边
+  const board = actions.addArtboard({ x, y: cur.y, duplicate });
+  fitBoard(board.id);
+  toast(duplicate ? `已复制为「${board.name}」` : `已新建「${board.name}」`);
+}
+function renameBoard(id) {
+  const b = store.get().artboards.find(x => x.id === id);
+  const name = prompt('画板名称', b?.name)?.trim();
+  if (name && name !== b.name) actions.renameArtboard(id, name);
+}
+function deleteBoard(id = store.get().activeBoard) {
+  const s = store.get();
+  if (s.artboards.length <= 1) { toast('至少保留一个画板', { error: true }); return; }
+  const b = s.artboards.find(x => x.id === id);
+  if (!confirm(`删除画板「${b.name}」？`)) return;
+  actions.removeArtboard(id);
+  bgCache.delete(id);
+  toast(`已删除「${b.name}」`);
+}
+
 /* ---------------- 导入图片 ---------------- */
 
 async function runImport(listPromise, { replaceIndex = null } = {}) {
@@ -323,7 +447,7 @@ async function runImport(listPromise, { replaceIndex = null } = {}) {
   }
 }
 
-// 拖入文件：.slidegrid → 导入项目；落在某张卡片上 → 放入/替换；否则追加
+// 拖入文件：.slidegrid → 导入项目；版式 .json → 导入版式；落在某张卡片上 → 放入/替换；否则追加
 const overlay = $('drop-overlay');
 const dropLabel = $('drop-label');
 let dragDepth = 0;
@@ -380,8 +504,10 @@ window.addEventListener('dragover', e => {
     dropLabel.textContent = '松开设为背景图';
     return;
   }
-  dropHit = pickAt(e.clientX, e.clientY);
-  setUi('dropTarget', dropHit ? dropHit.order : null);
+  // 幻灯片是所有画板共用的，落在任何画板的卡片上都可以放入 / 替换
+  const board = boardAt(e.clientX, e.clientY);
+  dropHit = board ? pickIn(boardInfo.get(board), e.clientX, e.clientY) : null;
+  setUi('dropTarget', dropHit && board === store.get().activeBoard ? dropHit.order : null);
   dropLabel.textContent = !dropHit
     ? '松开以导入图片、文件夹、.slidegrid 项目或版式文件'
     : dropHit.slide.placeholder
@@ -433,18 +559,17 @@ $('clear-btn').addEventListener('click', () => {
 let busy = false;
 function exportOptions(s, overrides = {}) {
   const o = s.exportOpts;
-  return {
-    longSide: resolveLongSide(o),
-    format: o.format,
-    quality: o.quality,
-    ...overrides,
-  };
+  return { longSide: resolveLongSide(o), format: o.format, quality: o.quality, ...overrides };
 }
 
 function exportInfo(s) {
   const { width, height } = exportSize(canvasOf(s), resolveLongSide(s.exportOpts));
-  const base = (s.project?.name || 'slidegrid').replace(/[\\/:*?"<>|]/g, '_');
-  return { width, height, defaultName: `${base}-${width}x${height}` };
+  const board = s.artboards.find(b => b.id === s.activeBoard);
+  const base = safe(s.project?.name || 'slidegrid');
+  return {
+    width, height,
+    defaultName: s.exportOpts.scope === 'all' ? `${base}-全部画板` : `${base}-${safe(board?.name || '画板')}-${width}x${height}`,
+  };
 }
 
 async function withBusy(task) {
@@ -473,9 +598,25 @@ async function doExport() {
     await withBusy(async () => {
       const s = store.get();
       const name = exportPopover.filename();
-      const { blob, width, height } = await renderToBlob(sceneInput(s), exportOptions(s, { onProgress: progress('正在导出') }));
-      downloadBlob(blob, name);
-      toast(`已导出 ${name}（${width} × ${height}）`);
+      if (s.exportOpts.scope === 'all') {
+        // 全部画板：逐个渲染后打包成 ZIP
+        const boards = boardsOf(s);
+        const ext = s.exportOpts.format === 'jpg' ? 'jpg' : 'png';
+        const entries = [];
+        for (let i = 0; i < boards.length; i++) {
+          const b = boards[i];
+          const { blob, width, height } = await renderToBlob(boardInput(s, b.settings), exportOptions(s, {
+            onProgress: p => progress(`正在导出 ${i + 1}/${boards.length}`)((i + p) / boards.length),
+          }));
+          entries.push({ name: `${String(i + 1).padStart(2, '0')}-${safe(b.name)}-${width}x${height}.${ext}`, data: blob });
+        }
+        downloadBlob(await createZip(entries), name);
+        toast(`已导出 ${boards.length} 个画板（${name}）`);
+      } else {
+        const { blob, width, height } = await renderToBlob(sceneInput(s), exportOptions(s, { onProgress: progress('正在导出') }));
+        downloadBlob(blob, name);
+        toast(`已导出 ${name}（${width} × ${height}）`);
+      }
     });
   } catch (err) {
     console.error(err);
@@ -486,7 +627,7 @@ async function doExport() {
   }
 }
 
-// 复制：剪贴板只支持 PNG。clipboard.write 必须在点击事件里同步发起。
+// 复制当前画板：剪贴板只支持 PNG。clipboard.write 必须在点击事件里同步发起。
 function doCopy() {
   if (busy) return;
   const s = store.get();
@@ -517,7 +658,7 @@ const slidesPanel = createSlidesPanel({
   viewButtons: { grid: $('view-grid'), list: $('view-list') },
   onRemove: actions.removeSlide,
   onMove: actions.moveSlide,
-  onHover: i => setUi('listHover', i), // 左侧悬停 → 预览区高亮这张图出现的所有位置
+  onHover: i => setUi('listHover', i), // 左侧悬停 → 当前画板里高亮这张图出现的所有位置
   onPick: () => fileInput.click(),
 });
 const settings = createSettingsPanel($('settings-panel'), {
@@ -533,16 +674,20 @@ const presetsPanel = createPresetsPanel(settings.presetsContainer, {
   store, actions, snapshot, toast, download: downloadBlob,
   onCount: n => settings.setPresetCount(n),
 });
-const aspectBar = createAspectBar($('aspect-bar'), { onSelect: actions.setAspect });
+const topbarMenus = createTopbarMenus($('board-bar'), {
+  store, actions,
+  onActivate: id => activateBoard(id),
+  onAdd: addBoard,
+  onRename: renameBoard,
+  onDelete: deleteBoard,
+  onFitAll: fitAll,
+});
 const updateSizePicker = buildControls($('size-picker'), sizeSchema, store.get().exportOpts, actions.setExport);
 const exportPopover = createExportPopover({ anchor: $('export-btn'), store, actions, drawPreview, info: exportInfo });
 
-// 工具是否可用：移动 / 旋转卡片只用于平面版式；视角只用于 3D
+// 工具是否可用：单张卡片调整（选择 / 旋转 / 比例）只用于平面版式
 function toolAvailability(id) {
-  const three = is3D();
-  if ((id === 'move' || id === 'rotate') && three) return { ok: false, reason: '3D 版式暂不支持单张调整，可在平面版式中使用' };
-  if (id === 'orbit' && !three) return { ok: false, reason: '仅 3D 版式可用' };
-  if (id === 'select' && !hasRealSlides()) return { ok: true, reason: '' };
+  if (['select', 'rotate', 'scale'].includes(id) && is3D()) return { ok: false, reason: '3D 版式暂不支持单张卡片调整，可在平面版式中使用' };
   return { ok: true, reason: '' };
 }
 function setTool(id) {
@@ -551,57 +696,44 @@ function setTool(id) {
     return;
   }
   ui.tool = id;
-  if (id !== 'move' && id !== 'rotate') ui.selected = null;
+  if (!['select', 'rotate', 'scale'].includes(id)) ui.selected = null;
   refreshTools();
   scheduleRender();
 }
 function refreshTools() {
-  const s = store.get();
-  toolbar.update({
-    tool: ui.tool,
-    tempHand: ui.tempHand,
-    zoomValue: s.camera.zoom,
-    adjustCount: Object.keys(s.adjust[s.layoutId] || {}).length,
-  });
-  updateHint(s);
+  updateHint();
   interaction?.updateCursor();
+  scheduleRender();
 }
 
-const zoomBy = k => {
-  const cam = store.get().camera;
-  actions.setCamera({ zoom: Math.min(8, Math.max(0.2, (cam.zoom || 1) * k)) });
-};
 const toolbar = createToolbar($('app'), {
   onTool: setTool,
   availability: toolAvailability,
-  onZoomIn: () => zoomBy(1.25),
-  onZoomOut: () => zoomBy(0.8),
-  onZoomReset: () => actions.resetCamera(),
+  onZoomIn: () => zoomViewBy(1.25),
+  onZoomOut: () => zoomViewBy(0.8),
+  onFit: () => fitBoard(),
+  onFitAll: fitAll,
+  onActualSize: actualSize,
   onResetAdjust: () => {
     actions.resetAdjust();
     ui.selected = null;
-    toast('已重置当前版式的卡片调整');
+    toast('已重置当前画板的卡片调整');
   },
 });
 
-// 屏幕坐标换算（移动 / 旋转 / 缩放共用）
-const ndcToClient = ([x, y]) => {
-  const r = viewport.getBoundingClientRect();
-  return [r.left + ((x + 1) / 2) * r.width, r.top + ((1 - y) / 2) * r.height];
-};
-const toLayoutDelta = (dxPx, dyPx) => {
-  const r = viewport.getBoundingClientRect();
-  return ndcDeltaToLayout(lastScene, (dxPx / r.width) * 2, (-dyPx / r.height) * 2);
-};
-const getAdjust = order => ({ ...((store.get().adjust[store.get().layoutId] || {})[order]) });
-const nextLift = () => 1 + Math.max(0, ...Object.values(store.get().adjust[store.get().layoutId] || {}).map(a => a.lift || 0));
+// 工具条上的「画板背景」：快速切换类型、预设色板、自定义颜色
+const bgPicker = createBgPicker(toolbar.bgSlot, {
+  store, actions,
+  pickImage: () => bgInput.click(),
+  onMore: () => settings.revealBackground(),
+});
 
-// 选中卡片的缩放手柄：移动 / 旋转工具下、平面版式中显示
+// 选中卡片的缩放手柄：选择 / 旋转 / 比例工具下、平面版式中显示
 let resizeHandles = null;
 resizeHandles = createResizeHandles(viewport, {
   getTarget: () => {
     if (ui.selected == null || !lastScene || is3D() || ui.tempHand) return null;
-    if (ui.tool !== 'move' && ui.tool !== 'rotate') return null;
+    if (!['select', 'rotate', 'scale'].includes(ui.tool)) return null;
     return lastScene.items.find(x => x.order === ui.selected) || null;
   },
   cornersClient: item => itemCornersNdc(lastScene, item).map(ndcToClient),
@@ -614,18 +746,30 @@ resizeHandles = createResizeHandles(viewport, {
 
 let interaction = null;
 interaction = attachViewportInteraction(viewport, {
-  pick: (nx, ny) => pickItem(lastScene, nx, ny),
   getTool: () => ui.tool,
   setTool,
   toolAvailable: id => toolAvailability(id).ok,
   is3D,
   canSwap: hasRealSlides,
-  wheelScrolls: isLong,
   getSlide: i => store.get().slides[i],
-  worldPerPx: () => (lastScene ? lastScene.W : canvasOf(store.get()).W) / viewport.clientWidth,
+  onTempHand: on => { ui.tempHand = on; refreshTools(); },
+  // 画板与视图
+  boardAt,
+  activeBoard: () => store.get().activeBoard,
+  activateBoard,
+  boardRect: id => boardInfo.get(id),
+  moveBoard: (id, x, y) => actions.moveArtboard(id, x, y),
+  deleteActiveBoard: () => deleteBoard(),
+  panView: (dx, dy) => { panView(dx, dy); autoFit = null; scheduleRender(); },
+  zoomViewAt: zoomAtScreen,
+  zoomViewBy,
+  fitActive: () => fitBoard(),
+  fitAll,
+  actualSize,
+  // 当前画板内
+  pick: pickAt,
   getCamera: () => store.get().camera,
   setCamera: actions.setCamera,
-  resetCamera: actions.resetCamera,
   setHover: hit => setUi('hover', hit ? hit.order : null),
   setDragSource: i => setUi('dragSource', i),
   setDropTarget: hit => setUi('dropTarget', hit ? hit.order : null),
@@ -633,7 +777,6 @@ interaction = attachViewportInteraction(viewport, {
     actions.swapSlides(a, b);
     toast(`已交换第 ${a + 1} 张和第 ${b + 1} 张`);
   },
-  // 单张卡片调整
   getAdjust,
   nextLift,
   toLayoutDelta,
@@ -642,48 +785,53 @@ interaction = attachViewportInteraction(viewport, {
   resetItemAdjust: order => { actions.resetItemAdjust(order); toast('已复位这张卡片'); },
   getSelected: () => ui.selected,
   setSelected: order => setUi('selected', order),
-  onTempHand: on => { ui.tempHand = on; refreshTools(); },
 });
 
 const hint = $('stage-hint');
 const TOOL_HINTS = {
-  select: '排列：把卡片拖到另一张上交换',
-  move: '移动：拖动卡片调整位置 · 拖角点缩放（⌥ 以中心）· +/- 缩放 · 方向键微调 · 双击卡片复位',
-  rotate: '旋转：拖动卡片旋转 · Shift 按 15° 吸附 · 拖角点缩放 · 双击卡片复位',
-  hand: '抓手：拖动平移画面',
-  orbit: '视角：拖动旋转 3D 视角',
+  select: '选择：拖动卡片移动 · 拖角点等比缩放 · 方向键微调 · 双击卡片复位',
+  swap: '交换：把卡片拖到另一张上交换图片',
+  rotate: '旋转：拖动卡片旋转 · Shift 按 15° 吸附',
+  scale: '比例：拖动以中心等比缩放 · Shift 按 5% 吸附',
+  orbit: '构图：拖动调整画板内构图（3D 旋转 / Shift 平移）· 滚轮缩放构图',
+  hand: '抓手：拖动平移视图',
+  zoom: '放大镜：单击放大 · ⌥ 单击缩小',
+  artboard: '画板：点击切换 · 拖动移动画板 · Delete 删除',
 };
-function updateHint(s) {
+function updateHint() {
+  const s = store.get();
   const parts = [TOOL_HINTS[ui.tempHand ? 'hand' : ui.tool]];
   if (!s.slides.length) parts.push('拖入图片替换示例图');
-  parts.push('中键 / 空格平移', isLongAspect(s.aspect) ? '⌘ + 滚轮缩放' : '滚轮缩放');
-  hint.textContent = parts.join(' · ');
+  parts.push('滚轮滚动 · Ctrl/⌘ + 滚轮缩放视图 · 空格平移 · ⌘0 适合画板');
+  hint.textContent = parts.join('  ·  ');
 }
 
 const projectChanged = (a, b) =>
   a.slides !== b.slides || a.assets !== b.assets || a.layoutId !== b.layoutId || a.params !== b.params ||
-  a.style !== b.style || a.aspect !== b.aspect || a.camera !== b.camera || a.adjust !== b.adjust;
+  a.style !== b.style || a.aspect !== b.aspect || a.camera !== b.camera || a.adjust !== b.adjust ||
+  a.artboards !== b.artboards || a.activeBoard !== b.activeBoard;
 
 let prev = store.get();
 setWheelMode(prev.wheelMode);
 store.subscribe(s => {
   if (s.wheelMode !== prev.wheelMode) setWheelMode(s.wheelMode);
-  viewport.classList.toggle('transparent', s.style.bgType === 'transparent');
   if (s.slides !== prev.slides) {
     slidesPanel.render(s.slides);
     renderer.prune(new Set(slidesOf(s).map(x => x.id)));
   }
-  if (s.layoutId !== prev.layoutId || s.project !== prev.project) {
+  if (s.layoutId !== prev.layoutId || s.project !== prev.project || s.activeBoard !== prev.activeBoard) {
     Object.assign(ui, { hover: null, dropTarget: null, selected: null });
-    if (!toolAvailability(ui.tool).ok) ui.tool = 'select'; // 换版式后工具不可用就回到排列
+    if (!toolAvailability(ui.tool).ok) ui.tool = 'select'; // 换版式后工具不可用就回到选择
   }
-  if (s.project !== prev.project) projectTitle.textContent = s.project?.name || '未命名项目';
+  if (s.project !== prev.project) {
+    projectTitle.textContent = s.project?.name || '未命名项目';
+    bgCache.clear();
+    requestAnimationFrame(() => fitBoard()); // 打开项目后显示当前画板
+  }
   if (projectChanged(s, prev)) controller.markDirty();
-  // 画布尺寸变化（换比例，或长图内容高度变化）时重新适配预览区
-  const c = canvasOf(s);
-  if (s.aspect !== prev.aspect || `${Math.round(c.W)}x${Math.round(c.H)}` !== canvasKey) fitViewport();
   settings.update(s);
-  aspectBar.update(s.aspect);
+  topbarMenus.update(s);
+  bgPicker.update(s);
   updateSizePicker(s.exportOpts);
   exportPopover.update(s);
   refreshTools();
@@ -692,10 +840,10 @@ store.subscribe(s => {
 });
 
 slidesPanel.render(prev.slides);
-viewport.classList.toggle('transparent', prev.style.bgType === 'transparent');
-aspectBar.update(prev.aspect);
+topbarMenus.update(prev);
 refreshTools();
-fitViewport();
+resizeWorkspace();
+requestAnimationFrame(() => fitBoard());
 
 controller.init()
   .then(({ failed } = {}) => {
@@ -714,6 +862,11 @@ window.SlideGrid = {
   importFiles: (files, opts) => runImport(Promise.resolve(collectFromInput(files)), opts),
   renderToBlob: opts => renderToBlob(sceneInput(store.get()), opts),
   pickAt,
+  boardAt,
   ui,
+  view,
   setTool,
+  fitBoard,
+  fitAll,
+  addBoard,
 };

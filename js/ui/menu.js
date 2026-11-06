@@ -1,0 +1,44 @@
+import { el } from './dom.js';
+
+/**
+ * 通用下拉菜单：点击 anchor 打开，点外面 / Esc 关闭。
+ * render(container, close) 每次打开时重新生成内容。
+ */
+export function createMenu(anchor, { render, className = '', align = 'left' }) {
+  const pop = el('div', { class: `menu ${className}`, role: 'menu' });
+  document.body.append(pop);
+  let open = false;
+
+  function position() {
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = `${Math.round(r.bottom + 6)}px`;
+    if (align === 'right') { pop.style.left = ''; pop.style.right = `${Math.round(window.innerWidth - r.right)}px`; }
+    else if (align === 'center') { pop.style.right = ''; pop.style.left = `${Math.round(r.left + r.width / 2 - pop.offsetWidth / 2)}px`; }
+    else { pop.style.right = ''; pop.style.left = `${Math.round(r.left)}px`; }
+  }
+
+  function show() {
+    render(pop, close);
+    pop.classList.add('show');
+    anchor.classList.add('open');
+    anchor.setAttribute('aria-expanded', 'true');
+    open = true;
+    position();
+  }
+  function close() {
+    if (!open) return;
+    pop.classList.remove('show');
+    anchor.classList.remove('open');
+    anchor.setAttribute('aria-expanded', 'false');
+    open = false;
+  }
+
+  anchor.addEventListener('click', () => (open ? close() : show()));
+  document.addEventListener('pointerdown', e => {
+    if (open && !pop.contains(e.target) && !anchor.contains(e.target)) close();
+  }, true);
+  window.addEventListener('keydown', e => { if (open && e.key === 'Escape') close(); });
+  window.addEventListener('resize', () => { if (open) position(); });
+
+  return { show, close, isOpen: () => open, refresh: () => { if (open) { render(pop, close); position(); } } };
+}

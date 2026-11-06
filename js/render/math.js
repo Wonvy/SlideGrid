@@ -60,6 +60,17 @@ export function ortho(l, r, b, t, n, f) {
   ]);
 }
 
+/**
+ * 分块 / 局部渲染：只取画面中 (x0, y0, tw, th) 这一块（像素，左上为原点，整幅为 W × H），
+ * 返回乘在投影矩阵前面的裁切矩阵。
+ */
+export function tileMatrix(x0, y0, tw, th, W, H) {
+  const l = (x0 / W) * 2 - 1, r = ((x0 + tw) / W) * 2 - 1;
+  const t = 1 - (y0 / H) * 2, b = 1 - ((y0 + th) / H) * 2;
+  const sx = 2 / (r - l), sy = 2 / (t - b);
+  return new Float32Array([sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, 1, 0, (-sx * (l + r)) / 2, (-sy * (t + b)) / 2, 0, 1]);
+}
+
 export function transformVec4(m, v) {
   const out = [0, 0, 0, 0];
   for (let r = 0; r < 4; r++) {

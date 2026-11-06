@@ -17,11 +17,13 @@
         </button>
         <span class="save-status" id="save-status"></span>
       </div>
-      <div class="topbar-center" id="aspect-bar"></div>
+      <div class="topbar-center" id="board-bar"></div>
       <div class="topbar-right">
-        <div class="size-picker" id="size-picker"></div>
-        <button class="btn" id="copy-btn" data-icon="clipboard-copy" title="按当前尺寸生成 PNG 并复制到剪贴板">复制到剪贴板</button>
-        <button class="btn primary" id="export-btn" data-icon="download">导出图片</button>
+        <div class="export-group">
+          <div class="size-picker" id="size-picker" title="导出尺寸：普通画布为长边，长图为宽度"></div>
+          <button class="eg-btn" id="copy-btn" data-icon="clipboard-copy" data-icon-size="15" title="把当前画板按所选尺寸复制为 PNG">复制</button>
+        </div>
+        <button class="btn primary" id="export-btn" data-icon="download">导出</button>
       </div>
     </header>
 

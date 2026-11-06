@@ -4,105 +4,141 @@ import { el } from './dom.js';
 import { iconCursor } from './icons.js';
 
 const ROTATE_CURSOR = iconCursor('rotate-cw', 'crosshair');
+const ZOOM_IN_CURSOR = iconCursor('zoom-in', 'zoom-in');
+const ZOOM_OUT_CURSOR = iconCursor('zoom-out', 'zoom-out');
 const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-180, 180)
 
 /**
- * 预览区鼠标 / 键盘交互。原则：左键只执行「当前工具」，其他操作固定在互不冲突的按键上。
+ * 工作区鼠标 / 键盘交互（参照 Illustrator）。
  *
- *   左键      当前工具：排列（拖到另一张上交换）/ 移动卡片 / 旋转卡片 / 抓手平移 / 3D 视角
- *   中键拖动   平移（任何工具下）
- *   右键拖动   3D：旋转视角；平面：平移
- *   空格按住   临时切换为抓手
- *   滚轮      以光标为中心缩放（长图模式需按住 ⌘/Ctrl）
- *   双击      空白处：复位视图；移动 / 旋转工具下双击卡片：复位这张卡片
- *   键盘      V 排列 · M 移动 · R 旋转 · H 抓手 · O 视角 · Esc 取消选择 · 方向键微调 · +/- 缩放选中卡片
- *   缩放手柄  见 resizeHandles.js（选中卡片的四个角）
+ * 导航（任何工具下都可用，只改变视图，不会改动作品）：
+ *   滚轮 / Shift+滚轮      上下 / 左右滚动工作区
+ *   Ctrl/⌘/⌥ + 滚轮       以光标为中心缩放视图（触控板双指捏合同样有效）
+ *   空格按住 / 中键拖动      平移视图
+ *   ⌘/Ctrl + 0            适合当前画板；⌘/Ctrl + ⌥ + 0 适合全部画板
+ *   ⌘/Ctrl + 1            100%；⌘/Ctrl + = / -  放大 / 缩小
+ *
+ * 工具（左键只执行当前工具）：
+ *   V 选择  X 交换  R 旋转  S 比例  O 构图  H 抓手  Z 放大镜  ⇧O 画板
  */
 export function attachViewportInteraction(target, opts) {
   const {
-    pick, getTool, setTool, toolAvailable, is3D, canSwap, getSlide, worldPerPx,
-    getCamera, setCamera, resetCamera,
+    getTool, setTool, toolAvailable, is3D, canSwap, getSlide, onTempHand,
+    // 画板与视图
+    boardAt, activeBoard, activateBoard, boardRect, moveBoard, deleteActiveBoard,
+    panView, zoomViewAt, zoomViewBy, fitActive, fitAll, actualSize,
+    // 当前画板内
+    pick, getCamera, setCamera,
     setHover, setDragSource, setDropTarget, onSwap,
     getAdjust, nextLift, toLayoutDelta, itemCenterClient,
-    setItemAdjust, resetItemAdjust, getSelected, setSelected, onTempHand,
+    setItemAdjust, resetItemAdjust, getSelected, setSelected,
   } = opts;
 
   let drag = null;
   let spaceDown = false;
-  let lastHit = null;
+  let altDown = false;
+  let lastEvent = null;
 
   const isTyping = e => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName) || e.target?.isContentEditable;
   const effectiveTool = () => (spaceDown ? 'hand' : getTool());
+  const local = e => {
+    const r = target.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
+  const cardTools = new Set(['select', 'rotate', 'scale']);
 
   /* ---------- 键盘 ---------- */
 
-  const TOOL_KEYS = { v: 'select', m: 'move', r: 'rotate', h: 'hand', o: 'orbit' };
   window.addEventListener('keydown', e => {
+    if (e.key === 'Alt') { altDown = true; updateCursor(); }
     if (isTyping(e) || document.querySelector('dialog[open]')) return;
+    const mod = e.metaKey || e.ctrlKey;
+
+    // 视图快捷键（会阻止浏览器自带的页面缩放）
+    if (mod && (e.code === 'Digit0' || e.code === 'Numpad0')) { e.preventDefault(); (e.altKey ? fitAll : fitActive)(); return; }
+    if (mod && (e.code === 'Digit1' || e.code === 'Numpad1')) { e.preventDefault(); actualSize(); return; }
+    if (mod && (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd')) { e.preventDefault(); zoomViewBy(1.25); return; }
+    if (mod && (e.key === '-' || e.code === 'NumpadSubtract')) { e.preventDefault(); zoomViewBy(0.8); return; }
+    if (mod || e.altKey) return;
+
     if (e.code === 'Space') {
       e.preventDefault();
       if (!spaceDown) { spaceDown = true; onTempHand(true); updateCursor(); }
       return;
     }
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
     const key = e.key.toLowerCase();
-    if (TOOL_KEYS[key]) {
-      setTool(TOOL_KEYS[key]);
-      updateCursor();
-      return;
-    }
-    if (e.key === 'Escape') {
-      setSelected(null);
-      setTool('select');
-      return;
-    }
-    const sel = getSelected();
-    // + / -：等比缩放选中的卡片（以中心为基准）
-    if (sel != null && (getTool() === 'move' || getTool() === 'rotate') && ['=', '+', '-', '_'].includes(e.key)) {
+    if (key === 'o' && e.shiftKey) { setTool('artboard'); return; }
+    const TOOL_KEYS = { v: 'select', x: 'swap', r: 'rotate', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom' };
+    if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
+
+    if (e.key === 'Escape') { setSelected(null); setTool('select'); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && getTool() === 'artboard') {
       e.preventDefault();
-      const a = getAdjust(sel);
+      deleteActiveBoard();
+      return;
+    }
+
+    const sel = getSelected();
+    const tool = getTool();
+    if (sel == null || !cardTools.has(tool)) return;
+    const a = getAdjust(sel);
+    // + / -：以中心等比缩放选中的卡片
+    if (['=', '+', '-', '_'].includes(e.key)) {
+      e.preventDefault();
       const step = e.shiftKey ? 0.01 : 0.05;
-      const s = Math.min(8, Math.max(0.1, (a.s > 0 ? a.s : 1) * (e.key === '-' || e.key === '_' ? 1 - step : 1 + step)));
+      const s = clamp((a.s > 0 ? a.s : 1) * (e.key === '-' || e.key === '_' ? 1 - step : 1 + step), 0.1, 8);
       setItemAdjust(sel, { s });
       return;
     }
-    // 方向键：微调选中的卡片
+    // 方向键：选择工具移动、旋转工具旋转、比例工具缩放
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
-    if (sel == null || !arrows[e.key]) return;
-    const tool = getTool();
-    if (tool !== 'move' && tool !== 'rotate') return;
+    if (!arrows[e.key]) return;
     e.preventDefault();
-    const a = getAdjust(sel);
-    const step = e.shiftKey ? 10 : 1;
     const [ax, ay] = arrows[e.key];
-    if (tool === 'move') setItemAdjust(sel, { dx: (a.dx || 0) + ax * step, dy: (a.dy || 0) + ay * step });
-    else setItemAdjust(sel, { rz: normAngle((a.rz || 0) - (ax || -ay) * (e.shiftKey ? 15 : 1)) });
+    if (tool === 'select') {
+      const step = e.shiftKey ? 10 : 1;
+      setItemAdjust(sel, { dx: (a.dx || 0) + ax * step, dy: (a.dy || 0) + ay * step });
+    } else if (tool === 'rotate') {
+      setItemAdjust(sel, { rz: normAngle((a.rz || 0) - (ax || -ay) * (e.shiftKey ? 15 : 1)) });
+    } else {
+      const k = 1 + (ax || ay) * (e.shiftKey ? 0.01 : 0.05);
+      setItemAdjust(sel, { s: clamp((a.s > 0 ? a.s : 1) * k, 0.1, 8) });
+    }
   });
   window.addEventListener('keyup', e => {
+    if (e.key === 'Alt') { altDown = false; updateCursor(); }
     if (e.code === 'Space' && spaceDown) { spaceDown = false; onTempHand(false); updateCursor(); }
   });
-  window.addEventListener('blur', () => { if (spaceDown) { spaceDown = false; onTempHand(false); } });
+  window.addEventListener('blur', () => {
+    altDown = false;
+    if (spaceDown) { spaceDown = false; onTempHand(false); }
+  });
 
-  /* ---------- 鼠标 ---------- */
+  /* ---------- 光标 ---------- */
 
-  const hitAt = e => {
-    const r = target.getBoundingClientRect();
-    return pick(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2);
-  };
-
-  function cursorFor(hit) {
+  function cursorFor(e) {
+    if (!e) return 'default';
     const tool = effectiveTool();
-    if (tool === 'hand') return 'grab';
-    if (tool === 'orbit') return is3D() ? 'move' : 'not-allowed';
+    if (tool === 'hand') return drag?.mode === 'pan' ? 'grabbing' : 'grab';
+    if (tool === 'zoom') return altDown ? ZOOM_OUT_CURSOR : ZOOM_IN_CURSOR;
+    const b = boardAt(e.clientX, e.clientY);
+    if (tool === 'artboard') return b ? 'move' : 'default';
+    if (!b) return 'default';
+    if (b !== activeBoard()) return 'pointer'; // 点击切换到这个画板
+    if (tool === 'orbit') return is3D() ? 'move' : 'grab';
+    const hit = pick(e.clientX, e.clientY);
     if (!hit) return 'default';
-    if (tool === 'select') return canSwap() ? 'grab' : 'default';
-    if (tool === 'move') return toolAvailable('move') ? 'move' : 'not-allowed';
-    if (tool === 'rotate') return toolAvailable('rotate') ? ROTATE_CURSOR : 'not-allowed';
+    if (tool === 'swap') return canSwap() ? 'grab' : 'default';
+    if (!toolAvailable(tool)) return 'not-allowed';
+    if (tool === 'select') return 'move';
+    if (tool === 'rotate') return ROTATE_CURSOR;
+    if (tool === 'scale') return 'nwse-resize';
     return 'default';
   }
   function updateCursor() {
-    if (drag) return;
-    target.style.cursor = cursorFor(lastHit);
+    if (drag && drag.mode !== 'pan') return;
+    target.style.cursor = cursorFor(lastEvent);
   }
 
   function makeGhost(slideIndex) {
@@ -120,43 +156,72 @@ export function attachViewportInteraction(target, opts) {
     return ghost;
   }
 
+  /* ---------- 鼠标 ---------- */
+
   target.addEventListener('contextmenu', e => e.preventDefault());
   target.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
   target.addEventListener('pointerdown', e => {
-    const hit = hitAt(e);
+    lastEvent = e;
     let mode = null;
-    if (e.button === 1) mode = 'pan';
-    else if (e.button === 2) mode = is3D() ? 'orbit' : 'pan';
-    else if (e.button === 0) {
+    const extra = {};
+
+    if (e.button === 1) {
+      mode = 'pan';
+    } else if (e.button === 0) {
       const tool = effectiveTool();
-      if (tool === 'hand') mode = 'pan';
-      else if (tool === 'orbit') mode = is3D() ? 'orbit' : null;
-      else if (tool === 'select') mode = hit && canSwap() ? 'swap' : null;
-      else if (tool === 'move') mode = hit && toolAvailable('move') ? 'move' : null;
-      else if (tool === 'rotate') mode = hit && toolAvailable('rotate') ? 'rotate' : null;
-      if (tool === 'move' || tool === 'rotate') setSelected(mode ? hit.order : null);
+      const b = boardAt(e.clientX, e.clientY);
+
+      if (tool === 'hand') {
+        mode = 'pan';
+      } else if (tool === 'zoom') {
+        const [sx, sy] = local(e);
+        zoomViewAt(sx, sy, e.altKey ? 1 / 1.6 : 1.6);
+        return;
+      } else if (tool === 'artboard') {
+        if (!b) return;
+        activateBoard(b, { fit: false });
+        const r = boardRect(b);
+        mode = 'moveBoard';
+        Object.assign(extra, { board: b, bx: r.x, by: r.y });
+      } else {
+        if (!b) { setSelected(null); return; }
+        if (b !== activeBoard()) { activateBoard(b, { fit: false }); return; } // 先切换画板
+        const hit = pick(e.clientX, e.clientY);
+        if (tool === 'orbit') {
+          mode = is3D() && !e.shiftKey ? 'orbit' : 'contentPan';
+        } else if (tool === 'swap') {
+          if (hit && canSwap()) { mode = 'swap'; Object.assign(extra, { src: hit.slideIndex, ghost: null, target: null }); }
+        } else if (cardTools.has(tool)) {
+          const ok = hit && toolAvailable(tool);
+          setSelected(ok ? hit.order : null);
+          if (ok) {
+            mode = tool === 'select' ? 'move' : tool;
+            extra.adj = { dx: 0, dy: 0, rz: 0, ...getAdjust(hit.order) };
+            const [cx, cy] = itemCenterClient(hit);
+            Object.assign(extra, {
+              cx, cy, prevA: Math.atan2(e.clientY - cy, e.clientX - cx), turned: 0,
+              d0: Math.hypot(e.clientX - cx, e.clientY - cy) || 1,
+            });
+          }
+        }
+        extra.hit = hit;
+      }
     }
     if (!mode) return;
     e.preventDefault(); // 中键默认会进入自动滚动
     target.setPointerCapture(e.pointerId);
-    drag = { mode, x: e.clientX, y: e.clientY, cam: { ...getCamera() }, active: false, hit };
-    if (mode === 'swap') Object.assign(drag, { src: hit.slideIndex, ghost: null, target: null });
-    if (mode === 'move' || mode === 'rotate') {
-      drag.adj = { dx: 0, dy: 0, rz: 0, ...getAdjust(hit.order) };
-      if (mode === 'rotate') {
-        const [cx, cy] = itemCenterClient(hit);
-        Object.assign(drag, { cx, cy, prevA: Math.atan2(e.clientY - cy, e.clientX - cx), turned: 0 });
-      }
-    }
-    target.style.cursor = mode === 'orbit' ? 'move' : mode === 'rotate' ? target.style.cursor : 'grabbing';
+    drag = { mode, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, cam: { ...getCamera() }, active: false, ...extra };
+    if (mode === 'pan') target.style.cursor = 'grabbing';
     setHover(null);
   });
 
   target.addEventListener('pointermove', e => {
+    lastEvent = e;
     if (!drag) {
-      lastHit = hitAt(e);
-      setHover(lastHit);
+      const b = boardAt(e.clientX, e.clientY);
+      const showHover = b && b === activeBoard() && ['select', 'swap', 'rotate', 'scale'].includes(effectiveTool());
+      setHover(showHover ? pick(e.clientX, e.clientY) : null);
       updateCursor();
       return;
     }
@@ -166,23 +231,28 @@ export function attachViewportInteraction(target, opts) {
     drag.active = true;
 
     switch (drag.mode) {
+      case 'pan':
+        panView(e.clientX - drag.lx, e.clientY - drag.ly);
+        break;
+      case 'moveBoard': {
+        const z = boardRect(drag.board).zoom;
+        moveBoard(drag.board, drag.bx + dx / z, drag.by + dy / z);
+        break;
+      }
       case 'orbit':
         setCamera({ yaw: drag.cam.yaw + dx * 0.25, pitch: clamp(drag.cam.pitch + dy * 0.25, -89, 89) });
         break;
-      case 'pan': {
-        const k = worldPerPx() * panFactor(drag.cam, is3D());
+      case 'contentPan': {
+        // 构图平移：屏幕像素 → 画板世界单位
+        const k = (1 / boardRect(activeBoard()).zoom) * panFactor(drag.cam, is3D());
         setCamera({ panX: (drag.cam.panX || 0) + dx * k, panY: (drag.cam.panY || 0) - dy * k });
         break;
       }
       case 'move': {
-        // Shift：锁定水平或垂直方向
         let mx = dx, my = dy;
-        if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) my = 0; else mx = 0; }
+        if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) my = 0; else mx = 0; } // Shift 锁定方向
         const [lx, ly] = toLayoutDelta(mx, my);
-        setItemAdjust(drag.hit.order, {
-          dx: drag.adj.dx + lx, dy: drag.adj.dy + ly,
-          ...(first ? { lift: nextLift() } : {}),
-        });
+        setItemAdjust(drag.hit.order, { dx: drag.adj.dx + lx, dy: drag.adj.dy + ly, ...(first ? { lift: nextLift() } : {}) });
         break;
       }
       case 'rotate': {
@@ -198,18 +268,29 @@ export function attachViewportInteraction(target, opts) {
         setItemAdjust(drag.hit.order, { rz, ...(first ? { lift: nextLift() } : {}) });
         break;
       }
+      case 'scale': {
+        // 以卡片中心等比缩放：按指针到中心的距离变化
+        const d = Math.hypot(e.clientX - drag.cx, e.clientY - drag.cy);
+        const s0 = drag.adj.s > 0 ? drag.adj.s : 1;
+        let s = clamp(s0 * (d / drag.d0), 0.1, 8);
+        if (e.shiftKey) s = Math.round(s * 20) / 20; // Shift 按 5% 吸附
+        setItemAdjust(drag.hit.order, { s, ...(first ? { lift: nextLift() } : {}) });
+        break;
+      }
       case 'swap': {
         if (first) {
           drag.ghost = makeGhost(drag.src);
           setDragSource(drag.src);
         }
         drag.ghost.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`;
-        const hit = hitAt(e);
+        const hit = pick(e.clientX, e.clientY);
         drag.target = hit && hit.slideIndex !== drag.src ? hit : null;
         setDropTarget(drag.target);
         break;
       }
     }
+    drag.lx = e.clientX;
+    drag.ly = e.clientY;
   });
 
   const end = () => {
@@ -225,32 +306,44 @@ export function attachViewportInteraction(target, opts) {
   };
   target.addEventListener('pointerup', end);
   target.addEventListener('pointercancel', end);
-  target.addEventListener('pointerleave', () => {
-    if (drag) return;
-    lastHit = null;
-    setHover(null);
-  });
+  target.addEventListener('pointerleave', () => { if (!drag) setHover(null); });
 
+  // 滚轮：滚动 / 缩放视图；构图工具下在当前画板上滚动 = 缩放构图（会导出）
   target.addEventListener('wheel', e => {
-    // 长图模式下滚轮用于上下滚动，按住 ⌘/Ctrl（或触控板双指捏合）才缩放
-    if (opts.wheelScrolls?.() && !e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    e.sgHandled = true;
-    const cam = getCamera();
-    const r = target.getBoundingClientRect();
-    const k = worldPerPx();
-    const cx = (e.clientX - r.left - r.width / 2) * k;
-    const cy = -(e.clientY - r.top - r.height / 2) * k;
-    const next = clamp((cam.zoom || 1) * Math.exp(-e.deltaY * 0.0015), 0.2, 8);
-    setCamera(zoomAround(cam, is3D(), cx, cy, next));
+    const mod = e.ctrlKey || e.metaKey || e.altKey;
+    const b = boardAt(e.clientX, e.clientY);
+    if (!mod && getTool() === 'orbit' && b && b === activeBoard()) {
+      const r = boardRect(b);
+      const [sx, sy] = local(e);
+      const cx = (sx - r.sx - r.sw / 2) / r.zoom;
+      const cy = -(sy - r.sy - r.sh / 2) / r.zoom;
+      const cam = getCamera();
+      setCamera(zoomAround(cam, is3D(), cx, cy, clamp((cam.zoom || 1) * Math.exp(-e.deltaY * 0.0015), 0.2, 8)));
+      return;
+    }
+    let dy = e.deltaY, dx = e.deltaX;
+    if (e.deltaMode === 1) { dx *= 33; dy *= 33; }
+    if (mod) {
+      const [sx, sy] = local(e);
+      // 触控板捏合（ctrlKey + 小增量）更灵敏，鼠标滚轮每格约 25%
+      const k = e.ctrlKey && !e.metaKey && Math.abs(dy) < 40 ? 0.01 : 0.0025;
+      zoomViewAt(sx, sy, Math.exp(-dy * k));
+      return;
+    }
+    if (e.shiftKey && !dx) { dx = dy; dy = 0; } // Shift + 滚轮：横向滚动
+    panView(-dx, -dy);
   }, { passive: false });
 
   target.addEventListener('dblclick', e => {
     if (e.button !== 0) return;
-    const hit = hitAt(e);
     const tool = getTool();
-    if (hit && (tool === 'move' || tool === 'rotate') && toolAvailable(tool)) resetItemAdjust(hit.order);
-    else if (!hit) resetCamera();
+    const b = boardAt(e.clientX, e.clientY);
+    if (!b) { fitActive(); return; } // 双击空白处：适合当前画板
+    if (b === activeBoard() && cardTools.has(tool)) {
+      const hit = pick(e.clientX, e.clientY);
+      if (hit && toolAvailable(tool)) resetItemAdjust(hit.order);
+    }
   });
 
   return { updateCursor };

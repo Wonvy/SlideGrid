@@ -89,6 +89,12 @@ export class Renderer {
     this.textures.set(id, { tex, source });
   }
 
+  clear() {
+    const gl = this.gl;
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
   prune(keepIds) {
     for (const [id, t] of this.textures) {
       if (!keepIds.has(id)) {
@@ -102,12 +108,14 @@ export class Renderer {
    * @param scene     buildScene() 的结果
    * @param tile      可选的裁切矩阵（导出时分块渲染用）
    * @param overlays  预览交互用的高亮：[{ item, color: [r,g,b], fill, ring }]，导出时不传
+   * @param opts      { viewport: [x, y, w, h]（GL 像素，左下为原点）, clear }
+   *                  工作区里多个画板共用一张画布时，每个画板只画在自己的区域
    */
-  render(scene, tile = null, overlays = []) {
+  render(scene, tile = null, overlays = [], { viewport = null, clear = true } = {}) {
     const gl = this.gl, L = this.loc;
-    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (viewport) gl.viewport(...viewport);
+    else gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    if (clear) this.clear();
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.BLEND);

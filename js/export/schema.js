@@ -18,6 +18,13 @@ export const sizeSchema = [
 
 export const formatSchema = [
   {
+    key: 'scope', label: '范围', type: 'select', default: 'current',
+    options: [
+      { value: 'current', label: '当前画板' },
+      { value: 'all', label: '全部画板（ZIP）' },
+    ],
+  },
+  {
     key: 'format', label: '格式', type: 'select', default: 'png',
     options: [
       { value: 'png', label: 'PNG（无损）' },

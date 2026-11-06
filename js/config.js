@@ -11,7 +11,18 @@ export const ASPECTS = [
 ];
 
 export const isLongAspect = id => id === 'long';
-export const aspectValue = id => (ASPECTS.find(a => a.id === id && a.value) || ASPECTS[0]).value;
+
+// 自定义比例写作 "宽:高"（如 "5:4"、"2.35:1"）
+const RATIO_RE = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/;
+export function parseRatio(id) {
+  const m = RATIO_RE.exec(String(id || ''));
+  if (!m) return null;
+  const v = Number(m[1]) / Number(m[2]);
+  return v >= 0.1 && v <= 10 ? v : null;
+}
+export const isValidAspect = id => id === 'long' || ASPECTS.some(a => a.id === id) || parseRatio(id) != null;
+export const aspectValue = id => ASPECTS.find(a => a.id === id && a.value)?.value ?? parseRatio(id) ?? ASPECTS[0].value;
+export const aspectLabel = id => ASPECTS.find(a => a.id === id)?.label || id;
 
 // 预览纹理的最长边（导出时会重新读取原图）
 export const PREVIEW_MAX_SIDE = 1600;
