@@ -1,6 +1,7 @@
 import { store, actions, selectionOf } from '../state.js';
 import { showContextMenu } from '../ui/contextMenu.js';
 import { is3D } from './boards.js';
+import { BOOLEAN_OPS } from '../layers/boolean.js';
 import { setSelection } from './uiState.js';
 
 /**
@@ -13,20 +14,8 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
 
   return function onContextMenu({ clientX, clientY, board }) {
     const s = store.get();
-    if (!board) {
-      showContextMenu(clientX, clientY, [
-        { title: '工作区' },
-        { label: '新建画板', icon: 'plus', action: () => boards.addBoard({ duplicate: false }) },
-        { label: '粘贴图片为新幻灯片', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => importing.pasteFromClipboard(null) },
-        { sep: true },
-        { label: '适合全部画板', icon: 'maximize', shortcut: `${mod}⌥0`, action: ws.fitAll },
-        { label: '全选画板', icon: 'check', shortcut: `${mod}A`, action: () => actions.selectAllBoards() },
-      ]);
-      return;
-    }
-
     // 图层（在卡片上面）：图层菜单
-    const layer = board === s.activeBoard ? layerTools?.layerAtClient(clientX, clientY) : null;
+    const layer = layerTools?.layerAtClient(clientX, clientY); // 图层可能在画板外
     if (layer) {
       if (!ui.layerSel.includes(layer.id)) layerTools.select([layer.id]);
       const ids = ui.layerSel;
@@ -36,6 +25,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         layer.type === 'text' && n === 1 && { label: '编辑文字', icon: 'type', action: () => layerTools.startEdit(layer.id) },
         layer.type === 'path' && n === 1 && { label: '编辑锚点', icon: 'mouse-pointer', shortcut: 'A', action: () => setTool('direct') },
         { label: '复制', icon: 'copy', shortcut: `${mod}D`, action: () => layerTools.duplicate() },
+        ...(layerTools.booleanCount() >= 2 ? [{ sep: true }, ...BOOLEAN_OPS.map(o => ({ label: o.label, icon: o.icon, action: () => layerTools.booleanOp(o.id) }))] : []),
         { sep: true },
         { label: '上移一层', icon: 'arrow-up', shortcut: `${mod}]`, action: () => layerTools.reorder(1) },
         { label: '下移一层', icon: 'arrow-down', shortcut: `${mod}[`, action: () => layerTools.reorder(-1) },
@@ -45,6 +35,19 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         { label: '锁定', icon: 'lock', action: () => { actions.updateLayers(ids, { locked: true }); layerTools.clear(); } },
         { label: '隐藏', icon: 'eye-off', action: () => { actions.updateLayers(ids, { hidden: true }); layerTools.clear(); } },
         { label: n > 1 ? `删除 ${n} 个图层` : '删除', icon: 'trash-2', danger: true, shortcut: 'Delete', action: () => layerTools.remove([...ids]) },
+      ]);
+      return;
+    }
+
+    if (!board) {
+      showContextMenu(clientX, clientY, [
+        { title: '工作区' },
+        { label: '新建画板', icon: 'plus', action: () => boards.addBoard({ duplicate: false }) },
+        { label: '粘贴为图层（图片 / SVG）', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => importing.pasteAsLayers() },
+        { label: '粘贴图片为新幻灯片', icon: 'images', action: () => importing.pasteFromClipboard(null) },
+        { sep: true },
+        { label: '适合全部画板', icon: 'maximize', shortcut: `${mod}⌥0`, action: ws.fitAll },
+        { label: '全选画板', icon: 'check', shortcut: `${mod}A`, action: () => actions.selectAllBoards() },
       ]);
       return;
     }
@@ -81,6 +84,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
     }
     items.push(
       { title: multi ? `已选 ${sel.length} 个画板` : b.name },
+      !card && { label: '粘贴为图层（图片 / SVG）', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => importing.pasteAsLayers() },
       !multi && { label: '适合窗口', icon: 'scan', shortcut: `${mod}0`, action: () => ws.fitBoard(board) },
       !multi && { label: '重命名…', icon: 'pencil', action: () => boards.renameBoard(board) },
       { label: '画板背景…', icon: 'images', action: () => bgPicker.open() },

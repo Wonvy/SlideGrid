@@ -5,6 +5,7 @@
 //   2. 任何一次页面滚动都会取消激活，必须再移动鼠标才能重新激活
 //   3. 激活后 IDLE 毫秒内没有调整也会自动取消
 // 另有两种模式：'alt' 只在按住 ⌥/Alt 时调参；'off' 关闭滚轮调参。
+// 不会滚动的地方（顶部工具条）可以用 immediate：鼠标在控件上就直接响应，不需要停留激活。
 
 const DWELL = 300;
 const IDLE = 2500;
@@ -47,12 +48,19 @@ document.addEventListener('wheel', e => {
   if (!e.sgHandled) disarm();
 }, { passive: true });
 
-/** 让元素支持滚轮调参：允许时调用 onSteps(steps, event)，steps 向上为正 */
-export function attachWheel(node, onSteps) {
+/**
+ * 让元素支持滚轮调参：允许时调用 onSteps(steps, event)，steps 向上为正
+ * immediate：鼠标在元素上就直接响应滚轮（用于不会滚动的工具条）
+ */
+export function attachWheel(node, onSteps, { immediate = false } = {}) {
   const stepper = createWheelStepper();
   node.classList.add('wheelable');
 
   node.addEventListener('pointermove', e => {
+    if (immediate) {
+      if (mode === 'hover' && armed !== node) { if (armed) disarm(); arm(node); }
+      return;
+    }
     if (mode !== 'hover' || e.pointerType === 'touch' || !e.sgRealMove || armed === node) return;
     if (armed) disarm();
     candidate = node;
@@ -68,7 +76,7 @@ export function attachWheel(node, onSteps) {
   });
 
   node.addEventListener('wheel', e => {
-    const allowed = mode === 'alt' ? e.altKey : mode === 'hover' && armed === node;
+    const allowed = mode === 'alt' ? e.altKey : mode === 'hover' && (armed === node || immediate);
     if (!allowed) return; // 交给页面滚动
     e.preventDefault();
     e.sgHandled = true;

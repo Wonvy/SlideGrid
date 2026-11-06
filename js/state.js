@@ -132,9 +132,19 @@ function syncSelected(s, fn) {
   return s.artboards.map(b => (b.id !== s.activeBoard && sel.has(b.id) ? { ...b, settings: boardSettings(fn(b.settings)) } : b));
 }
 
+// 被使用的素材：画板背景图 + 图片图层
+export function usedAssetIds(s) {
+  const used = new Set();
+  for (const b of boardsOf(s)) {
+    if (b.settings.style?.bgImageId) used.add(b.settings.style.bgImageId);
+    for (const l of b.settings.layers || []) if (l.type === 'image' && l.assetId) used.add(l.assetId);
+  }
+  return used;
+}
+
 // 只保留仍被某个画板引用的素材
 function pruneAssets(s, assets) {
-  const used = new Set(boardsOf(s).map(b => b.settings.style?.bgImageId).filter(Boolean));
+  const used = usedAssetIds(s);
   const out = {};
   for (const [id, a] of Object.entries(assets)) {
     if (used.has(id)) out[id] = a; // 不再使用的素材交给浏览器回收（撤销时可能还会用到）
@@ -380,6 +390,13 @@ export const actions = {
   updateLayers(ids, patch) {
     const set = new Set(ids);
     store.set(s => ({ layers: s.layers.map(l => (set.has(l.id) ? (typeof patch === 'function' ? patch(l) : { ...l, ...patch }) : l)) }));
+  },
+  // 加入图片图层（素材和图层一起，作为一步撤销）
+  addAssetLayers(assets, layers) {
+    store.set(s => ({
+      assets: { ...s.assets, ...Object.fromEntries(assets.map(a => [a.id, a])) },
+      layers: [...s.layers, ...layers],
+    }));
   },
   // 图层和卡片一起修改（一起移动时作为一步撤销）。adjusts：[{ order, patch }]
   applyEdits({ layers = null, adjusts = null }) {

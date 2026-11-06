@@ -35,6 +35,31 @@ async function loadBackground(bg, target) {
 }
 
 
+/**
+ * 图片图层用到的图片：预览时直接用内存里的预览图；正式导出按输出尺寸重新读取原图（Logo 放大导出也清晰）。
+ * 返回 { [assetId]: { preview, temp } }，temp 表示用完要释放
+ */
+async function layerImages(input, k, preview) {
+  const out = {};
+  for (const l of input.layers) {
+    if (l.type !== 'image' || l.hidden || !l.assetId || out[l.assetId]) continue;
+    const a = input.assets?.[l.assetId];
+    if (!a) continue;
+    const need = Math.ceil(Math.max(l.w, l.h) * k * 1.25);
+    const pv = a.preview;
+    if (preview || !a.file || (pv && Math.max(pv.width, pv.height) >= need)) { out[l.assetId] = { preview: pv, temp: false }; continue; }
+    try {
+      const full = await decodeImage(a.file);
+      const img = await resizeBitmap(full, Math.min(8192, need));
+      if (img !== full) full.close();
+      out[l.assetId] = { preview: img, temp: true };
+    } catch {
+      out[l.assetId] = { preview: pv, temp: false };
+    }
+  }
+  return out;
+}
+
 let sharedPreview = null;
 function previewRenderer() {
   if (!sharedPreview || sharedPreview.gl.isContextLost()) {
@@ -50,7 +75,7 @@ function previewRenderer() {
  *               preview：true 时直接用内存里的预览图（快，用于缩略图 / 导出面板预览），否则重新读取原图
  * @returns { canvas, width, height }
  */
-export async function renderToCanvas(input, { longSide, fill = null, preview = false, onProgress } = {}) {
+export async function renderToCanvas(input, { longSide, fill = null, preview = false, onProgress, transparent = false } = {}) {
   const scene = buildScene(input);
   const { width: pxW, height: pxH } = exportSize(scene, longSide);
 
@@ -59,7 +84,8 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
   out.height = pxH;
   const ctx = out.getContext('2d');
   if (!ctx) throw new Error('无法创建画布，请降低导出尺寸');
-  if (scene.style.bgType === 'transparent') {
+  // 透明：背景类型为透明，或这次输出选了「透明背景」（只去掉背景，幻灯片、投影、图层照常）
+  if (transparent || scene.style.bgType === 'transparent') {
     if (fill) { ctx.fillStyle = fill; ctx.fillRect(0, 0, pxW, pxH); }
   } else {
     const bgImage = preview ? input.background?.preview || null : await loadBackground(input.background, Math.max(pxW, pxH));
@@ -104,23 +130,29 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
   } finally {
     if (!preview) renderer.dispose();
   }
-  // 图层（文字、形状、路径）画在最上面，按画板坐标缩放到输出尺寸
+  // 图层（文字、形状、路径、图片）画在最上面，按画板坐标缩放到输出尺寸
   if (input.layers?.length) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, pxW, pxH);
-    ctx.clip();
-    ctx.setTransform(pxW / scene.W, 0, 0, pxH / scene.H, 0, 0);
-    drawLayers(ctx, input.layers);
-    ctx.restore();
+    const k = pxH / scene.H;
+    const images = await layerImages(input, k, preview);
+    try {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, pxW, pxH);
+      ctx.clip();
+      ctx.setTransform(pxW / scene.W, 0, 0, k, 0, 0);
+      drawLayers(ctx, input.layers, { assets: images });
+      ctx.restore();
+    } finally {
+      for (const { preview: img, temp } of Object.values(images)) if (temp) img.close?.();
+    }
   }
   return { canvas: out, width: pxW, height: pxH };
 }
 
 /** 离屏渲染出高清图片：{ blob, width, height } */
-export async function renderToBlob(input, { longSide, format = 'png', quality = 0.92, onProgress, preview = false } = {}) {
+export async function renderToBlob(input, { longSide, format = 'png', quality = 0.92, onProgress, preview = false, transparent = false } = {}) {
   const { canvas, width, height } = await renderToCanvas(input, {
-    longSide, preview, onProgress, fill: format === 'jpg' ? '#ffffff' : null, // JPG 不支持透明
+    longSide, preview, onProgress, transparent, fill: format === 'jpg' ? '#ffffff' : null, // JPG 不支持透明
   });
   const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
   const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, quality));

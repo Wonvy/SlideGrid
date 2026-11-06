@@ -43,6 +43,7 @@ export function boardInput(s, st) {
     background: bgSourceOf(s, st),
     adjust: st.adjust[st.layoutId] || null,
     layers: st.layers || [],
+    assets: s.assets, // 图片图层用到的素材
   };
 }
 

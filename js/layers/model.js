@@ -5,19 +5,20 @@
  * 公共字段：{ id, type, name, x, y, w, h, rotation（度，绕中心）, opacity, hidden, locked }
  *   rect     radius、填充、描边
  *   ellipse  填充、描边
- *   text     text、fontSize、fontWeight、fontFamily、align、lineHeight、letterSpacing、color（w / h 由文字测量得出）
- *   path     anchors: [{ x, y, hi: {x,y}|null, ho: {x,y}|null }]（绝对坐标，hi / ho 为进入 / 离开的控制柄）、closed、填充、描边
- *            路径不使用 rotation：旋转、缩放直接作用在锚点上；x / y / w / h 为锚点的包围盒
+ *   text     text、fontSize、fontWeight、fontFamily（sans / serif / mono 或本机字体名）、align、lineHeight、letterSpacing、color（w / h 由文字测量得出）
+ *   path     contours: [{ anchors: [{ x, y, hi: {x,y}|null, ho: {x,y}|null }], closed }]（一个或多个子路径，绝对坐标，
+ *            hi / ho 为进入 / 离开的控制柄）、fillRule（nonzero / evenodd，复合路径的镂空）、填充、描边
+ *            路径不使用 rotation：旋转、缩放直接作用在锚点上；x / y / w / h 为路径的包围盒
+ *   image    assetId（项目素材里的图片，见 state.assets）、radius（圆角）；缩放时保持比例
  * 填充：fillType 'solid' | 'linear' | 'none'，fill / fillAlpha，渐变时 fill2 / fill2Alpha / fillAngle（可做透明度渐变）
  * 描边：stroke、strokeWidth（0 = 无描边）
  */
-export const FONTS = {
-  sans: '-apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
-  serif: '"Songti SC", "Noto Serif SC", Georgia, serif',
-  mono: '"SF Mono", Menlo, Consolas, monospace',
-};
+import { GENERIC, fontStack } from './fonts.js';
 
-const TYPE_NAMES = { rect: '矩形', ellipse: '椭圆', text: '文字', path: '路径' };
+// 通用字体（字体名也可以是本机安装的任何字体，见 layers/fonts.js）
+export const FONTS = Object.fromEntries(Object.entries(GENERIC).map(([k, v]) => [k, v.stack]));
+
+const TYPE_NAMES = { rect: '矩形', ellipse: '椭圆', text: '文字', path: '路径', image: '图片' };
 export const typeName = t => TYPE_NAMES[t] || '图层';
 
 export const newLayerId = () => `l_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -36,8 +37,11 @@ export function createLayer(type, props = {}, existing = []) {
       lineHeight: 1.25, letterSpacing: 0, color: '#ffffff', ...props,
     });
   }
+  if (type === 'image') return { ...base, radius: 0, assetId: null, ...props };
   if (type === 'path') {
-    return syncPathBox({ ...base, ...FILL, fillType: 'none', stroke: '#ffffff', strokeWidth: 6, anchors: [], closed: false, ...props });
+    const { anchors, closed, ...rest } = props; // 也接受单一路径的写法
+    const contours = rest.contours || [{ anchors: anchors || [], closed: !!closed }];
+    return syncPathBox({ ...base, ...FILL, fillType: 'none', stroke: '#ffffff', strokeWidth: 6, fillRule: 'nonzero', ...rest, contours });
   }
   throw new Error(`未知图层类型：${type}`);
 }
@@ -46,7 +50,7 @@ export function createLayer(type, props = {}, existing = []) {
 
 let measureCtx = null;
 const ctx2d = () => (measureCtx ||= document.createElement('canvas').getContext('2d'));
-export const fontOf = l => `${l.fontWeight || 400} ${l.fontSize}px ${FONTS[l.fontFamily] || FONTS.sans}`;
+export const fontOf = l => `${l.fontWeight || 400} ${l.fontSize}px ${fontStack(l.fontFamily || 'sans')}`;
 export const textLines = l => String(l.text ?? '').split('\n');
 
 // 每行的宽度（含字间距），给绘制和测量共用
@@ -65,21 +69,37 @@ export function measureText(l) {
   return { ...l, w, h };
 }
 
-/* ---------------- 路径 ---------------- */
+/* ---------------- 路径 ----------------
+ * 路径由一个或多个子路径（contour）组成：contours: [{ anchors, closed }]，复合路径（带镂空的图标）用 fillRule 控制填充。
+ * 锚点：{ x, y, hi, ho }（hi / ho 为进入 / 离开的控制柄，null 表示直角）。
+ * 线段地址：[c, i, j]——第 c 个子路径里从锚点 i 到锚点 j 的一段。
+ */
 
-// 锚点 → Path2D（画板坐标）
+// 子路径列表（兼容只有 anchors / closed 的单一路径）
+export const contoursOf = l => l.contours || (l.anchors ? [{ anchors: l.anchors, closed: !!l.closed }] : []);
+// 替换子路径并更新包围盒
+export function withContours(l, contours) {
+  const { anchors, closed, ...rest } = l;
+  return syncPathBox({ ...rest, contours });
+}
+// 修改第 c 个子路径
+export const updateContour = (l, c, fn) => withContours(l, contoursOf(l).map((k, i) => (i === c ? fn(k) : k)));
+export const anchorCount = l => contoursOf(l).reduce((n, k) => n + k.anchors.length, 0);
+
+// 子路径 → Path2D（画板坐标）
 export function pathOf(l) {
   const p = new Path2D();
-  const a = l.anchors;
-  if (!a.length) return p;
-  p.moveTo(a[0].x, a[0].y);
-  const seg = (from, to) => {
-    const c1 = from.ho || from, c2 = to.hi || to;
-    if (!from.ho && !to.hi) p.lineTo(to.x, to.y);
-    else p.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, to.x, to.y);
-  };
-  for (let i = 1; i < a.length; i++) seg(a[i - 1], a[i]);
-  if (l.closed && a.length > 2) { seg(a[a.length - 1], a[0]); p.closePath(); }
+  for (const { anchors: a, closed } of contoursOf(l)) {
+    if (!a.length) continue;
+    p.moveTo(a[0].x, a[0].y);
+    const seg = (from, to) => {
+      const c1 = from.ho || from, c2 = to.hi || to;
+      if (!from.ho && !to.hi) p.lineTo(to.x, to.y);
+      else p.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, to.x, to.y);
+    };
+    for (let i = 1; i < a.length; i++) seg(a[i - 1], a[i]);
+    if (closed && a.length > 2) { seg(a[a.length - 1], a[0]); p.closePath(); }
+  }
   return p;
 }
 
@@ -89,49 +109,53 @@ const bez = (p0, p1, p2, p3, t) => {
   return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
 };
 export function segments(l) {
-  const a = l.anchors, out = [];
-  for (let i = 1; i < a.length; i++) out.push([i - 1, i]);
-  if (l.closed && a.length > 2) out.push([a.length - 1, 0]);
+  const out = [];
+  contoursOf(l).forEach(({ anchors: a, closed }, c) => {
+    for (let i = 1; i < a.length; i++) out.push([c, i - 1, i]);
+    if (closed && a.length > 2) out.push([c, a.length - 1, 0]);
+  });
   return out;
 }
-export function segmentPoint(l, [i, j], t) {
-  const A = l.anchors[i], B = l.anchors[j];
+export function segmentPoint(l, [c, i, j], t) {
+  const a = contoursOf(l)[c].anchors;
+  const A = a[i], B = a[j];
   const c1 = A.ho || A, c2 = B.hi || B;
   return { x: bez(A.x, c1.x, c2.x, B.x, t), y: bez(A.y, c1.y, c2.y, B.y, t) };
 }
 
 // 路径实际范围（按曲线采样，不含控制柄）
 function pathBounds(l) {
-  const a = l.anchors;
-  if (!a.length) return { x: l.x || 0, y: l.y || 0, w: 0, h: 0 };
+  const all = contoursOf(l).flatMap(k => k.anchors);
+  if (!all.length) return { x: l.x || 0, y: l.y || 0, w: 0, h: 0 };
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const add = p => { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); };
-  a.forEach(add);
+  all.forEach(add);
   for (const s of segments(l)) for (let k = 1; k < 16; k++) add(segmentPoint(l, s, k / 16));
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 export const syncPathBox = l => ({ ...l, ...pathBounds(l), rotation: 0 });
 
 /**
- * 在线段 seg 的 t 处插入锚点（de Casteljau 分割，曲线形状不变）。返回新图层和新锚点序号。
+ * 在线段 seg 的 t 处插入锚点（de Casteljau 分割，曲线形状不变）。返回新图层和新锚点的地址 { c, i }。
  */
 export function insertAnchor(l, seg, t) {
-  const [i, j] = seg;
-  const A = l.anchors[i], B = l.anchors[j];
+  const [c, i, j] = seg;
+  const src = contoursOf(l)[c].anchors;
+  const A = src[i], B = src[j];
   const P0 = A, P1 = A.ho || A, P2 = B.hi || B, P3 = B;
   const lerp = (p, q) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
-  const a = lerp(P0, P1), b = lerp(P1, P2), c = lerp(P2, P3);
-  const d = lerp(a, b), e = lerp(b, c), m = lerp(d, e);
+  const a = lerp(P0, P1), b = lerp(P1, P2), cc = lerp(P2, P3);
+  const d = lerp(a, b), e = lerp(b, cc), m = lerp(d, e);
   const curved = A.ho || B.hi;
-  const anchors = l.anchors.map(p => ({ ...p }));
+  const anchors = src.map(p => ({ ...p }));
   if (curved) {
     anchors[i].ho = A.ho ? a : null;
-    anchors[j].hi = B.hi ? c : null;
+    anchors[j].hi = B.hi ? cc : null;
   }
   const mid = { x: m.x, y: m.y, hi: curved ? d : null, ho: curved ? e : null };
   const at = j === 0 ? anchors.length : j;
   anchors.splice(at, 0, mid);
-  return { layer: syncPathBox({ ...l, anchors }), index: at };
+  return { layer: updateContour(l, c, k => ({ ...k, anchors })), at: { c, i: at } };
 }
 
 // 离点 p 最近的线段位置：{ seg, t, d }
@@ -146,6 +170,12 @@ export function nearestOnPath(l, p) {
     }
   }
   return best;
+}
+
+// 对所有锚点和控制柄做同一个点变换
+export function mapPoints(l, fn) {
+  const mp = q => (q ? fn(q) : q);
+  return withContours(l, contoursOf(l).map(k => ({ ...k, anchors: k.anchors.map(a => ({ ...fn(a), hi: mp(a.hi), ho: mp(a.ho) })) })));
 }
 
 /* ---------------- 几何 ---------------- */
@@ -183,14 +213,14 @@ export function hitLayer(l, p, tol) {
   if (l.type === 'path') {
     const g = (hitCtx ||= document.createElement('canvas').getContext('2d'));
     const path = pathOf(l);
-    if (l.fillType !== 'none' && g.isPointInPath(path, p.x, p.y)) return true;
+    if (l.fillType !== 'none' && g.isPointInPath(path, p.x, p.y, l.fillRule === 'evenodd' ? 'evenodd' : 'nonzero')) return true;
     g.lineWidth = Math.max(l.strokeWidth || 0, 0) + tol * 2;
     return g.isPointInStroke(path, p.x, p.y);
   }
   const q = toLocal(l, p);
   const inBox = q.x >= l.x - tol && q.x <= l.x + l.w + tol && q.y >= l.y - tol && q.y <= l.y + l.h + tol;
   if (!inBox) return false;
-  if (l.type === 'text') return true;
+  if (l.type === 'text' || l.type === 'image') return true;
   const filled = l.fillType !== 'none' && (l.fillAlpha > 0 || (l.fillType === 'linear' && l.fill2Alpha > 0));
   if (l.type === 'ellipse') {
     const c = center(l), rx = l.w / 2, ry = l.h / 2;
@@ -206,10 +236,7 @@ export function hitLayer(l, p, tol) {
 /* ---------------- 变换 ---------------- */
 
 export function moveLayer(l, dx, dy) {
-  if (l.type === 'path') {
-    const mv = p => (p ? { x: p.x + dx, y: p.y + dy } : p);
-    return { ...l, x: l.x + dx, y: l.y + dy, anchors: l.anchors.map(a => ({ x: a.x + dx, y: a.y + dy, hi: mv(a.hi), ho: mv(a.ho) })) };
-  }
+  if (l.type === 'path') return mapPoints(l, p => ({ x: p.x + dx, y: p.y + dy }));
   return { ...l, x: l.x + dx, y: l.y + dy };
 }
 
@@ -226,9 +253,7 @@ export function mapToFrame(l, from, to) {
     const local = { x: to.cx + (q.x - from.cx) * sx, y: to.cy + (q.y - from.cy) * sy };
     return rot(local, { x: to.cx, y: to.cy }, to.rotation || 0);
   };
-  if (l.type === 'path') {
-    return syncPathBox({ ...l, anchors: l.anchors.map(a => ({ ...map(a), hi: map(a.hi), ho: map(a.ho) })) });
-  }
+  if (l.type === 'path') return mapPoints(l, map);
   const c = map(center(l));
   // 图层自身的轴与框架的轴大致对齐时，按框架局部缩放；否则按面积等比缩放
   const rel = (((l.rotation || 0) - (from.rotation || 0)) % 180 + 180) % 180;

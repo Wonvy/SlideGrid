@@ -57,7 +57,7 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info 
     sizeInfo.textContent = multi ? `当前画板：${width} × ${height} px` : `输出尺寸：${width} × ${height} px`;
     if (!nameEdited) nameInput.value = defaultName;
     ext.textContent = multi ? '.zip' : o.format === 'jpg' ? '.jpg' : '.png';
-    const transparent = s.style.bgType === 'transparent';
+    const transparent = s.style.bgType === 'transparent' || (o.transparent && o.format === 'png');
     preview.classList.toggle('checker', transparent && o.format === 'png');
     const selCount = (s.selectedBoards || []).length;
     hint.textContent = o.scope === 'all'

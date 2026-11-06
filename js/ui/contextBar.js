@@ -2,6 +2,7 @@ import { buildControls } from './controls.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { layerSchema, cropSchema } from '../layers/schema.js';
+import { BOOLEAN_OPS } from '../layers/boolean.js';
 
 /**
  * 顶部工具条的「上下文」部分：跟随当前选择显示最常用的属性（类似 Illustrator 的控制栏）。
@@ -32,7 +33,7 @@ const BARS = {
 };
 const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ');
 
-export function createContextBar(slot, { store, ui, setLayerProp, setCards, getCards, resetCrop, reorder, removeLayers, typeName }) {
+export function createContextBar(slot, { store, ui, setLayerProp, setCards, getCards, resetCrop, reorder, removeLayers, typeName, booleanOp, booleanCount }) {
   const box = el('div', { class: 'ctx-controls' });
   const title = el('span', { class: 'ctx-title' });
   const actionsBox = el('div', { class: 'ctx-actions' });
@@ -45,6 +46,8 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
     btn('trash-2', '删除（Delete）', () => removeLayers()),
   ];
   const cardActions = [btn('rotate-ccw', '复位裁切', () => getCards().forEach(resetCrop))];
+  // 选中两个以上形状时：布尔运算
+  const boolActions = [el('span', { class: 'tb-sep' }), ...BOOLEAN_OPS.map(o => btn(o.icon, `${o.label}（布尔运算）`, () => booleanOp(o.id))), el('span', { class: 'tb-sep' })];
 
   let key = '';
   let updateControls = () => {};
@@ -57,9 +60,9 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
     let ctx = 'board', next = '', schema = null, values = null, onChange = null;
     if (sel.length) {
       const types = new Set(sel.map(l => l.type));
-      const kind = types.size === 1 && types.has('text') ? 'text' : [...types].every(t => t !== 'text') ? 'shape' : 'mixed';
+      const kind = types.size === 1 && types.has('text') ? 'text' : [...types].every(t => ['rect', 'ellipse', 'path'].includes(t)) ? 'shape' : 'mixed';
       ctx = 'layers';
-      next = `layers:${kind}`;
+      next = `layers:${kind}:${booleanCount() >= 2 ? 'bool' : ''}`;
       schema = BARS[kind];
       values = sel[0];
       onChange = setLayerProp;
@@ -76,8 +79,10 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
     if (next !== key) {
       key = next;
       box.innerHTML = '';
-      updateControls = schema ? buildControls(box, schema, values, (k, v) => onChange(k, v)) : () => {};
-      actionsBox.replaceChildren(...(ctx === 'layers' ? layerActions : ctx === 'cards' ? cardActions : []));
+      // 工具条不会滚动：悬停即可用滚轮调参（Shift 加速）
+      updateControls = schema ? buildControls(box, schema, values, (k, v) => onChange(k, v), { wheelImmediate: true }) : () => {};
+      const bool = ctx === 'layers' && next.endsWith('bool') ? boolActions : [];
+      actionsBox.replaceChildren(...bool, ...(ctx === 'layers' ? layerActions : ctx === 'cards' ? cardActions : []));
     }
     if (values) updateControls(values);
     return ctx;

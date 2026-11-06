@@ -1,10 +1,11 @@
-import { fontOf, textLines, lineWidths, pathOf, center } from './model.js';
+import { fontOf, textLines, lineWidths, pathOf, center, anchorCount } from './model.js';
 
 /**
  * 把图层画到 2D 画布上。调用前 ctx 的变换应已设为「画板坐标 → 像素」（工作区与导出共用，所见即所得）。
  * skip：正在编辑的文字图层（由编辑框显示）不画
+ * assets：图片素材 { [id]: { preview } }（工作区用预览图，导出时传入按输出尺寸读取的原图）
  */
-export function drawLayers(ctx, layers, { skip = null } = {}) {
+export function drawLayers(ctx, layers, { skip = null, assets = {} } = {}) {
   for (const l of layers || []) {
     if (l.hidden || l.id === skip) continue;
     ctx.save();
@@ -16,6 +17,7 @@ export function drawLayers(ctx, layers, { skip = null } = {}) {
       ctx.translate(-c.x, -c.y);
     }
     if (l.type === 'text') drawText(ctx, l);
+    else if (l.type === 'image') drawImage(ctx, l, assets[l.assetId]);
     else drawShape(ctx, l);
     ctx.restore();
   }
@@ -44,7 +46,7 @@ function fillStyle(ctx, l) {
 function drawShape(ctx, l) {
   let path;
   if (l.type === 'path') {
-    if (!l.anchors?.length) return;
+    if (!anchorCount(l)) return;
     path = pathOf(l);
   } else {
     path = new Path2D();
@@ -53,7 +55,7 @@ function drawShape(ctx, l) {
     else path.rect(l.x, l.y, l.w, l.h);
   }
   const fill = fillStyle(ctx, l);
-  if (fill) { ctx.fillStyle = fill; ctx.fill(path); }
+  if (fill) { ctx.fillStyle = fill; ctx.fill(path, l.fillRule === 'evenodd' ? 'evenodd' : 'nonzero'); }
   if (l.strokeWidth > 0) {
     ctx.strokeStyle = l.stroke;
     ctx.lineWidth = l.strokeWidth;
@@ -61,6 +63,23 @@ function drawShape(ctx, l) {
     ctx.lineCap = 'round';
     ctx.stroke(path);
   }
+}
+
+function drawImage(ctx, l, asset) {
+  const img = asset?.preview;
+  if (!img) {
+    // 图片还没读取（或丢失）：画一个占位框
+    ctx.fillStyle = 'rgba(124, 140, 255, .15)';
+    ctx.fillRect(l.x, l.y, l.w, l.h);
+    return;
+  }
+  if (l.radius > 0) {
+    const p = new Path2D();
+    p.roundRect(l.x, l.y, l.w, l.h, Math.min(l.radius, Math.abs(l.w) / 2, Math.abs(l.h) / 2));
+    ctx.clip(p);
+  }
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, l.x, l.y, l.w, l.h);
 }
 
 function drawText(ctx, l) {

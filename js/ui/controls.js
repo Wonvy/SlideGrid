@@ -1,16 +1,18 @@
 import { el, isCollapsed, setCollapsed } from './dom.js';
 import { attachWheel, shiftLightness } from './wheel.js';
 import { icon } from './icons.js';
+import { createFontPicker } from './fontPicker.js';
 
 const clampTo = (v, def) => Math.min(def.max ?? Infinity, Math.max(def.min ?? -Infinity, v));
 const decimals = step => (String(step).split('.')[1] || '').length;
 
 /**
  * 根据 schema 自动生成控件。
- * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image'|'textarea', default, show?(values), ... }
+ * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image'|'textarea'|'font', default, show?(values), ... }
  *          或 { group: '分组标题' }
  * label 可以是函数 (values) => 文本。
- * ctx（可选）：image 控件需要 { imageThumb(id) → canvas|null, pickImage(key), dropTarget }
+ * ctx（可选）：image 控件需要 { imageThumb(id) → canvas|null, pickImage(key), dropTarget }；
+ *   wheelImmediate：鼠标悬停就能用滚轮调（不需要停留激活，用于顶部工具条）
  * 可选 wheelStep：滚轮每档的步长（默认等于 step）。
  *
  * 所有控件都支持「鼠标悬停 + 滚轮」调整：向上滚增大，Shift 加速 ×10。
@@ -141,6 +143,14 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         row.append(el('div', { class: 'ctrl-actions' }, choose, clear), thumb);
         break;
       }
+      case 'font': {
+        // 字体：可搜索的本机字体列表，滚轮前后切换
+        const picker = createFontPicker({ onChange: v => onChange(def.key, v) });
+        render = v => picker.set(v);
+        wheel = steps => picker.step(current, steps);
+        row.append(picker.button);
+        break;
+      }
       case 'textarea': {
         // 多行文字：边输入边生效（输入框有焦点时不被外部更新覆盖）
         const input = el('textarea', { class: 'text-input textarea', rows: def.rows || 3, spellcheck: 'false' });
@@ -167,7 +177,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
       attachWheel(row, (steps, e) => {
         const next = wheel(steps, e.shiftKey);
         if (next !== undefined && next !== current) onChange(def.key, next);
-      });
+      }, { immediate: !!ctx.wheelImmediate });
     }
 
     container.append(row);

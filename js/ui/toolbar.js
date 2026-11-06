@@ -1,5 +1,6 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
+import { attachWheel } from './wheel.js';
 
 // 工作区：左侧竖排的工具栏（工具切换，快捷键参照 Illustrator）+ 顶部浮动工具条（背景、遮罩、吸附、对齐、视图缩放、重置卡片）
 export const TOOLS = [
@@ -12,7 +13,7 @@ export const TOOLS = [
   { id: 'text', icon: 'type', label: '文字', key: 'T', desc: '单击添加文字；选择工具下双击文字可编辑' },
   { id: 'rect', icon: 'square', label: '矩形', key: 'M', desc: '拖动绘制矩形（Shift 正方形，⌥ 从中心），单击放一个默认大小的' },
   { id: 'ellipse', icon: 'circle', label: '椭圆', key: 'L', desc: '拖动绘制椭圆（Shift 正圆，⌥ 从中心）' },
-  { id: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P', desc: '单击加直角锚点，按住拖动拉出曲线；点第一个锚点闭合，Enter / Esc 结束，Backspace 删除上一个锚点' },
+  { id: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P', desc: '单击直角锚点，拖动拉出曲线（Shift 45°，⌥ 转角，空格移动锚点）；点首点闭合，Enter 结束；对选中路径：点线段加锚点、点锚点删除、点端点继续画' },
   { id: 'direct', icon: 'mouse-pointer', label: '直接选择', key: 'A', desc: '编辑路径锚点：拖锚点 / 控制柄（⌥ 打断对称），⌥ 单击切换直角 / 平滑，双击路径插入锚点，Delete 删除锚点' },
   { sep: true },
   { id: 'hand', icon: 'hand', label: '抓手', key: 'H', desc: '平移视图（任何工具下按住空格或中键也可以）' },
@@ -30,7 +31,8 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
     tools.append(b);
   }
 
-  const zoomLabel = el('button', { class: 'tb-zoom', title: '视图缩放（不影响导出）· 点击 = 100%（⌘/Ctrl + 1）', onclick: onActualSize }, '100%');
+  const zoomLabel = el('button', { class: 'tb-zoom', title: '视图缩放（不影响导出）· 点击 = 100%（⌘/Ctrl + 1）· 滚轮放大缩小', onclick: onActualSize }, '100%');
+  attachWheel(zoomLabel, steps => (steps > 0 ? onZoomIn() : onZoomOut()), { immediate: true });
   const viewSlot = el('div', { class: 'tb-group tb-view' }); // 吸附开关等，由 main.js 挂进来
   const zoom = el('div', { class: 'tb-group' },
     el('button', { class: 'tb-btn', title: '缩小视图（⌘/Ctrl + -）', onclick: onZoomOut }, icon('zoom-out', 16)),

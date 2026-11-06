@@ -33,10 +33,13 @@ export const formatSchema = [
     ],
   },
   { key: 'quality', label: 'JPG 质量', type: 'range', min: 0.5, max: 1, step: 0.01, default: 0.92, show: v => v.format === 'jpg' },
+  { key: 'transparent', label: '透明背景', type: 'toggle', default: false, show: v => v.format === 'png' },
 ];
-// 透明与否由背景类型决定（样式 → 背景 → 透明）
+// 透明：画板背景类型为透明，或导出时打开「透明背景」（只对 PNG）。
+// 复制到剪贴板有自己独立的开关（copyTransparent，在复制按钮左边）。
+export const copySchema = [{ key: 'copyTransparent', label: '复制透明背景', type: 'toggle', default: false }];
 
-export const exportSchema = [...sizeSchema, ...formatSchema];
+export const exportSchema = [...sizeSchema, ...formatSchema, ...copySchema];
 
 export const resolveLongSide = o =>
   o.size === 'custom' ? clamp(Math.round(Number(o.customSize) || 0), 256, 12000) : Number(o.size) || 3840;

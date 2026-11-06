@@ -4,6 +4,9 @@ import {
   pathOf, syncPathBox, insertAnchor, nearestOnPath, bounds, rotatePoint, fontOf, FONTS,
 } from '../layers/model.js';
 import { snapRect, moveRect, intersects } from '../workspace/snap.js';
+import { createPathTools } from './pathTools.js';
+import { booleanLayers, canBoolean } from '../layers/boolean.js';
+import { toast } from '../ui/toast.js';
 import { iconCursor } from '../ui/icons.js';
 import { ui, setUi } from './uiState.js';
 
@@ -26,9 +29,7 @@ export const LAYER_TOOLS = ['rect', 'ellipse', 'text', 'pen', 'direct'];
 const ACCENT = '#7c8cff';
 
 export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, snapEnabled, getCardSelection, setCardSelection, cardPatches, onSelectionChange }) {
-  let pen = null;        // 正在绘制的路径：{ id, cursor }
   let editing = null;    // 正在编辑的文字：{ id, box }
-  let anchorSel = [];    // 直接选择工具下选中的锚点序号
   let lastPointer = null;
 
   /* ---------------- 基础 ---------------- */
@@ -46,7 +47,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   function select(ids) {
     const next = [...new Set(ids)];
     if (next.join() === ui.layerSel.join()) return;
-    anchorSel = [];
+    paths?.resetAnchors();
     setUi('layerSel', next);
     onSelectionChange?.();
   }
@@ -63,6 +64,21 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     for (let i = list.length - 1; i >= 0; i--) {
       const l = list[i];
       if (!l.locked && hitLayer(l, p, t)) return l;
+    }
+    return null;
+  }
+
+  // 屏幕坐标下最上层的图层：先找当前画板，再找其他画板 → { board, layer }
+  function layerAtScreen(lx, ly) {
+    const s = S();
+    const order = [s.activeBoard, ...s.artboards.map(b => b.id).filter(id => id !== s.activeBoard)];
+    const boards = boardsOf(s);
+    for (const id of order) {
+      const bi = ws.boardInfo(id);
+      if (!bi) continue;
+      const list = id === s.activeBoard ? layersOf() : boards.find(b => b.id === id)?.settings.layers || [];
+      const hit = list.length ? layerAt(toBoard([lx, ly], bi), list, PICK_TOL / bi.zoom) : null;
+      if (hit) return { board: id, layer: hit };
     }
     return null;
   }
@@ -156,7 +172,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   function transformHandler(h, e) {
     const { f, list } = h.fs;
     const all = layersOf();
-    const keep = list.length === 1 && list[0].type === 'text'; // 文字只能等比缩放
+    const keep = list.length === 1 && (list[0].type === 'text' || list[0].type === 'image'); // 文字、图片等比缩放
     const i = info();
     if (h.kind === 'rotate') {
       const c = toScreen({ x: f.cx, y: f.cy }, i);
@@ -304,154 +320,17 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     ws.scheduleRender();
   }
 
-  /* ---------------- 钢笔 ---------------- */
+  /* ---------------- 钢笔 / 直接选择（app/pathTools.js） ---------------- */
 
-  function finishPen() {
-    if (!pen) return;
-    const l = byId(pen.id);
-    pen = null;
-    if (l && l.anchors.length < 2) { setLayers(layersOf().filter(x => x.id !== l.id)); clear(); }
-    else if (l) select([l.id]);
-    ws.scheduleRender();
-  }
-
-  function penHandler(e) {
-    const i = info();
-    const p = toBoard(local(e), i);
-    let list = layersOf();
-    let l = pen && byId(pen.id);
-    if (l && l.anchors.length >= 2) {
-      // 点第一个锚点：闭合路径
-      const [fx, fy] = toScreen(l.anchors[0], i);
-      const [lx, ly] = local(e);
-      if (Math.hypot(lx - fx, ly - fy) <= 8) {
-        setLayers(list.map(x => (x.id === l.id ? syncPathBox({ ...x, closed: true, fillType: x.fillType === 'none' ? 'solid' : x.fillType, fillAlpha: x.fillType === 'none' ? 0.35 : x.fillAlpha }) : x)));
-        finishPen();
-        return true;
-      }
-    }
-    if (!l) {
-      l = createLayer('path', { anchors: [] }, list);
-      pen = { id: l.id, cursor: null };
-      list = [...list, l];
-    }
-    const id = l.id;
-    const index = l.anchors.length;
-    const anchor = { x: p.x, y: p.y, hi: null, ho: null };
-    setLayers(list.map(x => (x.id === id ? syncPathBox({ ...x, anchors: [...x.anchors, anchor] }) : x)));
-    select([id]);
-    // 按住拖动：拉出对称的控制柄（平滑锚点）
-    return {
-      move(ev) {
-        const q = toBoard(local(ev), i);
-        const ho = { x: q.x, y: q.y }, hi = { x: 2 * p.x - q.x, y: 2 * p.y - q.y };
-        setLayers(layersOf().map(x => (x.id === id
-          ? syncPathBox({ ...x, anchors: x.anchors.map((a, k) => (k === index ? { ...a, hi, ho } : a)) }) : x)));
-      },
-    };
-  }
-
-  /* ---------------- 直接选择：编辑锚点 ---------------- */
-
+  // 正在编辑锚点的路径：只选中了一个未锁定的路径
   const editPath = () => {
     const l = selected();
     return l.length === 1 && l[0].type === 'path' && !l[0].locked ? l[0] : null;
   };
-
-  // 屏幕点 → 锚点或控制柄：{ index, part: 'anchor' | 'hi' | 'ho' }
-  function anchorPartAt(l, lx, ly) {
-    const i = info();
-    for (let k = l.anchors.length - 1; k >= 0; k--) {
-      const a = l.anchors[k];
-      for (const part of ['hi', 'ho']) {
-        if (!a[part]) continue;
-        const [hx, hy] = toScreen(a[part], i);
-        if (Math.hypot(lx - hx, ly - hy) <= 6) return { index: k, part };
-      }
-    }
-    for (let k = l.anchors.length - 1; k >= 0; k--) {
-      const [ax, ay] = toScreen(l.anchors[k], i);
-      if (Math.hypot(lx - ax, ly - ay) <= 7) return { index: k, part: 'anchor' };
-    }
-    return null;
-  }
-
-  function directHandler(e) {
-    const [lx, ly] = local(e);
-    const p = toBoard([lx, ly]);
-    const path = editPath();
-    if (path) {
-      const hit = anchorPartAt(path, lx, ly);
-      if (hit) {
-        const id = path.id;
-        if (hit.part === 'anchor') {
-          if (e.altKey) {
-            // ⌥ 单击锚点：直角 ↔ 平滑
-            const a = path.anchors[hit.index];
-            const n = path.anchors.length;
-            const prev = path.anchors[(hit.index - 1 + n) % n], next = path.anchors[(hit.index + 1) % n];
-            let patch;
-            if (a.hi || a.ho) patch = { hi: null, ho: null };
-            else {
-              const dx = (next.x - prev.x) / 6, dy = (next.y - prev.y) / 6;
-              patch = { hi: { x: a.x - dx, y: a.y - dy }, ho: { x: a.x + dx, y: a.y + dy } };
-            }
-            setLayers(layersOf().map(x => (x.id === id ? syncPathBox({ ...x, anchors: x.anchors.map((v, k) => (k === hit.index ? { ...v, ...patch } : v)) }) : x)));
-            anchorSel = [hit.index];
-            return true;
-          }
-          if (e.shiftKey) {
-            anchorSel = anchorSel.includes(hit.index) ? anchorSel.filter(k => k !== hit.index) : [...anchorSel, hit.index];
-            ws.scheduleRender();
-            return true;
-          }
-          if (!anchorSel.includes(hit.index)) anchorSel = [hit.index];
-          // 拖动选中的锚点（控制柄跟着走）
-          const start = path.anchors;
-          const z = info().zoom;
-          return {
-            move(ev, dx, dy) {
-              const mx = dx / z, my = dy / z;
-              const mv = q => (q ? { x: q.x + mx, y: q.y + my } : q);
-              setLayers(layersOf().map(x => (x.id === id
-                ? syncPathBox({ ...x, anchors: start.map((a, k) => (anchorSel.includes(k) ? { x: a.x + mx, y: a.y + my, hi: mv(a.hi), ho: mv(a.ho) } : a)) }) : x)));
-            },
-          };
-        }
-        // 拖动控制柄：另一侧对称（⌥ 打断，只动这一侧）
-        anchorSel = [hit.index];
-        const other = hit.part === 'hi' ? 'ho' : 'hi';
-        return {
-          move(ev) {
-            const q = toBoard(local(ev));
-            setLayers(layersOf().map(x => {
-              if (x.id !== id) return x;
-              const anchors = x.anchors.map((a, k) => {
-                if (k !== hit.index) return a;
-                const out = { ...a, [hit.part]: { x: q.x, y: q.y } };
-                if (!ev.altKey && a[other]) {
-                  const len = Math.hypot(a[other].x - a.x, a[other].y - a.y);
-                  const d = Math.hypot(q.x - a.x, q.y - a.y) || 1;
-                  out[other] = { x: a.x - ((q.x - a.x) / d) * len, y: a.y - ((q.y - a.y) / d) * len };
-                }
-                return out;
-              });
-              return syncPathBox({ ...x, anchors });
-            }));
-          },
-        };
-      }
-    }
-    // 点到某个图层：选中它（路径进入锚点编辑），拖动 = 移动
-    const l = layerAt(p);
-    if (l) {
-      if (!ui.layerSel.includes(l.id)) { select([l.id]); setCardSelection([]); }
-      anchorSel = [];
-      return moveHandler(e);
-    }
-    clear();
-    return true;
-  }
+  const paths = createPathTools({
+    layersOf, byId, select, setLayers, info, local, toBoard, toScreen, editPath, setTool, moveHandler, layerAt,
+    setCardSelection, clear, scheduleRender: ws.scheduleRender, isSelected: id => ui.layerSel.includes(id),
+  });
 
   /* ---------------- 指针入口（由 viewportInteraction 调用） ---------------- */
 
@@ -465,8 +344,8 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     const s = S();
     // 绘制类工具：点在别的画板上先切换过去
     if (['rect', 'ellipse', 'text', 'pen'].includes(tool)) {
-      if (!board) return true;
-      if (board !== s.activeBoard) { finishPen(); actions.setActiveBoard(board); }
+      // 点在别的画板上先切换过去；画板外也可以画（图层可以超出画板，属于当前画板）
+      if (board && board !== s.activeBoard) { paths.finishPen(); actions.setActiveBoard(board); }
       if (tool === 'text') {
         const p = toBoard(local(e));
         const list = layersOf();
@@ -477,33 +356,25 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
         startEdit(placed.id);
         return true;
       }
-      if (tool === 'pen') return penHandler(e);
+      if (tool === 'pen') return paths.penDown(e);
       setCardSelection([]);
       return shapeHandler(tool, e);
     }
     if (tool === 'direct') {
-      if (!board) { clear(); return true; }
-      if (board !== s.activeBoard) actions.setActiveBoard(board);
-      return directHandler(e);
+      if (board && board !== s.activeBoard) actions.setActiveBoard(board);
+      return paths.directDown(e);
     }
     if (tool !== 'select') return null;
 
-    // 选择工具：先看选框手柄，再看图层
+    // 选择工具：先看选框手柄，再看图层（图层可以超出画板，所以画板外也要找）
     const [lx, ly] = local(e);
-    const h = board === s.activeBoard || !board ? handleAt(lx, ly) : null;
+    const h = handleAt(lx, ly);
     if (h) return transformHandler(h, e);
-    if (!board) return null;
-    // 点在其他画板的图层上：切换过去并选中
-    let list = layersOf(), i = info();
-    if (board !== s.activeBoard) {
-      const other = boardsOf(s).find(b => b.id === board);
-      const bi = ws.boardInfo(board);
-      const hit = other && bi ? layerAt(toBoard([lx, ly], bi), other.settings.layers || [], PICK_TOL / bi.zoom) : null;
-      if (!hit) return null;
-      actions.setActiveBoard(board);
-      list = layersOf(); i = info();
-    }
-    const hit = layerAt(toBoard([lx, ly], i), list);
+    const found = layerAtScreen(lx, ly);
+    if (!found) return null;
+    if (found.board !== s.activeBoard) actions.setActiveBoard(found.board); // 其他画板的图层：切换过去
+    const hit = byId(found.layer.id);
+    if (!hit) return null;
     const additive = e.shiftKey || e.metaKey || e.ctrlKey;
     if (!hit) return null;
     if (additive) {
@@ -519,17 +390,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     if (!i) return false;
     const [lx, ly] = local(e);
     const p = toBoard([lx, ly], i);
-    const path = editPath();
-    if (tool === 'direct' && path) {
-      // 双击路径：在最近的位置插入锚点
-      const near = nearestOnPath(path, p);
-      if (near && near.d * i.zoom <= 8) {
-        const { layer, index } = insertAnchor(path, near.seg, near.t);
-        setLayers(layersOf().map(x => (x.id === path.id ? layer : x)));
-        anchorSel = [index];
-        return true;
-      }
-    }
+    if (tool === 'direct' && paths.dblclick(e)) return true; // 双击路径：插入锚点
     if (tool !== 'select' && tool !== 'direct') return false;
     const hit = layerAt(p);
     if (!hit) return false;
@@ -543,23 +404,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   function keydown(e) {
     const tool = getTool();
     const mod = e.metaKey || e.ctrlKey;
-    if (pen && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPen(); return true; }
-    if (pen && e.key === 'Backspace') {
-      e.preventDefault();
-      const l = byId(pen.id);
-      if (l) setLayers(layersOf().map(x => (x.id === l.id ? syncPathBox({ ...x, anchors: x.anchors.slice(0, -1) }) : x)));
-      return true;
-    }
-    if (tool === 'direct' && anchorSel.length && (e.key === 'Delete' || e.key === 'Backspace')) {
-      e.preventDefault();
-      const l = editPath();
-      if (!l) return false;
-      const anchors = l.anchors.filter((_, k) => !anchorSel.includes(k));
-      anchorSel = [];
-      setLayers(anchors.length < 2 ? layersOf().filter(x => x.id !== l.id) : layersOf().map(x => (x.id === l.id ? syncPathBox({ ...x, anchors, closed: x.closed && anchors.length > 2 }) : x)));
-      if (anchors.length < 2) clear();
-      return true;
-    }
+    if (paths.keydown(e, tool)) return true; // 钢笔 Enter / Esc / Backspace，直接选择删除 / 微调锚点
     if (!ui.layerSel.length || tool === 'artboard') return false;
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
@@ -580,6 +425,22 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     }
     return false;
   }
+
+  // 布尔运算：合并 / 减去顶层 / 相交 / 排除重叠。结果替换参与运算的形状，放在其中最上面那个的位置
+  function booleanOp(op) {
+    const list = layersOf();
+    const used = list.filter(l => ui.layerSel.includes(l.id) && canBoolean(l) && !l.locked); // 从下到上
+    if (used.length < 2) { toast('请至少选中两个形状（矩形、椭圆或路径）', { error: true }); return; }
+    const result = booleanLayers(op, used, list);
+    if (!result) { toast(op === 'intersect' ? '这些形状没有重叠的部分' : '运算结果为空', { error: true }); return; }
+    const ids = new Set(used.map(l => l.id));
+    const top = list.findIndex(l => l.id === used[used.length - 1].id);
+    const next = [];
+    list.forEach((l, k) => { if (k === top) next.push(result); if (!ids.has(l.id)) next.push(l); });
+    setLayers(next);
+    select([result.id]);
+  }
+  const booleanCount = () => selected().filter(l => canBoolean(l) && !l.locked).length;
 
   // ⌘D：复制选中的图层（略微错开），并选中副本
   function duplicate() {
@@ -611,30 +472,23 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
 
   function hover(e, tool, board) {
     lastPointer = e;
-    if (pen) { pen.cursor = toBoard(local(e)); ws.scheduleRender(); }
     if (['rect', 'ellipse'].includes(tool)) return 'crosshair';
     if (tool === 'text') return 'text';
-    if (tool === 'pen') {
-      const l = pen && byId(pen.id);
-      if (l && l.anchors.length >= 2) {
-        const [fx, fy] = toScreen(l.anchors[0]);
-        const [lx, ly] = local(e);
-        if (Math.hypot(lx - fx, ly - fy) <= 8) return 'pointer'; // 闭合
-      }
-      return 'crosshair';
-    }
+    if (tool === 'pen') return paths.hover(e, tool);
     if (tool !== 'select' && tool !== 'direct') { if (ui.layerHover) setUi('layerHover', null); return null; }
     const [lx, ly] = local(e);
-    if (tool === 'select' && board === S().activeBoard) {
+    if (tool === 'select') {
       const h = handleAt(lx, ly);
       if (h) { setUi('layerHover', null); return h.kind === 'rotate' ? ROTATE_CURSOR : resizeCursor(h.key, h.fs.f.rotation); }
     }
     if (tool === 'direct') {
-      const path = editPath();
-      if (path && anchorPartAt(path, lx, ly)) return 'default';
+      const c = paths.hover(e, tool);
+      if (c) return c;
     }
-    const hit = board === S().activeBoard && info() ? layerAt(toBoard([lx, ly])) : null;
+    const found = layerAtScreen(lx, ly);
+    const hit = found && found.board === S().activeBoard ? found.layer : null;
     setUi('layerHover', hit ? hit.id : null);
+    if (found && !hit) return 'pointer'; // 其他画板的图层：点击切换过去
     return hit ? (tool === 'direct' ? 'default' : 'move') : null;
   }
 
@@ -677,26 +531,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     // 选中
     const sel = selected();
     sel.forEach(outline);
-    const path = tool === 'direct' ? editPath() : null;
-    if (path) {
-      // 锚点和控制柄
-      path.anchors.forEach((a, k) => {
-        const [ax, ay] = P(a);
-        for (const part of ['hi', 'ho']) {
-          if (!a[part]) continue;
-          const [hx, hy] = P(a[part]);
-          g.strokeStyle = ACCENT;
-          g.beginPath(); g.moveTo(ax, ay); g.lineTo(hx, hy); g.stroke();
-          g.beginPath(); g.arc(hx, hy, 3.5 * d, 0, Math.PI * 2);
-          g.fillStyle = '#fff'; g.fill(); g.stroke();
-        }
-        const s = 4 * d;
-        g.fillStyle = anchorSel.includes(k) ? ACCENT : '#fff';
-        g.strokeStyle = ACCENT;
-        g.fillRect(ax - s, ay - s, 2 * s, 2 * s);
-        g.strokeRect(ax - s, ay - s, 2 * s, 2 * s);
-      });
-    } else if (tool === 'select' && sel.length && !editing) {
+    if (tool === 'select' && sel.length && !editing) {
       const fs = frameScreen();
       if (fs) {
         if (sel.length > 1 || fs.list[0].type === 'path') {
@@ -712,31 +547,15 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
         }
       }
     }
-    // 钢笔：从最后一个锚点到鼠标的预览线
-    const pl = pen && byId(pen.id);
-    if (pl && tool === 'pen') {
-      pl.anchors.forEach((a, k) => {
-        const [ax, ay] = P(a), s = (k === 0 ? 4.5 : 3.5) * d;
-        g.fillStyle = k === 0 ? ACCENT : '#fff'; g.strokeStyle = ACCENT;
-        g.fillRect(ax - s, ay - s, 2 * s, 2 * s); g.strokeRect(ax - s, ay - s, 2 * s, 2 * s);
-      });
-      const last = pl.anchors[pl.anchors.length - 1];
-      if (last && pen.cursor) {
-        const [ax, ay] = P(last), [cx, cy] = P(pen.cursor);
-        g.setLineDash([4 * d, 4 * d]);
-        g.strokeStyle = ACCENT;
-        g.beginPath(); g.moveTo(ax, ay);
-        if (last.ho) { const [hx, hy] = P(last.ho); g.quadraticCurveTo(hx, hy, cx, cy); } else g.lineTo(cx, cy);
-        g.stroke();
-      }
-    }
+    // 锚点、控制柄、钢笔预览
+    paths.drawOverlay(g, d, P, tool);
     g.restore();
   }
 
   // 切换工具：结束钢笔绘制；离开直接选择时清掉锚点选择
   function onToolChange(tool) {
-    if (tool !== 'pen') finishPen();
-    if (tool !== 'direct') anchorSel = [];
+    if (tool !== 'pen') paths.finishPen();
+    if (tool !== 'direct') paths.resetAnchors();
     if (!['select', 'direct', ...LAYER_TOOLS].includes(tool) && tool !== 'crop') clear();
     ws.scheduleRender();
   }
@@ -745,12 +564,12 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   function prune() {
     const ids = new Set(layersOf().map(l => l.id));
     if (ui.layerSel.some(id => !ids.has(id))) select(ui.layerSel.filter(id => ids.has(id)));
-    if (pen && !ids.has(pen.id)) pen = null;
+    paths.prune(ids);
     if (editing && !ids.has(editing.id)) finishEdit();
   }
 
   return {
-    pointerDown, dblclick, keydown, hover, inRect, beginMove, selectionRect, rects, drawOverlay,
+    pointerDown, dblclick, keydown, hover, inRect, beginMove, selectionRect, rects, drawOverlay, booleanOp, booleanCount,
     // 选中图层在屏幕上的范围（对齐用）：[{ id, rect }]
     selectedRects: () => (info() ? selected().filter(l => !l.locked).map(l => ({ id: l.id, rect: screenRect(l) })) : []),
     // 按屏幕位移移动若干图层，返回新的图层列表（不写入 store）
@@ -760,13 +579,16 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       return layersOf().map(l => (m.has(l.id) ? moveLayer(l, m.get(l.id).dx / z, m.get(l.id).dy / z) : l));
     },
     // 屏幕坐标下当前画板最上层的图层（右键菜单用）
-    layerAtClient: (x, y) => (info() ? layerAt(toBoard(local({ clientX: x, clientY: y }))) : null),
+    layerAtClient: (x, y) => {
+      const found = layerAtScreen(...local({ clientX: x, clientY: y }));
+      return found && found.board === S().activeBoard ? found.layer : null;
+    },
     remove: ids => { setLayers(layersOf().filter(l => !ids.includes(l.id))); select(ui.layerSel.filter(id => !ids.includes(id))); },
     select, clear, prune, onToolChange, syncEditor, startEdit, duplicate, reorder,
     // 全选当前画板的图层，返回选中的数量
     selectAll: () => { const ids = layersOf().filter(l => !l.hidden && !l.locked).map(l => l.id); select(ids); return ids.length; },
     editingId: () => editing?.id || null,
-    isBusy: () => !!pen || !!editing,
+    isBusy: () => paths.isDrawing() || !!editing,
   };
 }
 

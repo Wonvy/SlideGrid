@@ -11,7 +11,7 @@ import { applyLayerProp, typeName } from '../layers/model.js';
  *     点击选中、显示 / 隐藏、锁定、上移 / 下移、双击改名、删除
  * 返回 hasSelection()：设计页是否在显示选中对象（否则显示画板设置）
  */
-const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool' };
+const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool', image: 'image' };
 const ADD_TOOLS = [
   { tool: 'text', icon: 'type', label: '文字', key: 'T' },
   { tool: 'rect', icon: 'square', label: '矩形', key: 'M' },

@@ -17,7 +17,7 @@ export function createExporting({ copyBtn, exportBtn }) {
 
   const exportOptions = (s, overrides = {}) => {
     const o = s.exportOpts;
-    return { longSide: resolveLongSide(o), format: o.format, quality: o.quality, ...overrides };
+    return { longSide: resolveLongSide(o), format: o.format, quality: o.quality, transparent: o.format === 'png' && !!o.transparent, ...overrides };
   };
 
   function exportInfo(s) {
@@ -56,7 +56,8 @@ export function createExporting({ copyBtn, exportBtn }) {
     let w = maxW, h = w / a;
     if (h > maxH) { h = maxH; w = h * a; }
     const longSide = Math.round(Math.max(w, h) * dpr());
-    const { canvas: src } = await renderToCanvas(sceneInput(s), { longSide, preview: true, fill: whiteFill ? '#ffffff' : null });
+    const transparent = s.exportOpts.format === 'png' && !!s.exportOpts.transparent;
+    const { canvas: src } = await renderToCanvas(sceneInput(s), { longSide, preview: true, transparent, fill: whiteFill ? '#ffffff' : null });
     if (token !== previewToken) return; // 已有更新的请求
     canvas.width = src.width;
     canvas.height = src.height;
@@ -146,10 +147,11 @@ export function createExporting({ copyBtn, exportBtn }) {
     if (busy) return;
     const s = store.get();
     let size = null;
-    const opts = exportOptions(s, { format: 'png', onProgress: progress('正在生成') });
+    // 复制有自己独立的透明开关（与导出设置无关）
+    const opts = exportOptions(s, { format: 'png', transparent: !!s.exportOpts.copyTransparent, onProgress: progress('正在生成') });
     const blobPromise = renderToBlob(sceneInput(s), opts).then(r => { size = r; return r.blob; });
     withBusy(() => copyPngToClipboard(blobPromise))
-      .then(() => toast(`已复制 ${size.width} × ${size.height} 到剪贴板`))
+      .then(() => toast(`已复制 ${size.width} × ${size.height}${opts.transparent ? '（透明背景）' : ''} 到剪贴板`))
       .catch(err => {
         console.error(err);
         toast(`复制失败：${err.message}`, { error: true, duration: 5000 });

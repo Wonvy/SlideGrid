@@ -184,17 +184,16 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       renderer.render(info.scene, tile, active ? buildOverlays(info.scene) : [], {
         viewport: [vx0, CH - vy1, vx1 - vx0, vy1 - vy0], clear: false,
       });
-
-      // 图层：裁切在画板范围内（与导出一致）
-      if (b.settings.layers?.length) {
-        fgCtx.save();
-        fgCtx.beginPath();
-        fgCtx.rect(px.x, px.y, px.w, px.h);
-        fgCtx.clip();
-        fgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, px.x, px.y);
-        drawLayers(fgCtx, b.settings.layers, { skip });
-        fgCtx.restore();
-      }
+    }
+    // 图层：单独一遍画在最上面，不按画板裁切（画板外的部分也能看到、点选，类似 Illustrator；导出时才裁切）。
+    // 画板本身不在视野里时，伸进视野的图层也照样画
+    for (const b of boardsOf(s)) {
+      if (!b.settings.layers?.length) continue;
+      const [sx, sy] = toScreen(b.x, b.y);
+      fgCtx.save();
+      fgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, sx * d, sy * d);
+      drawLayers(fgCtx, b.settings.layers, { skip, assets: s.assets });
+      fgCtx.restore();
     }
     // 当前画板的选框、手柄、锚点（不裁切，可以超出画板）
     if (boardInfo.get(s.activeBoard)) {

@@ -3,22 +3,20 @@
  * 多选时只显示所有选中图层都有的属性，修改作用于全部选中的图层。
  */
 const SHAPES = ['rect', 'ellipse', 'path'];
+const ALL = ['rect', 'ellipse', 'text', 'path', 'image'];
 const fillOn = v => v.fillType !== 'none';
 
 export const layerSchema = [
-  { group: '位置', types: ['rect', 'ellipse', 'text', 'path'] },
-  { key: 'x', label: 'X', type: 'number', step: 1, types: ['rect', 'ellipse', 'text', 'path'] },
-  { key: 'y', label: 'Y', type: 'number', step: 1, types: ['rect', 'ellipse', 'text', 'path'] },
-  { key: 'w', label: '宽', type: 'number', step: 1, min: 1, types: SHAPES },
-  { key: 'h', label: '高', type: 'number', step: 1, min: 1, types: SHAPES },
-  { key: 'rotation', label: '旋转', type: 'number', step: 1, unit: '°', types: ['rect', 'ellipse', 'text'] },
+  { group: '位置', types: ALL },
+  { key: 'x', label: 'X', type: 'number', step: 1, types: ALL },
+  { key: 'y', label: 'Y', type: 'number', step: 1, types: ALL },
+  { key: 'w', label: '宽', type: 'number', step: 1, min: 1, types: [...SHAPES, 'image'] },
+  { key: 'h', label: '高', type: 'number', step: 1, min: 1, types: [...SHAPES, 'image'] },
+  { key: 'rotation', label: '旋转', type: 'number', step: 1, unit: '°', types: ['rect', 'ellipse', 'text', 'image'] },
 
   { group: '文字', types: ['text'] },
   { key: 'text', label: '内容', type: 'textarea', types: ['text'] },
-  {
-    key: 'fontFamily', label: '字体', type: 'select', types: ['text'],
-    options: [{ value: 'sans', label: '黑体（无衬线）' }, { value: 'serif', label: '宋体（衬线）' }, { value: 'mono', label: '等宽' }],
-  },
+  { key: 'fontFamily', label: '字体', type: 'font', types: ['text'] },
   { key: 'fontSize', label: '字号', type: 'range', min: 8, max: 400, types: ['text'] },
   {
     key: 'fontWeight', label: '字重', type: 'select', types: ['text'],
@@ -47,9 +45,9 @@ export const layerSchema = [
   { key: 'strokeWidth', label: '粗细', type: 'range', min: 0, max: 60, step: 0.5, types: SHAPES },
   { key: 'stroke', label: '颜色', type: 'color', types: SHAPES, show: v => v.strokeWidth > 0 },
 
-  { group: '外观', types: ['rect', 'ellipse', 'text', 'path'] },
-  { key: 'radius', label: '圆角', type: 'range', min: 0, max: 400, types: ['rect'] },
-  { key: 'opacity', label: '不透明度', type: 'range', min: 0, max: 1, step: 0.01, types: ['rect', 'ellipse', 'text', 'path'] },
+  { group: '外观', types: ALL },
+  { key: 'radius', label: '圆角', type: 'range', min: 0, max: 400, types: ['rect', 'image'] },
+  { key: 'opacity', label: '不透明度', type: 'range', min: 0, max: 1, step: 0.01, types: ALL },
 ];
 
 // 选中图层类型都适用的控件（分组标题下没有控件时去掉标题）

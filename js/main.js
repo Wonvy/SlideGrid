@@ -1,5 +1,6 @@
-import { store, actions, selectionOf, libraryOf, BOARD_KEYS } from './state.js';
-import { sizeSchema } from './export/schema.js';
+import { store, actions, selectionOf, libraryOf, boardsOf, BOARD_KEYS } from './state.js';
+import { createSizePicker } from './ui/sizePicker.js';
+import { canvasOf } from './app/boards.js';
 import { createProjectController } from './project/controller.js';
 import { createHistory } from './project/history.js';
 import { view } from './workspace/view.js';
@@ -7,7 +8,6 @@ import { createSlidesPanel } from './ui/slidesPanel.js';
 import { createSettingsPanel } from './ui/settingsPanel.js';
 import { createTopbarMenus } from './ui/topbarMenus.js';
 import { createProjectDialog } from './ui/projectDialog.js';
-import { buildControls } from './ui/controls.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -30,6 +30,7 @@ import { createContextMenus } from './app/contextMenus.js';
 import { createLayerTools } from './app/layerTools.js';
 import { createInspector } from './ui/inspector.js';
 import { createContextBar } from './ui/contextBar.js';
+import { setUsedFonts } from './ui/fontPicker.js';
 import { applyLayerProp, typeName } from './layers/model.js';
 
 /**
@@ -138,6 +139,8 @@ const importing = createImporting({
   dropLabel: $('drop-label'),
   onProjectFile: importProject,
   onLayoutFile: file => { settings.showTab('mine'); presetsPanel.importFile(file); },
+  // 粘贴的图片 / SVG 成为图层后：选中它们，切回选择工具
+  onLayersAdded: ids => { setTool('select'); clearSelection(); layerTools.select(ids); },
 });
 document.querySelectorAll('[data-action="pick-files"]').forEach(b => b.addEventListener('click', importing.pickFiles));
 document.querySelectorAll('[data-action="pick-folder"]').forEach(b => b.addEventListener('click', importing.pickFolder));
@@ -188,7 +191,20 @@ const topbarMenus = createTopbarMenus($('board-bar'), {
   onDeleteSelected: () => boards.deleteBoards(),
   onFitAll: ws.fitAll,
 });
-const updateSizePicker = buildControls($('size-picker'), sizeSchema, store.get().exportOpts, actions.setExport);
+// 顶栏：导出尺寸 + 复制时的透明背景开关（与导出的透明设置相互独立）
+const sizePicker = createSizePicker($('size-picker'), { store, actions, canvasOf });
+const copyTransparentBtn = Object.assign(document.createElement('button'), { className: 'eg-toggle', type: 'button' });
+copyTransparentBtn.append(Object.assign(document.createElement('span'), { className: 'checker-swatch' }));
+copyTransparentBtn.addEventListener('click', () => actions.setExport('copyTransparent', !store.get().exportOpts.copyTransparent));
+$('copy-btn').before(copyTransparentBtn);
+function refreshCopyTransparent(o) {
+  copyTransparentBtn.classList.toggle('on', !!o.copyTransparent);
+  copyTransparentBtn.setAttribute('aria-pressed', String(!!o.copyTransparent));
+  copyTransparentBtn.title = o.copyTransparent
+    ? '复制透明背景：开（复制的 PNG 去掉画板背景）· 与导出设置无关'
+    : '复制透明背景：关（复制带背景）· 点击打开';
+}
+refreshCopyTransparent(store.get().exportOpts);
 
 /* ---------------- 工具 ---------------- */
 
@@ -280,6 +296,8 @@ const contextBar = createContextBar(toolbar.ctxSlot, {
   resetCrop: order => actions.resetCrop(order),
   reorder: dir => layerTools.reorder(dir),
   removeLayers: () => layerTools.remove([...ui.layerSel]),
+  booleanOp: op => layerTools.booleanOp(op),
+  booleanCount: () => layerTools.booleanCount(),
 });
 
 // 设计页：有选中对象时显示它们的属性，否则显示画板设置；顶部工具条同样跟随选择
@@ -395,8 +413,8 @@ const TOOL_HINTS = {
   text: '文字：单击添加文字 · 输入完按 Esc 或点别处结束 · 双击文字可再次编辑',
   rect: '矩形：拖动绘制 · Shift 正方形 · ⌥ 从中心',
   ellipse: '椭圆：拖动绘制 · Shift 正圆 · ⌥ 从中心',
-  pen: '钢笔：单击加锚点 · 按住拖动拉出曲线 · 点第一个锚点闭合 · Enter / Esc 结束 · Backspace 撤回锚点',
-  direct: '直接选择：拖动锚点 / 控制柄 · ⌥ 拖控制柄打断对称 · ⌥ 单击锚点切换直角 / 平滑 · 双击路径加锚点 · Delete 删除锚点',
+  pen: '钢笔：单击直角 · 拖动曲线 · Shift 45° · 拖动时 ⌥ 转角、空格移动锚点 · 点末点去掉控制柄 · 点首点闭合 · ⌘ 临时直接选择 · Enter 结束',
+  direct: '直接选择：点锚点显示控制柄 · 拖锚点 / 控制柄（⌥ 打断，Shift 45°）· ⌥ 单击切换直角 / 平滑 · 双击加锚点 · Delete 删除 · 方向键微调',
   orbit: '构图：拖动调整画板内构图（3D 旋转 / Shift 平移）· 滚轮缩放构图',
   hand: '抓手：拖动平移视图',
   zoom: '放大镜：单击放大 · ⌥ 单击缩小',
@@ -458,7 +476,11 @@ store.subscribe(s => {
     ws.clearBackgrounds();
     requestAnimationFrame(() => ws.fitBoard()); // 打开项目后显示当前画板
   }
-  if (s.layers !== prev.layers || s.activeBoard !== prev.activeBoard || s.project !== prev.project) layerTools.prune();
+  if (s.layers !== prev.layers || s.activeBoard !== prev.activeBoard || s.project !== prev.project) {
+    layerTools.prune();
+    // 项目里用到的字体（本机没装时也显示在字体列表里）
+    setUsedFonts([...new Set(boardsOf(s).flatMap(b => (b.settings.layers || []).filter(l => l.type === 'text').map(l => l.fontFamily)))]);
+  }
   if (projectChanged(s, prev)) controller.markDirty();
   settings.update(s);
   syncInspector(s);
@@ -466,7 +488,8 @@ store.subscribe(s => {
   bgPicker.update(s);
   fadePicker.update(s);
   alignment.refreshSnap();
-  updateSizePicker(s.exportOpts);
+  sizePicker.update(s);
+  refreshCopyTransparent(s.exportOpts);
   exporting.popover.update(s);
   refreshTools();
   prev = s;
@@ -511,4 +534,5 @@ window.SlideGrid = {
   addBoard: boards.addBoard,
   duplicateSelected: boards.duplicateSelected,
   deleteBoards: boards.deleteBoards,
+  layers: layerTools,
 };

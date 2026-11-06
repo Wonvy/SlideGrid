@@ -123,8 +123,14 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
   // 背景图引用在每个画板的样式里（旧数据在顶层 style）
   const remap = st => (st?.bgImageId ? { ...st, bgImageId: assetIds.get(st.bgImageId) || null } : st);
   if (settings?.style) settings = { ...settings, style: remap(settings.style) };
+  const remapLayers = layers => (Array.isArray(layers)
+    ? layers.map(l => (l.type === 'image' && l.assetId ? { ...l, assetId: assetIds.get(l.assetId) || null } : l))
+    : layers);
   if (Array.isArray(settings?.artboards)) {
-    settings = { ...settings, artboards: settings.artboards.map(b => ({ ...b, settings: { ...b.settings, style: remap(b.settings?.style) } })) };
+    settings = {
+      ...settings,
+      artboards: settings.artboards.map(b => ({ ...b, settings: { ...b.settings, style: remap(b.settings?.style), layers: remapLayers(b.settings?.layers) } })),
+    };
   }
   const order = [];
   const slideIds = new Map(); // 旧 id → 新 id
