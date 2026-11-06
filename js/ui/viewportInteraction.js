@@ -2,6 +2,7 @@ import { clamp } from '../core/utils.js';
 import { zoomAround, panFactor } from '../render/scene.js';
 import { el } from './dom.js';
 import { iconCursor } from './icons.js';
+import { snapRect, moveRect, unionRects, intersects } from '../workspace/snap.js';
 
 const ROTATE_CURSOR = iconCursor('rotate-cw', 'crosshair');
 const ZOOM_IN_CURSOR = iconCursor('zoom-in', 'zoom-in');
@@ -36,8 +37,40 @@ export function attachViewportInteraction(target, opts) {
     pick, getCamera, setCamera, allBoardIds, onContextMenu, labelAt, wheelMode,
     setHover, setDragSource, setDropTarget, onSwap,
     getAdjust, nextLift, toLayoutDelta, itemCenterClient,
-    setItemAdjust, resetItemAdjust, getSelected, setSelected,
+    setItemAdjusts, resetItemAdjust,
+    // 卡片多选 / 吸附
+    getSelection, setSelection, itemRects, boardLocalRect, snapEnabled, setGuides,
   } = opts;
+
+  // 吸附目标：当前画板 + 画板内（不在 exclude 里的）卡片，屏幕坐标
+  function cardTargets(exclude) {
+    const ex = new Set(exclude);
+    const targets = itemRects().filter(x => !ex.has(x.order)).map(x => x.rect);
+    const br = boardLocalRect(activeBoard());
+    return br ? [br, ...targets.filter(r => intersects(r, br))] : targets;
+  }
+  const selectionRect = orders => {
+    const map = new Map(itemRects().map(x => [x.order, x.rect]));
+    const rs = orders.map(o => map.get(o)).filter(Boolean);
+    return rs.length ? unionRects(rs) : null;
+  };
+  // 拖动开始时记录各画板位置和吸附目标
+  function boardDragState() {
+    const ids = selectedBoards();
+    const others = allBoardIds().filter(id => !ids.includes(id)).map(boardLocalRect).filter(Boolean);
+    return {
+      starts: ids.map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y })),
+      startRect: unionRects(ids.map(boardLocalRect).filter(Boolean)),
+      targets: others,
+    };
+  }
+  // 吸附（按住 ⌘/Ctrl 临时关闭）
+  function snapDelta(rect, targets, dx, dy, e) {
+    if (!rect || !snapEnabled() || e.metaKey || e.ctrlKey) { setGuides(null); return [dx, dy]; }
+    const r = snapRect(moveRect(rect, dx, dy), targets);
+    setGuides(r.guides);
+    return [dx + r.dx, dy + r.dy];
+  }
 
   let drag = null;
   let spaceDown = false;
@@ -79,23 +112,23 @@ export function attachViewportInteraction(target, opts) {
     const TOOL_KEYS = { v: 'select', x: 'swap', r: 'rotate', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom' };
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
 
-    if (e.key === 'Escape') { setSelected(null); selectBoards([activeBoard()]); setTool('select'); return; }
+    if (e.key === 'Escape') { setSelection([]); selectBoards([activeBoard()]); setTool('select'); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && getTool() === 'artboard') {
       e.preventDefault();
       deleteSelectedBoards();
       return;
     }
 
-    const sel = getSelected();
+    const sel = getSelection();
     const tool = getTool();
-    if (sel == null || !cardTools.has(tool)) return;
-    const a = getAdjust(sel);
-    // + / -：以中心等比缩放选中的卡片
+    if (!sel.length || !cardTools.has(tool)) return;
+    const each = fn => setItemAdjusts(sel.map(o => ({ order: o, patch: fn({ dx: 0, dy: 0, rz: 0, ...getAdjust(o) }) })));
+    const scaled = (a, k) => ({ s: clamp((a.s > 0 ? a.s : 1) * k, 0.1, 8) });
+    // + / -：以各自中心等比缩放选中的卡片
     if (['=', '+', '-', '_'].includes(e.key)) {
       e.preventDefault();
       const step = e.shiftKey ? 0.01 : 0.05;
-      const s = clamp((a.s > 0 ? a.s : 1) * (e.key === '-' || e.key === '_' ? 1 - step : 1 + step), 0.1, 8);
-      setItemAdjust(sel, { s });
+      each(a => scaled(a, e.key === '-' || e.key === '_' ? 1 - step : 1 + step));
       return;
     }
     // 方向键：选择工具移动、旋转工具旋转、比例工具缩放
@@ -105,12 +138,11 @@ export function attachViewportInteraction(target, opts) {
     const [ax, ay] = arrows[e.key];
     if (tool === 'select') {
       const step = e.shiftKey ? 10 : 1;
-      setItemAdjust(sel, { dx: (a.dx || 0) + ax * step, dy: (a.dy || 0) + ay * step });
+      each(a => ({ dx: a.dx + ax * step, dy: a.dy + ay * step }));
     } else if (tool === 'rotate') {
-      setItemAdjust(sel, { rz: normAngle((a.rz || 0) - (ax || -ay) * (e.shiftKey ? 15 : 1)) });
+      each(a => ({ rz: normAngle(a.rz - (ax || -ay) * (e.shiftKey ? 15 : 1)) }));
     } else {
-      const k = 1 + (ax || ay) * (e.shiftKey ? 0.01 : 0.05);
-      setItemAdjust(sel, { s: clamp((a.s > 0 ? a.s : 1) * k, 0.1, 8) });
+      each(a => scaled(a, 1 + (ax || ay) * (e.shiftKey ? 0.01 : 0.05)));
     }
   });
   window.addEventListener('keyup', e => {
@@ -193,7 +225,7 @@ export function attachViewportInteraction(target, opts) {
         const keep = selectedBoards().includes(label);
         activateBoard(label, { fit: false, keepSelection: keep });
         mode = 'moveBoards';
-        extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
+        Object.assign(extra, boardDragState());
       } else if (tool === 'zoom') {
         const [sx, sy] = local(e);
         zoomViewAt(sx, sy, e.altKey ? 1 / 1.6 : 1.6);
@@ -212,10 +244,10 @@ export function attachViewportInteraction(target, opts) {
           // 点在已选画板上：保留多选并一起拖动；否则只选这一个
           activateBoard(b, { fit: false, keepSelection: selectedBoards().includes(b) });
           mode = 'moveBoards';
-          extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
+          Object.assign(extra, boardDragState());
         }
       } else {
-        if (!b) { setSelected(null); return; }
+        if (!b) { setSelection([]); return; }
         if (b !== activeBoard()) {
           if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleBoardSelection(b); return; } // 加选画板
           const keep = selectedBoards().includes(b);
@@ -223,7 +255,7 @@ export function attachViewportInteraction(target, opts) {
           // 选择工具：按在画板空白处可以直接拖走这个画板
           if (tool !== 'select' || pickBoard(b, e)) return;
           mode = 'moveBoards';
-          extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
+          Object.assign(extra, boardDragState());
         }
         const hit = mode ? null : pick(e.clientX, e.clientY);
         if (tool === 'orbit') {
@@ -234,20 +266,39 @@ export function attachViewportInteraction(target, opts) {
           // 已在上面开始拖动画板
         } else if (cardTools.has(tool)) {
           const ok = hit && toolAvailable(tool);
-          setSelected(ok ? hit.order : null);
-          if (!ok && tool === 'select') {
-            // 选择工具：拖画板上没有卡片的地方 = 移动画板（3D 版式里也可以）
-            mode = 'moveBoards';
-            extra.starts = selectedBoards().map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y }));
+          const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+          if (ok && additive) {
+            // Shift/⌘ + 单击卡片：加选 / 减选
+            const cur = getSelection();
+            setSelection(cur.includes(hit.order) ? cur.filter(o => o !== hit.order) : [...cur, hit.order]);
+            return;
           }
-          if (ok) {
+          if (!ok) {
+            if (tool === 'select' && e.shiftKey && !is3D()) {
+              // Shift + 拖动画板空白处：框选卡片
+              const [sx, sy] = local(e);
+              mode = 'cardMarquee';
+              Object.assign(extra, { sx, sy, base: getSelection() });
+            } else {
+              setSelection([]);
+              if (tool === 'select') {
+                // 选择工具：拖画板上没有卡片的地方 = 移动画板（3D 版式里也可以）
+                mode = 'moveBoards';
+                Object.assign(extra, boardDragState());
+              }
+            }
+          } else {
+            // 按在已选的卡片上：一起操作；否则只选这一张
+            const sel = getSelection().includes(hit.order) ? getSelection() : [hit.order];
+            setSelection(sel, hit.order);
             mode = tool === 'select' ? 'move' : tool;
-            extra.adj = { dx: 0, dy: 0, rz: 0, ...getAdjust(hit.order) };
+            extra.items = sel.map(o => ({ o, adj: { dx: 0, dy: 0, rz: 0, ...getAdjust(o) } }));
             const [cx, cy] = itemCenterClient(hit);
             Object.assign(extra, {
               cx, cy, prevA: Math.atan2(e.clientY - cy, e.clientX - cx), turned: 0,
               d0: Math.hypot(e.clientX - cx, e.clientY - cy) || 1,
             });
+            if (mode === 'move') Object.assign(extra, { startRect: selectionRect(sel), targets: cardTargets(sel) });
           }
         }
         extra.hit = hit;
@@ -281,7 +332,14 @@ export function attachViewportInteraction(target, opts) {
         break;
       case 'moveBoards': {
         const z = boardRect(activeBoard()).zoom;
-        moveBoards(drag.starts.map(st => ({ id: st.id, x: st.x + dx / z, y: st.y + dy / z })));
+        const [mx, my] = snapDelta(drag.startRect, drag.targets, dx, dy, e); // 吸附到其他画板
+        moveBoards(drag.starts.map(st => ({ id: st.id, x: st.x + mx / z, y: st.y + my / z })));
+        break;
+      }
+      case 'cardMarquee': {
+        const [cx, cy] = local(e);
+        drag.rect = { x: Math.min(drag.sx, cx), y: Math.min(drag.sy, cy), w: Math.abs(cx - drag.sx), h: Math.abs(cy - drag.sy) };
+        setMarquee(drag.rect);
         break;
       }
       case 'marquee': {
@@ -302,8 +360,10 @@ export function attachViewportInteraction(target, opts) {
       case 'move': {
         let mx = dx, my = dy;
         if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) my = 0; else mx = 0; } // Shift 锁定方向
+        [mx, my] = snapDelta(drag.startRect, drag.targets, mx, my, e); // 吸附到卡片 / 画板
         const [lx, ly] = toLayoutDelta(mx, my);
-        setItemAdjust(drag.hit.order, { dx: drag.adj.dx + lx, dy: drag.adj.dy + ly, ...(first ? { lift: nextLift() } : {}) });
+        if (first) drag.lift = nextLift();
+        setItemAdjusts(drag.items.map(({ o, adj }) => ({ order: o, patch: { dx: adj.dx + lx, dy: adj.dy + ly, lift: drag.lift } })));
         break;
       }
       case 'rotate': {
@@ -314,18 +374,23 @@ export function attachViewportInteraction(target, opts) {
         if (step < -Math.PI) step += 2 * Math.PI;
         drag.prevA = a;
         drag.turned += (step * 180) / Math.PI;
-        let rz = normAngle(drag.adj.rz - drag.turned); // 屏幕 y 向下，顺时针为负
-        if (e.shiftKey) rz = Math.round(rz / 15) * 15;
-        setItemAdjust(drag.hit.order, { rz, ...(first ? { lift: nextLift() } : {}) });
+        if (first) drag.lift = nextLift();
+        setItemAdjusts(drag.items.map(({ o, adj }) => {
+          let rz = normAngle(adj.rz - drag.turned); // 屏幕 y 向下，顺时针为负
+          if (e.shiftKey) rz = Math.round(rz / 15) * 15;
+          return { order: o, patch: { rz, lift: drag.lift } };
+        }));
         break;
       }
       case 'scale': {
         // 以卡片中心等比缩放：按指针到中心的距离变化
-        const d = Math.hypot(e.clientX - drag.cx, e.clientY - drag.cy);
-        const s0 = drag.adj.s > 0 ? drag.adj.s : 1;
-        let s = clamp(s0 * (d / drag.d0), 0.1, 8);
-        if (e.shiftKey) s = Math.round(s * 20) / 20; // Shift 按 5% 吸附
-        setItemAdjust(drag.hit.order, { s, ...(first ? { lift: nextLift() } : {}) });
+        const k = Math.hypot(e.clientX - drag.cx, e.clientY - drag.cy) / drag.d0;
+        if (first) drag.lift = nextLift();
+        setItemAdjusts(drag.items.map(({ o, adj }) => {
+          let s = clamp((adj.s > 0 ? adj.s : 1) * k, 0.1, 8);
+          if (e.shiftKey) s = Math.round(s * 20) / 20; // Shift 按 5% 吸附
+          return { order: o, patch: { s, lift: drag.lift } };
+        }));
         break;
       }
       case 'swap': {
@@ -346,6 +411,16 @@ export function attachViewportInteraction(target, opts) {
 
   const end = () => {
     if (!drag) return;
+    setGuides(null);
+    if (drag.mode === 'cardMarquee') {
+      setMarquee(null);
+      if (drag.active && drag.rect) {
+        const r = drag.rect;
+        const box = { l: r.x, t: r.y, r: r.x + r.w, b: r.y + r.h };
+        const hits = itemRects().filter(x => intersects(x.rect, box)).map(x => x.order);
+        setSelection([...new Set([...drag.base, ...hits])]);
+      }
+    }
     if (drag.mode === 'marquee') {
       setMarquee(null);
       if (!drag.active || !drag.rect) {

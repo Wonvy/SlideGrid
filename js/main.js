@@ -5,6 +5,8 @@ import { Renderer } from './render/renderer.js';
 import { buildScene, resolveCanvas } from './render/scene.js';
 import { tileMatrix } from './render/math.js';
 import { pickItem, itemCenterNdc, itemCornersNdc, ndcDeltaToLayout } from './render/picking.js';
+import { rectOfPoints, unionRects, intersects, alignOffsets, distributeOffsets } from './workspace/snap.js';
+import { icon } from './ui/icons.js';
 import { paintBackground } from './render/background.js';
 import { createPlaceholders } from './slides/placeholders.js';
 import { createSlides, createAsset } from './slides/slideFactory.js';
@@ -104,7 +106,8 @@ const ui = {
   hover: null,       // 悬停的 item（order）
   dragSource: null,  // 正在拖动的幻灯片序号
   dropTarget: null,  // 拖放目标 item（order）
-  selected: null,    // 选择 / 旋转 / 比例工具选中的 item（order）
+  selected: null,    // 主选中的卡片（order），缩放手柄跟随它
+  selection: [],     // 所有选中的卡片（order），可多选
   listHover: null,   // 左侧列表悬停的幻灯片序号
   tool: 'select',    // 当前工具，见 ui/toolbar.js
   tempHand: false,   // 按住空格临时抓手
@@ -116,6 +119,15 @@ const HL = {
   source: { color: [0.05, 0.06, 0.08], fill: 0.6, ring: 0 },
   selected: { color: [1, 1, 1], fill: 0, ring: 2 },
 };
+
+// 设置卡片选择：orders 为全部选中的卡片，primary 为主选中（默认最后一个）
+function setSelection(orders, primary = orders[orders.length - 1] ?? null) {
+  ui.selection = [...new Set(orders)];
+  ui.selected = ui.selection.includes(primary) ? primary : ui.selection[ui.selection.length - 1] ?? null;
+  refreshAlign();
+  scheduleRender();
+}
+const clearSelection = () => setSelection([]);
 
 function setUi(key, value) {
   if (ui[key] === value) return;
@@ -137,9 +149,9 @@ function buildOverlays(scene) {
   const add = (item, kind) => overlays.push({ item, ...HL[kind], ring: HL[kind].ring * viewDpr });
   if (ui.dragSource != null) for (const it of scene.items) if (it.slideIndex === ui.dragSource) add(it, 'source');
   if (ui.listHover != null) for (const it of scene.items) if (it.slideIndex === ui.listHover) add(it, 'hover');
-  if (ui.selected != null) {
-    const it = scene.items.find(x => x.order === ui.selected);
-    if (it) add(it, 'selected');
+  if (ui.selection.length) {
+    const sel = new Set(ui.selection);
+    for (const it of scene.items) if (sel.has(it.order)) add(it, 'selected');
   }
   const targetOrder = ui.dropTarget ?? ui.hover;
   if (targetOrder != null) {
@@ -417,11 +429,11 @@ const history = createHistory(store, {
 });
 function doUndo() {
   const label = history.undo();
-  if (label) { ui.selected = null; toast(`已撤销：${label}`); }
+  if (label) { clearSelection(); toast(`已撤销：${label}`); }
 }
 function doRedo() {
   const label = history.redo();
-  if (label) { ui.selected = null; toast(`已重做：${label}`); }
+  if (label) { clearSelection(); toast(`已重做：${label}`); }
 }
 undoBtn.addEventListener('click', doUndo);
 redoBtn.addEventListener('click', doRedo);
@@ -846,7 +858,7 @@ function setTool(id) {
     return;
   }
   ui.tool = id;
-  if (!['select', 'rotate', 'scale'].includes(id)) ui.selected = null;
+  if (!['select', 'rotate', 'scale'].includes(id)) { ui.selection = []; ui.selected = null; refreshAlign(); }
   refreshTools();
   scheduleRender();
 }
@@ -866,7 +878,7 @@ const toolbar = createToolbar($('app'), {
   onActualSize: actualSize,
   onResetAdjust: () => {
     actions.resetAdjust();
-    ui.selected = null;
+    clearSelection();
     toast('已重置当前画板的卡片调整');
   },
 });
@@ -907,7 +919,7 @@ function onContextMenu({ clientX, clientY, board }) {
       { title: `第 ${card.slideIndex + 1} 张 · ${real ? slide.name : '空位'}` },
       { label: real ? '替换图片…' : '放入图片…', icon: 'image-plus', action: () => pickReplacement(card.slideIndex) },
       { label: real ? '用剪贴板图片替换' : '粘贴剪贴板图片', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => pasteFromClipboard(card.slideIndex) },
-      flat && { label: '选中这张卡片', icon: 'mouse-pointer-2', action: () => { setTool('select'); setUi('selected', card.order); } },
+      flat && { label: '选中这张卡片', icon: 'mouse-pointer-2', action: () => { setTool('select'); setSelection([card.order]); } },
       flat && adjusted && { label: '复位这张卡片', icon: 'undo-2', action: () => actions.resetItemAdjust(card.order) },
       real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); slidesPanel.highlight(card.slideIndex); } },
       real && { label: '从项目中移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id) },
@@ -925,6 +937,107 @@ function onContextMenu({ clientX, clientY, board }) {
     s.artboards.length > 1 && { label: multi ? `删除所选的 ${sel.length} 个画板` : '删除画板', icon: 'trash-2', danger: true, action: () => deleteBoards(sel) },
   );
   showContextMenu(clientX, clientY, items);
+}
+
+/* ---------------- 吸附参考线 / 对齐 ---------------- */
+
+// 当前画板里每张卡片在屏幕上的范围（相对工作区，CSS 像素），按场景缓存
+const rectCache = new WeakMap();
+function itemRects() {
+  const info = activeInfo();
+  if (!info?.scene) return [];
+  const key = info.scene;
+  const cached = rectCache.get(key);
+  if (cached && cached.sx === info.sx && cached.sy === info.sy && cached.sw === info.sw) return cached.list;
+  const toLocal = ([x, y]) => [info.sx + ((x + 1) / 2) * info.sw, info.sy + ((1 - y) / 2) * info.sh];
+  const view = { l: -200, t: -200, r: viewport.clientWidth + 200, b: viewport.clientHeight + 200 };
+  const list = [];
+  for (const it of info.scene.items) {
+    const rect = rectOfPoints(itemCornersNdc(info.scene, it).map(toLocal));
+    if (intersects(rect, view)) list.push({ order: it.order, rect });
+  }
+  rectCache.set(key, { sx: info.sx, sy: info.sy, sw: info.sw, list });
+  return list;
+}
+function boardLocalRect(id) {
+  const b = boardInfo.get(id);
+  return b ? { l: b.sx, t: b.sy, r: b.sx + b.sw, b: b.sy + b.sh } : null;
+}
+
+// 粉色参考线
+const guideLayer = Object.assign(document.createElement('div'), { className: 'guide-layer' });
+viewport.append(guideLayer);
+function setGuides(list) {
+  guideLayer.replaceChildren(...(list || []).map(g => {
+    const d = document.createElement('div');
+    d.className = 'guide';
+    if (g.x != null) Object.assign(d.style, { left: `${g.x}px`, top: `${g.y1}px`, width: '1px', height: `${Math.max(1, g.y2 - g.y1)}px` });
+    else Object.assign(d.style, { top: `${g.y}px`, left: `${g.x1}px`, height: '1px', width: `${Math.max(1, g.x2 - g.x1)}px` });
+    return d;
+  }));
+}
+
+// 对齐：多选时在选中的卡片之间对齐，单选时对齐到画板
+function alignSelection(mode) {
+  const sel = ui.selection;
+  if (!sel.length || is3D()) return;
+  const map = new Map(itemRects().map(x => [x.order, x.rect]));
+  const items = sel.filter(o => map.has(o)).map(o => ({ o, r: map.get(o) }));
+  if (!items.length) return;
+  const ref = items.length > 1 ? unionRects(items.map(x => x.r)) : boardLocalRect(store.get().activeBoard);
+  applyOffsets(items, alignOffsets(items.map(x => x.r), ref, mode));
+}
+function distributeSelection(axis) {
+  const map = new Map(itemRects().map(x => [x.order, x.rect]));
+  const items = ui.selection.filter(o => map.has(o)).map(o => ({ o, r: map.get(o) }));
+  if (items.length < 3) return;
+  applyOffsets(items, distributeOffsets(items.map(x => x.r), axis));
+}
+function applyOffsets(items, offsets) {
+  actions.setItemAdjusts(items.map(({ o }, i) => {
+    const [lx, ly] = toLayoutDelta(offsets[i][0], offsets[i][1]);
+    const a = getAdjust(o);
+    return { order: o, patch: { dx: (a.dx || 0) + lx, dy: (a.dy || 0) + ly } };
+  }));
+}
+
+// 工具条：对齐按钮（选中卡片时出现）+ 吸附开关
+const ALIGN = [
+  { mode: 'left', icon: 'align-start-vertical', label: '左对齐' },
+  { mode: 'hcenter', icon: 'align-center-vertical', label: '水平居中' },
+  { mode: 'right', icon: 'align-end-vertical', label: '右对齐' },
+  { mode: 'top', icon: 'align-start-horizontal', label: '顶对齐' },
+  { mode: 'vcenter', icon: 'align-center-horizontal', label: '垂直居中' },
+  { mode: 'bottom', icon: 'align-end-horizontal', label: '底对齐' },
+];
+const alignButtons = ALIGN.map(a => {
+  const b = Object.assign(document.createElement('button'), { className: 'tb-btn' });
+  b.append(icon(a.icon, 16));
+  b.addEventListener('click', () => alignSelection(a.mode));
+  return { ...a, b };
+});
+const distButtons = [['x', 'align-horizontal-distribute-center', '水平等距分布'], ['y', 'align-vertical-distribute-center', '垂直等距分布']].map(([axis, ic, label]) => {
+  const b = Object.assign(document.createElement('button'), { className: 'tb-btn', title: `${label}（选中 3 张以上）` });
+  b.append(icon(ic, 16));
+  b.addEventListener('click', () => distributeSelection(axis));
+  return { b, label };
+});
+toolbar.alignSlot.append(...alignButtons.map(x => x.b), Object.assign(document.createElement('span'), { className: 'tb-sep' }), ...distButtons.map(x => x.b));
+function refreshAlign() {
+  const n = ui.selection.length;
+  toolbar.alignSlot.hidden = !n || is3D();
+  for (const a of alignButtons) a.b.title = n > 1 ? `${a.label}（选中的 ${n} 张卡片）` : `${a.label}到画板`;
+  for (const d of distButtons) { d.b.disabled = n < 3; d.b.classList.toggle('disabled', n < 3); }
+}
+
+const snapBtn = Object.assign(document.createElement('button'), { className: 'tb-btn tb-snap' });
+snapBtn.append(icon('magnet', 16));
+snapBtn.addEventListener('click', () => actions.setPref('snap', !store.get().snap));
+toolbar.bgSlot.append(snapBtn);
+function refreshSnap() {
+  const on = store.get().snap;
+  snapBtn.classList.toggle('active-soft', on);
+  snapBtn.title = on ? '吸附对齐：开（拖动时按住 ⌘/Ctrl 临时关闭）' : '吸附对齐：关';
 }
 
 // 画板框选的矩形
@@ -946,7 +1059,7 @@ const bgPicker = createBgPicker(toolbar.bgSlot, {
 let resizeHandles = null;
 resizeHandles = createResizeHandles(viewport, {
   getTarget: () => {
-    if (ui.selected == null || !lastScene || is3D() || ui.tempHand) return null;
+    if (ui.selected == null || ui.selection.length !== 1 || !lastScene || is3D() || ui.tempHand) return null; // 只在单选时显示
     if (!['select', 'rotate', 'scale'].includes(ui.tool)) return null;
     return lastScene.items.find(x => x.order === ui.selected) || null;
   },
@@ -1007,8 +1120,13 @@ interaction = attachViewportInteraction(viewport, {
   itemCenterClient: item => ndcToClient(itemCenterNdc(lastScene, item)),
   setItemAdjust: (order, patch) => actions.setItemAdjust(order, patch),
   resetItemAdjust: order => { actions.resetItemAdjust(order); toast('已复位这张卡片'); },
-  getSelected: () => ui.selected,
-  setSelected: order => setUi('selected', order),
+  getSelection: () => ui.selection,
+  setSelection: (orders, primary) => setSelection(orders, primary),
+  setItemAdjusts: list => actions.setItemAdjusts(list),
+  itemRects,
+  boardLocalRect,
+  snapEnabled: () => store.get().snap,
+  setGuides,
 });
 
 const hint = $('stage-hint');
@@ -1044,7 +1162,8 @@ store.subscribe(s => {
     renderer.prune(new Set(slidesOf(s).map(x => x.id)));
   }
   if (s.layoutId !== prev.layoutId || s.project !== prev.project || s.activeBoard !== prev.activeBoard) {
-    Object.assign(ui, { hover: null, dropTarget: null, selected: null });
+    Object.assign(ui, { hover: null, dropTarget: null, selected: null, selection: [] });
+    refreshAlign();
     if (!toolAvailability(ui.tool).ok) ui.tool = 'select'; // 换版式后工具不可用就回到选择
   }
   if (s.project !== prev.project) {
@@ -1056,6 +1175,7 @@ store.subscribe(s => {
   settings.update(s);
   topbarMenus.update(s);
   bgPicker.update(s);
+  refreshSnap();
   updateSizePicker(s.exportOpts);
   exportPopover.update(s);
   refreshTools();
@@ -1088,6 +1208,8 @@ window.SlideGrid = {
   pickAt,
   boardAt,
   history,
+  itemRects,
+  boardLocalRect,
   ui,
   view,
   setTool,

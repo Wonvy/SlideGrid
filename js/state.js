@@ -75,13 +75,14 @@ export const store = createStore({
   exportOpts: { ...schemaDefaults(exportSchema), ...(prefs.exportOpts || {}) }, // 导出偏好跨项目保留
   wheelMode: ['hover', 'alt', 'off'].includes(prefs.wheelMode) ? prefs.wheelMode : 'hover',
   wheelNav: prefs.wheelNav === 'scroll' ? 'scroll' : 'zoom', // 工作区滚轮：缩放视图（默认）/ 滚动视图
+  snap: prefs.snap !== false, // 拖动时吸附对齐
 });
 
 let prefsTimer;
 store.subscribe(s => {
   clearTimeout(prefsTimer);
   prefsTimer = setTimeout(() => {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ exportOpts: s.exportOpts, wheelMode: s.wheelMode, wheelNav: s.wheelNav })); } catch { /* 忽略 */ }
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ exportOpts: s.exportOpts, wheelMode: s.wheelMode, wheelNav: s.wheelNav, snap: s.snap })); } catch { /* 忽略 */ }
   }, 300);
 });
 
@@ -325,6 +326,14 @@ export const actions = {
       const cur = s.adjust[s.layoutId] || {};
       const next = { ...cur[order], ...patch };
       return { adjust: { ...s.adjust, [s.layoutId]: { ...cur, [order]: next } } };
+    });
+  },
+  // 一次调整多张卡片（多选移动 / 对齐 / 分布），作为一步撤销
+  setItemAdjusts(list) {
+    store.set(s => {
+      const cur = { ...(s.adjust[s.layoutId] || {}) };
+      for (const { order, patch } of list) cur[order] = { ...cur[order], ...patch };
+      return { adjust: { ...s.adjust, [s.layoutId]: cur } };
     });
   },
   resetItemAdjust(order) {

@@ -37,14 +37,16 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
     icon('undo-2', 15), el('span', {}, '重置卡片'));
   const extra = el('div', { class: 'tb-group' }, resetAdj);
 
-  // 画板背景按钮由 main.js 挂进来（见 ui/bgPicker.js）
+  // 画板背景、吸附开关、对齐按钮由 main.js 挂进来
   const bgSlot = el('div', { class: 'tb-group' });
+  const alignSlot = el('div', { class: 'tb-group tb-align', hidden: true });
 
-  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '工具' }, tools, bgSlot, zoom, extra);
+  const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '工具' }, tools, bgSlot, alignSlot, zoom, extra);
   root.append(bar);
 
   return {
     bgSlot,
+    alignSlot,
     update({ tool, tempHand, viewZoom, adjustCount }) {
       for (const t of TOOLS) {
         if (t.sep) continue;

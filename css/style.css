@@ -812,3 +812,10 @@ html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止�
 .history-btns .icon-btn.visible { width: 28px; height: 28px; color: var(--muted); }
 .history-btns .icon-btn.visible:hover:not(:disabled) { color: var(--text); background: var(--panel-2); }
 .history-btns .icon-btn:disabled { opacity: .3; cursor: default; }
+
+/* ---------- 吸附参考线 / 对齐 ---------- */
+.guide-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.guide { position: absolute; background: #ff3fa4; box-shadow: 0 0 0 .5px rgba(255, 63, 164, .4); }
+.tb-btn.active-soft { color: var(--accent); }
+.tb-btn:disabled { opacity: .3; cursor: default; }
+.tb-btn:disabled:hover { background: transparent; color: var(--muted); }
