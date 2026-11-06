@@ -14,10 +14,17 @@ const ICONS = {
   'align-start-horizontal': '<rect width="6" height="16" x="4" y="6" rx="2"/><rect width="6" height="9" x="14" y="6" rx="2"/><path d="M22 2H2"/>',
   'align-start-vertical': '<rect width="9" height="6" x="6" y="14" rx="2"/><rect width="16" height="6" x="6" y="4" rx="2"/><path d="M2 2v20"/>',
   'align-vertical-distribute-center': '<path d="M22 17h-3"/><path d="M22 7h-5"/><path d="M5 17H2"/><path d="M7 7H2"/><rect x="5" y="14" width="14" height="6" rx="2"/><rect x="7" y="4" width="10" height="6" rx="2"/>',
+  'arrow-down-to-line': '<path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>',
   'arrow-down': '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
   'arrow-left-right': '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
+  'arrow-up-to-line': '<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>',
   'arrow-up': '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  'slash': '<path d="M22 2 2 22"/>',
   'ban': '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  // 线性渐变：方框里从实到透明的填充（同一个渐变定义可以重复出现，内容相同不冲突）
+  'gradient': '<defs><linearGradient id="sg-icon-grad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="currentColor" stop-opacity=".95"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><rect x="3" y="3" width="18" height="18" rx="2" fill="url(#sg-icon-grad)"/>',
+  // 渐隐遮罩：中间实、四周渐隐到透明，外框为虚线
+  'fade': '<defs><radialGradient id="sg-icon-fade" cx=".5" cy=".5" r=".5"><stop offset=".25" stop-color="currentColor" stop-opacity=".95"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient></defs><rect x="3" y="3" width="18" height="18" rx="3" stroke-dasharray="2.5 3"/><rect x="5" y="5" width="14" height="14" rx="2" fill="url(#sg-icon-fade)" stroke="none"/>',
   'blend': '<circle cx="9" cy="9" r="7"/><circle cx="15" cy="15" r="7"/>',
   'bold': '<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>',
   'bookmark-plus': '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/><line x1="12" x2="12" y1="7" y2="13"/><line x1="15" x2="9" y1="10" y2="10"/>',

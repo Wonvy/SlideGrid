@@ -3,7 +3,7 @@ import { selectionOf } from '../state.js';
 import { styleSchema } from '../style/schema.js';
 import { buildControls } from './controls.js';
 import { wheelModeSchema } from './wheel.js';
-import { el, section } from './dom.js';
+import { el, section, isCollapsed, setCollapsed } from './dom.js';
 import { icon } from './icons.js';
 
 const MAIN_TAB_KEY = 'slidegrid:right-tab';
@@ -18,7 +18,8 @@ const store_ = {
  *   设计：跟随选择（类似 Figma）——选中图层时是图层属性，选中卡片时是卡片的裁切 / 位置，
  *         什么都没选时是当前画板的版式参数和构图
  *   版式：内置 / 我的版式（只负责选版式，不会误点）
- *   背景 / 卡片 / 投影 / 渐隐遮罩：画板样式，各自一页（与选择无关，随时可调）
+ *   设计：版式参数、卡片样式（圆角、描边等）、构图
+ *   背景 / 投影 / 渐隐遮罩：画板样式，各自一页（与选择无关，随时可调）
  *   图层：当前画板的图层列表
  *   偏好：滚轮等操作习惯（图标栏底部）
  */
@@ -28,18 +29,17 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
 
   /* ================= 顶层标签 ================= */
   // 左侧竖排的图标栏切换页面，右边是页面标题 + 内容
-  const TITLES = { params: '设计', layouts: '版式', bg: '背景', card: '卡片', shadow: '投影', fade: '渐隐遮罩', layers: '图层', prefs: '偏好' };
-  // 样式页对应 style/schema.js 里的分组
-  const STYLE_PAGES = { bg: '背景', card: '卡片', shadow: '投影', fade: '渐隐遮罩' };
+  const TITLES = { params: '设计', layouts: '版式', bg: '背景', shadow: '投影', fade: '渐隐遮罩', layers: '图层', prefs: '偏好' };
+  // 样式页对应 style/schema.js 里的分组（「卡片」分组放在设计页里，见下）
+  const STYLE_PAGES = { bg: '背景', shadow: '投影', fade: '渐隐遮罩' };
   const layerCount = el('span', { class: 'tab-count' });
   const tab = (k, ic, ...extra) => el('button', { class: 'rp-tab', role: 'tab', title: TITLES[k], 'aria-label': TITLES[k] }, icon(ic, 18), ...extra);
   const mainTabs = {
     params: tab('params', 'sliders-horizontal'),
     layouts: tab('layouts', 'layout-grid'),
     bg: tab('bg', 'paint-bucket'),
-    card: tab('card', 'square'),
     shadow: tab('shadow', 'sun-dim'),
-    fade: tab('fade', 'blend'),
+    fade: tab('fade', 'fade'),
     layers: tab('layers', 'layers', layerCount),
     prefs: tab('prefs', 'cog'),
   };
@@ -65,7 +65,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const t = mainTabs;
   root.append(
     el('div', { class: 'rp-tabs rp-rail', role: 'tablist', 'aria-orientation': 'vertical' },
-      t.params, t.layouts, sep(), t.bg, t.card, t.shadow, t.fade, sep(), t.layers, t.prefs),
+      t.layouts, t.params, sep(), t.bg, t.shadow, t.fade, sep(), t.layers, t.prefs),
     el('div', { class: 'rp-main' }, pageTitle, multiBanner, ...Object.values(panes)),
   );
 
@@ -87,10 +87,23 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       layoutButtons.set(l.id, btn);
       grid.append(btn);
     }
-    builtin.append(el('div', { class: 'picker-title' }, title), grid);
+    // 分组标题：点击折叠 / 展开（与其他页面的分组一致，状态会记住）
+    const key = `layouts:${cat}`;
+    const head = el('button', { class: 'ctrl-group picker-group', title: '折叠 / 展开', 'aria-expanded': 'true' }, el('span', {}, title), icon('chevron-down', 16));
+    const apply = () => {
+      const c = isCollapsed(key);
+      head.classList.toggle('collapsed', c);
+      head.setAttribute('aria-expanded', String(!c));
+      grid.hidden = c;
+    };
+    head.addEventListener('click', () => { setCollapsed(key, !isCollapsed(key)); apply(); });
+    apply();
+    builtin.append(head, grid);
   }
   builtin.append(el('p', { class: 'note pane-hint' }, '单击应用版式 · 双击应用并切到「设计」'));
   const mine = el('div', { class: 'tab-body' });
+  // 「我的版式」的保存 / 导入 / 导出固定在页面底部（列表单独滚动）
+  const presetsFooter = el('div', { class: 'rp-footer', hidden: true });
 
   const tabBuiltin = el('button', { class: 'tab', onclick: () => showLayoutTab('builtin') }, '内置');
   const mineCount = el('span', { class: 'tab-count' });
@@ -100,10 +113,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     mine.hidden = name !== 'mine';
     tabBuiltin.classList.toggle('active', name === 'builtin');
     tabMine.classList.toggle('active', name === 'mine');
+    presetsFooter.hidden = name !== 'mine';
     store_.set(LAYOUT_TAB_KEY, name);
   }
   showLayoutTab(store_.get(LAYOUT_TAB_KEY) === 'mine' ? 'mine' : 'builtin');
-  panes.layouts.append(el('div', { class: 'pane-body' }, el('div', { class: 'tabs' }, tabBuiltin, tabMine), builtin, mine));
+  panes.layouts.classList.add('has-footer');
+  panes.layouts.append(el('div', { class: 'pane-body' }, el('div', { class: 'tabs' }, tabBuiltin, tabMine), builtin, mine), presetsFooter);
 
   /* ================= 设计页（没有选择时：画板设置） ================= */
   // 当前版式卡片：一眼看到在调哪个版式，「更换」回到版式页
@@ -117,7 +132,10 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   // 设计页：选中图层 / 卡片时显示它们的属性（ui/inspector.js），否则显示画板设置
   const selectionSlot = el('div', { class: 'inspector', hidden: true });
   const boardBox = el('div');
-  panes.params.append(selectionSlot, boardBox);
+  // 设计页底部固定「保存当前版式」（只在显示画板设置时出现，见 presetsPanel 的 saveFooter）
+  const designFooter = el('div', { class: 'rp-footer design-footer' });
+  panes.params.classList.add('has-footer');
+  panes.params.append(el('div', { class: 'design-body' }, selectionSlot, boardBox), designFooter);
   // 图层页
   const layersSlot = el('div', { class: 'inspector' });
   panes.layers.append(layersSlot);
@@ -127,8 +145,14 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const paramsBox = el('div');
   boardBox.append(section('版式', el('div', {}, current, paramsBox), resetBtn('恢复当前版式的默认参数', () => actions.resetParams())));
 
+  // 卡片样式（style/schema.js 的「卡片」分组）
+  const cardStyleBox = el('div');
+  boardBox.append(section('卡片', cardStyleBox));
+
+  // 构图：没有可调的参数，只在用构图工具调整过之后出现（显示调整了什么 + 复位）
   const cameraNote = el('p', { class: 'note compact' });
-  boardBox.append(section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度）', () => actions.resetCamera())));
+  const cameraSection = section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度）', () => actions.resetCamera()));
+  boardBox.append(cameraSection);
 
   // 样式各页：直接放这一组的参数（页面标题就是分组名）
   const styleBoxes = {};
@@ -153,6 +177,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   };
   const styleUpdaters = Object.entries(STYLE_PAGES).map(([k, name]) =>
     buildControls(styleBoxes[k], groupItems(name), s0.style, actions.setStyle, imageCtx));
+  styleUpdaters.push(buildControls(cardStyleBox, groupItems('卡片'), s0.style, actions.setStyle, imageCtx));
   const updateStyle = st => styleUpdaters.forEach(u => u(st));
   const updatePrefs = buildControls(prefsBox, wheelModeSchema, s0, actions.setPref);
   let updateParams = () => {};
@@ -167,10 +192,15 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       curIcon.innerHTML = layout.icon;
       curName.textContent = layout.name;
       curMeta.textContent = `${layout.category === '3d' ? '3D 透视' : '平面'}版式${layout.long ? ' · 支持长图' : ''}`;
-      cameraNote.textContent = layout.category === '3d'
-        ? '构图工具（O）：拖动旋转视角 · Shift 拖动平移 · 滚轮缩放'
-        : '构图工具（O）：拖动平移 · 滚轮缩放';
     }
+    const cam = s.camera || {};
+    const changed = [
+      Math.abs((cam.zoom ?? 1) - 1) > 1e-3 ? `缩放 ${Math.round((cam.zoom ?? 1) * 100)}%` : '',
+      Math.abs(cam.panX || 0) > 1e-3 || Math.abs(cam.panY || 0) > 1e-3 ? '平移' : '',
+      Math.abs(cam.yaw || 0) > 1e-3 || Math.abs(cam.pitch || 0) > 1e-3 ? '3D 角度' : '',
+    ].filter(Boolean);
+    cameraSection.hidden = !changed.length;
+    cameraNote.textContent = `已调整：${changed.join('、')}（构图工具 O）`;
     const long = s.aspect === 'long';
     layoutButtons.forEach((b, id) => {
       const off = long && !getLayout(id).long;
@@ -188,7 +218,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
 
   // 打开某个样式页（工具条背景 / 遮罩面板的「更多设置」）
   function revealStyleGroup(name) {
-    const page = Object.keys(STYLE_PAGES).find(k => STYLE_PAGES[k] === name) || 'bg';
+    const page = Object.keys(STYLE_PAGES).find(k => STYLE_PAGES[k] === name) || (name === '卡片' ? 'params' : 'bg');
     showMain(page);
     panes[page].classList.add('flash');
     setTimeout(() => panes[page].classList.remove('flash'), 900);
@@ -199,11 +229,13 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     revealBackground: () => revealStyleGroup('背景'),
     revealStyleGroup,
     presetsContainer: mine,
+    presetsFooter,
+    designFooter,
     selectionSlot,
     layersSlot,
     currentTab: () => Object.keys(panes).find(k => !panes[k].hidden),
     // 设计页显示选中对象的属性（true）还是画板设置（false）
-    setSelectionMode(on) { selectionSlot.hidden = !on; boardBox.hidden = on; },
+    setSelectionMode(on) { selectionSlot.hidden = !on; boardBox.hidden = on; designFooter.hidden = on; },
     setLayerCount: n => { layerCount.textContent = n ? String(n) : ''; },
     // 打开「版式」页的某个子标签（导入版式文件时用）
     showTab: name => { showMain('layouts'); showLayoutTab(name); },

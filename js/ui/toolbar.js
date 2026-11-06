@@ -1,3 +1,4 @@
+import { fitFolds } from './fold.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { attachWheel } from './wheel.js';
@@ -13,6 +14,7 @@ export const TOOLS = [
   { id: 'text', icon: 'type', label: '文字', key: 'T', desc: '单击添加文字；选择工具下双击文字可编辑' },
   { id: 'rect', icon: 'square', label: '矩形', key: 'M', desc: '拖动绘制矩形（Shift 正方形，⌥ 从中心），单击放一个默认大小的' },
   { id: 'ellipse', icon: 'circle', label: '椭圆', key: 'L', desc: '拖动绘制椭圆（Shift 正圆，⌥ 从中心）' },
+  { id: 'line', icon: 'slash', label: '直线', key: '\\', desc: '拖动绘制直线（Shift 按 45° 吸附，⌥ 从中心），单击放一条默认长度的；画好后可以用直接选择工具拖端点' },
   { id: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P', desc: '单击直角锚点，拖动拉出曲线（Shift 45°，⌥ 转角，空格移动锚点）；点首点闭合，Enter 结束；对选中路径：点线段加锚点、点锚点删除、点端点继续画' },
   { id: 'direct', icon: 'mouse-pointer', label: '直接选择', key: 'A', desc: '编辑路径锚点：拖锚点 / 控制柄（⌥ 打断对称），⌥ 单击切换直角 / 平滑，双击路径插入锚点，Delete 删除锚点' },
   { sep: true },
@@ -59,7 +61,20 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
   const viewbar = el('div', { class: 'viewbar', role: 'toolbar', 'aria-label': '视图' }, viewSlot, zoom);
   root.append(tools, bar, viewbar);
 
+  // 宽度够时按钮组整排显示，放不下时才折叠成下拉按钮：内容或窗口变化后重新排一次
+  let fitQueued = false;
+  const queueFit = () => {
+    if (fitQueued) return;
+    fitQueued = true;
+    requestAnimationFrame(() => { fitQueued = false; fitFolds(bar); });
+  };
+  new MutationObserver(queueFit).observe(bar, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  const ro = new ResizeObserver(queueFit);
+  ro.observe(root);
+  ro.observe(bar);
+
   return {
+    viewbar,
     ctxSlot,
     bgSlot,
     alignSlot,

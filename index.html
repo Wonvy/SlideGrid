@@ -11,17 +11,20 @@
     <header class="topbar">
       <div class="topbar-left">
         <div class="brand"><span class="logo" data-icon="layout-grid" data-icon-size="13"></span>SlideGrid</div>
+        <!-- 撤销 / 重做：启动后移到画布右下角的视图条里 -->
+        <div class="history-btns tb-group">
+          <button class="icon-btn visible" id="undo-btn" data-icon="undo-2" data-icon-size="16" aria-label="撤销" disabled></button>
+          <button class="icon-btn visible" id="redo-btn" data-icon="redo-2" data-icon-size="16" aria-label="重做" disabled></button>
+        </div>
+      </div>
+      <!-- 中间：项目（保存状态）· 画板 / 比例菜单（由 topbarMenus 追加在后面） -->
+      <div class="topbar-center" id="board-bar">
         <button class="project-btn" id="project-btn" data-icon="folder-kanban" title="项目：新建、打开、导入、导出">
           <span class="project-title" id="project-title">…</span>
           <span class="caret" data-icon="chevron-down" data-icon-size="14"></span>
         </button>
         <span class="save-status" id="save-status"></span>
-        <div class="history-btns">
-          <button class="icon-btn visible" id="undo-btn" data-icon="undo-2" data-icon-size="15" aria-label="撤销" disabled></button>
-          <button class="icon-btn visible" id="redo-btn" data-icon="redo-2" data-icon-size="15" aria-label="重做" disabled></button>
-        </div>
       </div>
-      <div class="topbar-center" id="board-bar"></div>
       <div class="topbar-right">
         <div class="export-group">
           <div class="size-picker" id="size-picker" title="导出尺寸：普通画布为长边，长图为宽度"></div>
@@ -33,17 +36,19 @@
 
     <aside class="sidebar left" id="slides-panel">
       <div class="slides-head">
-        <h2 title="当前画板用到的图片。每个画板的顺序、替换、移除互不影响">幻灯片<span class="count" id="slide-count"></span></h2>
+        <h2 title="当前画板用到的图片。画板默认共用这份列表；在画布上单独交换 / 替换 / 移除某张卡片后，这个画板改为单独设置">幻灯片<span class="count" id="slide-count"></span></h2>
       </div>
+      <!-- 当前画板的图片来源：跟随共用列表 / 单独设置（js/main.js 更新） -->
+      <div class="slides-mode" id="slides-mode" hidden></div>
 
       <div class="slides-scroll">
         <div class="dropzone" id="dropzone">
-          <div class="dz-icon" data-icon="images" data-icon-size="24"></div>
+          <div class="dz-icon" data-icon="images" data-icon-size="32"></div>
           <div class="dz-title">拖入图片或文件夹</div>
           <div class="dz-sub">图片只在本地处理，不会上传</div>
           <div class="dz-actions">
-            <button class="btn" data-action="pick-files" data-icon="image-plus" data-icon-size="15">选择图片</button>
-            <button class="btn" data-action="pick-folder" data-icon="folder-open" data-icon-size="15">选择文件夹</button>
+            <button class="btn" data-action="pick-files" data-icon="image-plus" data-icon-size="20" title="选择图片" aria-label="选择图片"></button>
+            <button class="btn" data-action="pick-folder" data-icon="folder-open" data-icon-size="20" title="选择文件夹" aria-label="选择文件夹"></button>
           </div>
           <div class="dz-compact" data-icon="plus" data-icon-size="14" title="点击选择图片，或把图片 / 文件夹拖进来">拖入或点击添加更多</div>
         </div>

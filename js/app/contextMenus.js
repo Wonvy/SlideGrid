@@ -78,7 +78,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         cropped && { label: '复位裁切', icon: 'rotate-ccw', action: () => actions.resetCrop(card.order) },
         flat && adjusted && { label: '复位这张卡片', icon: 'undo-2', action: () => actions.resetItemAdjust(card.order) },
         real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); slidesPanel.highlight(card.slideIndex); } },
-        real && { label: '从此画板移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id) },
+        real && { label: '从此画板移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id, 'board') },
         { sep: true },
       );
     }

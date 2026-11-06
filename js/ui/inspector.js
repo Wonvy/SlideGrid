@@ -16,6 +16,7 @@ const ADD_TOOLS = [
   { tool: 'text', icon: 'type', label: '文字', key: 'T' },
   { tool: 'rect', icon: 'square', label: '矩形', key: 'M' },
   { tool: 'ellipse', icon: 'circle', label: '椭圆', key: 'L' },
+  { tool: 'line', icon: 'slash', label: '直线', key: '\\' },
   { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
 ];
 

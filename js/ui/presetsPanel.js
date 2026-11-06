@@ -9,10 +9,12 @@ const safeName = s => String(s).replace(/[\\/:*?"<>|]/g, '_');
 /**
  * 「我的版式」面板：保存当前版式（含缩略图）、套用、覆盖更新、重命名、导出、删除、导入。
  * snapshot(width) → Promise<Blob>：当前画面的缩略图
+ * footer（可选）：保存 / 导入 / 导出按钮和保存表单放在这里（固定在面板底部），否则放在列表上方
+ * saveFooter（可选）：「保存当前版式」按钮和保存表单单独放在这里（设计页底部），footer 里只留导入 / 导出
  */
-export function createPresetsPanel(container, { store, actions, snapshot, toast, download, onCount = () => {} }) {
+export function createPresetsPanel(container, { store, actions, snapshot, toast, download, onCount = () => {}, footer = null, saveFooter = null }) {
   const grid = el('div', { class: 'preset-grid' });
-  const empty = el('div', { class: 'preset-empty' }, '还没有保存的版式。调好版式参数、用移动 / 旋转工具摆好卡片后，点「保存当前版式」。');
+  const empty = el('div', { class: 'preset-empty' }, `还没有保存的版式。调好版式参数、用移动 / 旋转工具摆好卡片后，${saveFooter ? '在「设计」页底部' : ''}点「保存当前版式」。`);
   const fileInput = el('input', { type: 'file', accept: '.json,application/json', hidden: true });
 
   // 保存表单
@@ -32,8 +34,7 @@ export function createPresetsPanel(container, { store, actions, snapshot, toast,
     if (e.key === 'Escape') form.hidden = true;
   });
 
-  const toolbar = el('div', { class: 'preset-toolbar' },
-    el('button', {
+  const saveBtn = el('button', {
       class: 'btn small', title: '把当前版式、参数、卡片调整和视图保存为模板',
       onclick: () => {
         form.hidden = !form.hidden;
@@ -43,13 +44,21 @@ export function createPresetsPanel(container, { store, actions, snapshot, toast,
           nameInput.focus();
         }
       },
-    }, icon('bookmark-plus', 14), '保存当前版式'),
+    }, icon('bookmark-plus', 14), '保存当前版式');
+  const toolbar = el('div', { class: 'preset-toolbar' },
+    saveFooter ? el('span', { class: 'preset-toolbar-note' }, '在「设计」页底部保存当前版式') : saveBtn,
     el('button', { class: 'icon-btn visible', title: '导入版式文件（.json）', onclick: () => fileInput.click() }, icon('upload', 15)),
     el('button', { class: 'icon-btn visible', title: '导出全部版式', onclick: () => exportAll() }, icon('download', 15)),
     fileInput,
   );
 
-  container.append(toolbar, form, grid, empty);
+  if (saveFooter) saveFooter.append(form, el('div', { class: 'preset-toolbar' }, saveBtn));
+  if (footer) {
+    container.append(grid, empty);
+    footer.append(...(saveFooter ? [] : [form]), toolbar);
+  } else {
+    container.append(toolbar, form, grid, empty);
+  }
 
   async function thumb() {
     try { return await snapshot(320); } catch { return null; }

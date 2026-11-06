@@ -33,7 +33,7 @@ export const layerSchema = [
   { group: '填充', types: SHAPES },
   {
     key: 'fillType', label: '类型', type: 'select', types: SHAPES,
-    options: [{ value: 'none', label: '无', icon: 'ban' }, { value: 'solid', label: '纯色', icon: 'square' }, { value: 'linear', label: '线性渐变', icon: 'blend' }],
+    options: [{ value: 'none', label: '无', icon: 'ban' }, { value: 'solid', label: '纯色', icon: 'square' }, { value: 'linear', label: '线性渐变', icon: 'gradient' }],
   },
   { key: 'fill', label: v => (v.fillType === 'linear' ? '起始色' : '颜色'), type: 'color', half: true, types: SHAPES, show: fillOn },
   { key: 'fill2', label: '结束色', type: 'color', half: true, types: SHAPES, show: v => v.fillType === 'linear' },

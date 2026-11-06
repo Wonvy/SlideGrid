@@ -10,10 +10,10 @@ import { boardsOf, BOARD_KEYS } from '../state.js';
  *   - 连续的同类修改（拖滑块、拖卡片、滚轮调参）合并成一步；松开鼠标算一步结束
  *   - 切换项目时清空
  */
-const CONTENT_FIELDS = [...new Set(['slides', 'assets', ...BOARD_KEYS])];
+const CONTENT_FIELDS = [...new Set(['slides', 'library', 'assets', ...BOARD_KEYS])];
 const DOC_FIELDS = ['artboards', 'activeBoard', ...CONTENT_FIELDS];
 const LABELS = {
-  slides: '幻灯片', assets: '背景图', layoutId: '更换版式', params: '版式参数',
+  slides: '幻灯片', library: '幻灯片', slidesOwn: '幻灯片', assets: '背景图', layoutId: '更换版式', params: '版式参数',
   style: '样式', aspect: '画布比例', camera: '构图', adjust: '卡片调整', layers: '图层',
 };
 const MERGE_MS = 800;
@@ -23,7 +23,7 @@ const boardIds = s => s.artboards.map(b => b.id).join(',');
 
 // 所有画板的内容是否完全一样（只是切换了当前画板）
 function sameContent(prev, s) {
-  if (prev.assets !== s.assets) return false;
+  if (prev.assets !== s.assets || prev.library !== s.library) return false;
   const a = boardsOf(prev), b = boardsOf(s);
   return a.length === b.length && a.every((x, i) => x.id === b[i].id && BOARD_KEYS.every(k => x.settings[k] === b[i].settings[k]));
 }
@@ -102,6 +102,7 @@ export function createHistory(store, { limit = 100, onChange = () => {} } = {}) 
     try {
       store.set({
         slides: snap.slides,
+        library: snap.library,
         assets: snap.assets,
         artboards: boards,
         activeBoard: activeId,

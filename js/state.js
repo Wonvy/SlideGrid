@@ -20,13 +20,18 @@ const defaultParams = (saved = {}) => {
 };
 
 /**
- * 画板设置：每个画板独立的图片顺序、版式、参数、样式、比例、构图视角、卡片调整和图层。
+ * 画板设置：每个画板的图片顺序、版式、参数、样式、比例、构图视角、卡片调整和图层。
  * 读入时与默认值合并（新增参数时旧数据也能用）。
+ *
+ * 图片的继承：项目有一份共用的图片列表（store.library，即左侧列表），画板默认跟随它（slidesOwn = false，
+ * slides 就是 library）。在画布上单独改了某个画板的图片（交换、替换、移除某张卡片），这个画板就复制一份
+ * 自己的列表（slidesOwn = true），之后共用列表的变化不再影响它；「恢复跟随」可以回到共用列表。
  */
 export function boardSettings(saved = {}) {
   return {
-    // 这个画板用到的图片（按顺序，幻灯片对象）。图片文件是项目共用的，顺序 / 替换 / 移除各画板互不影响
+    // 这个画板用到的图片（按顺序，幻灯片对象）。跟随共用列表时与 library 是同一个数组
     slides: Array.isArray(saved.slides) ? saved.slides : [],
+    slidesOwn: !!saved.slidesOwn,
     layoutId: getLayout(saved.layoutId) ? saved.layoutId : 'grid',
     params: defaultParams(saved.params),
     style: { ...schemaDefaults(styleSchema), ...(saved.style || {}) },
@@ -41,7 +46,7 @@ export function boardSettings(saved = {}) {
 }
 
 // 每个画板独立的设置字段（当前画板的这些字段展开在 store 顶层）
-export const BOARD_KEYS = ['slides', 'layoutId', 'params', 'style', 'aspect', 'camera', 'adjust', 'layers'];
+export const BOARD_KEYS = ['slides', 'slidesOwn', 'layoutId', 'params', 'style', 'aspect', 'camera', 'adjust', 'layers'];
 
 export const newBoardId = () => `b_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -50,12 +55,20 @@ export const newBoardId = () => `b_${Date.now().toString(36)}${Math.random().toS
  * 其余画板的设置保存在 artboards[i].settings 里；切换画板时互换。
  *   artboards: [{ id, name, x, y, settings }]   x / y：画板在工作区中的位置（世界单位，左上角）
  *   activeBoard: id
- * 保存时每个画板的图片记为 slideIds；library 为项目里的全部图片（读入时按 id 找回幻灯片对象）。
- * 没有 slideIds 的画板使用全部图片。
+ *   library: 共用的图片列表（跟随它的画板 slides === library）
+ * 保存时共用列表记为 sharedIds，单独设置过的画板记为 slideIds；all 为项目里的全部图片（读入时按 id 找回幻灯片对象）。
+ * 旧数据没有 sharedIds：共用列表为全部图片，和它顺序一致的画板改为跟随，其余的保留自己的列表。
  */
-export function projectSettings(saved = {}, library = []) {
-  const byId = new Map(library.map(x => [x.id, x]));
-  const slidesFor = st => (Array.isArray(st?.slideIds) ? st.slideIds.map(id => byId.get(id)).filter(Boolean) : [...library]);
+export function projectSettings(saved = {}, all = []) {
+  const byId = new Map(all.map(x => [x.id, x]));
+  const pick = ids => ids.map(id => byId.get(id)).filter(Boolean);
+  const library = Array.isArray(saved.sharedIds) ? pick(saved.sharedIds) : [...all];
+  const sharedKey = library.map(x => x.id).join();
+  const slidesFor = st => {
+    const ids = Array.isArray(st?.slideIds) ? st.slideIds : null;
+    const own = st?.slidesOwn ?? (!!ids && ids.join() !== sharedKey);
+    return own && ids ? { slides: pick(ids), slidesOwn: true } : { slides: library, slidesOwn: false };
+  };
   let boards = Array.isArray(saved.artboards) && saved.artboards.length
     ? saved.artboards
     : [{ name: '画板 1', x: 0, y: 0, settings: saved.layoutId ? saved : {} }];
@@ -64,10 +77,10 @@ export function projectSettings(saved = {}, library = []) {
     name: b.name || `画板 ${i + 1}`,
     x: Number(b.x) || 0,
     y: Number(b.y) || 0,
-    settings: boardSettings({ ...b.settings, slides: slidesFor(b.settings) }),
+    settings: boardSettings({ ...b.settings, ...slidesFor(b.settings) }),
   }));
   const active = boards.find(b => b.id === saved.activeBoard) || boards[0];
-  return { artboards: boards, activeBoard: active.id, selectedBoards: [active.id], ...active.settings };
+  return { library, artboards: boards, activeBoard: active.id, selectedBoards: [active.id], ...active.settings };
 }
 
 // 当前画板（store 顶层）的设置
@@ -77,16 +90,21 @@ export const boardsOf = s => s.artboards.map(b => (b.id === s.activeBoard ? { ..
 // 保存到项目的设置
 // 保存到项目的设置：幻灯片对象换成 id
 const serializeBoard = b => {
-  const { slides, ...rest } = b.settings;
-  return { ...b, settings: { ...rest, slideIds: (slides || []).map(x => x.id) } };
+  const { slides, slidesOwn, ...rest } = b.settings;
+  return { ...b, settings: slidesOwn ? { ...rest, slidesOwn: true, slideIds: (slides || []).map(x => x.id) } : { ...rest, slidesOwn: false } };
 };
-export const settingsOf = s => ({ artboards: boardsOf(s).map(serializeBoard), activeBoard: s.activeBoard });
+export const settingsOf = s => ({
+  artboards: boardsOf(s).map(serializeBoard),
+  activeBoard: s.activeBoard,
+  sharedIds: (s.library || []).map(x => x.id),
+});
 // 新项目的默认设置（已序列化）
 export const defaultSettings = () => settingsOf({ ...projectSettings() });
 
-// 项目里全部的图片（各画板用到的并集，按画板顺序）
+// 项目里全部的图片（共用列表在前，再加上各画板单独用到的，按画板顺序）
 export function libraryOf(s) {
   const seen = new Set(), out = [];
+  for (const x of s.library || []) if (!seen.has(x.id)) { seen.add(x.id); out.push(x); }
   for (const b of boardsOf(s)) {
     for (const x of b.settings.slides || []) if (!seen.has(x.id)) { seen.add(x.id); out.push(x); }
   }
@@ -152,48 +170,102 @@ function pruneAssets(s, assets) {
   return out;
 }
 
+const hasReal = list => (list || []).some(x => !x.placeholder);
+
+// 换掉共用列表：跟随它的画板（包括当前画板）一起换
+function libraryPatch(s, library) {
+  return {
+    library,
+    artboards: s.artboards.map(b => (b.id !== s.activeBoard && !b.settings.slidesOwn ? { ...b, settings: { ...b.settings, slides: library } } : b)),
+    ...(s.slidesOwn ? {} : { slides: library }),
+  };
+}
+
+/**
+ * 修改当前画板用的图片列表。fn(list) → 新列表（返回 null 表示不修改）
+ *   scope 'shared'（左侧列表的操作）：画板跟随共用列表时改共用列表，所有跟随的画板一起变；单独设置过的画板只改自己
+ *   scope 'board'（画布上对某张卡片的操作）：只改当前画板——跟随共用列表的画板从此单独设置。
+ *     共用列表里还没有真实图片时（第一次放图），仍然放进共用列表
+ */
+function editSlides(fn, scope = 'shared') {
+  const s = store.get();
+  if (s.slidesOwn) {
+    const next = fn(s.slides);
+    if (next) store.set({ slides: next });
+    return;
+  }
+  const next = fn(s.library);
+  if (!next) return;
+  if (scope === 'board' && hasReal(s.library)) store.set({ slides: next, slidesOwn: true });
+  else store.set(libraryPatch(s, next));
+}
+
 export const actions = {
   addSlides(newSlides) {
-    if (newSlides.length) store.set(s => ({ slides: [...s.slides, ...newSlides] }));
+    if (newSlides.length) editSlides(list => [...list, ...newSlides]);
   },
-  removeSlide(id) {
-    const s = store.get();
-    store.set({ slides: s.slides.filter(x => x.id !== id) });
+  // scope 见 editSlides：左侧列表里移除是 'shared'，画布上「从此画板移除」是 'board'
+  removeSlide(id, scope = 'shared') {
+    editSlides(list => list.filter(x => x.id !== id), scope);
   },
   clearSlides() {
-    store.set({ slides: [] });
+    editSlides(() => []);
   },
   moveSlide(from, to) {
-    const slides = [...store.get().slides];
-    if (from === to || from < 0 || from >= slides.length) return;
-    const [item] = slides.splice(from, 1);
-    slides.splice(Math.max(0, Math.min(to, slides.length)), 0, item);
-    store.set({ slides });
+    editSlides(list => {
+      if (from === to || from < 0 || from >= list.length) return null;
+      const slides = [...list];
+      const [item] = slides.splice(from, 1);
+      slides.splice(Math.max(0, Math.min(to, slides.length)), 0, item);
+      return slides;
+    });
   },
+  // 画布上交换两张卡片的图片：只改当前画板
   swapSlides(a, b) {
-    const slides = [...store.get().slides];
-    if (a === b || !slides[a] || !slides[b]) return;
-    [slides[a], slides[b]] = [slides[b], slides[a]];
-    store.set({ slides });
+    editSlides(list => {
+      if (a === b || !list[a] || !list[b]) return null;
+      const slides = [...list];
+      [slides[a], slides[b]] = [slides[b], slides[a]];
+      return slides;
+    }, 'board');
   },
   /**
-   * 用新图片替换第 index 张；多张时其余的插在它后面。
+   * 用新图片替换第 index 张；多张时其余的插在它后面（画布上的操作：只改当前画板）。
    * base：当前还没有真实图片时，传入示例卡片，把它们变成可单独替换的空位。
    */
   replaceSlide(index, newSlides, base = null) {
-    const slides = [...(store.get().slides.length ? store.get().slides : base || [])];
-    if (!newSlides.length || !slides[index]) return;
-    slides.splice(index, 1, ...newSlides);
-    store.set({ slides });
+    editSlides(list => {
+      const slides = [...(list.length ? list : base || [])];
+      if (!newSlides.length || !slides[index]) return null;
+      slides.splice(index, 1, ...newSlides);
+      return slides;
+    }, 'board');
   },
   // 追加图片：先依次填进示例空位，剩下的追加到末尾
   fillSlots(newSlides) {
-    const slides = [...store.get().slides];
-    const rest = [...newSlides];
-    for (let i = 0; i < slides.length && rest.length; i++) {
-      if (slides[i].placeholder) slides[i] = rest.shift();
-    }
-    store.set({ slides: [...slides, ...rest] });
+    editSlides(list => {
+      const slides = [...list];
+      const rest = [...newSlides];
+      for (let i = 0; i < slides.length && rest.length; i++) {
+        if (slides[i].placeholder) slides[i] = rest.shift();
+      }
+      return [...slides, ...rest];
+    });
+  },
+  // 当前画板（及多选的画板）恢复跟随共用列表
+  followLibrary() {
+    const s = store.get();
+    const sel = new Set(selectionOf(s));
+    store.set({
+      slides: s.library,
+      slidesOwn: false,
+      artboards: s.artboards.map(b => (b.id !== s.activeBoard && sel.has(b.id) && b.settings.slidesOwn ? { ...b, settings: { ...b.settings, slides: s.library, slidesOwn: false } } : b)),
+    });
+  },
+  // 把当前画板的图片顺序设为共用列表（所有跟随的画板一起变），当前画板改为跟随
+  shareBoardSlides() {
+    const s = store.get();
+    store.set({ ...libraryPatch({ ...s, slidesOwn: false }, s.slides), slidesOwn: false });
   },
   // 切换到另一个项目（由项目控制器调用）。slides 为项目里的全部图片
   loadProject({ project, settings, slides, assets = {} }) {
@@ -251,15 +323,15 @@ export const actions = {
     const s = store.get();
     actions.selectBoards(s.artboards.map(b => b.id), s.activeBoard);
   },
-  // 新建画板：duplicate 时复制当前画板的全部设置，否则只沿用比例和图片（顺序之后各自独立）；位置由调用方算好
+  // 新建画板：duplicate 时复制当前画板的全部设置（包括是否跟随共用图片），否则沿用比例、跟随共用图片；位置由调用方算好
   addArtboard({ x, y, duplicate = false, name, from = null }) {
     const s = store.get();
     const boards = boardsOf(s);
     const src = from ? boards.find(b => b.id === from) : boards.find(b => b.id === s.activeBoard);
-    const { slides, ...rest } = src.settings;
+    const { slides, slidesOwn, ...rest } = src.settings;
     const settings = duplicate
-      ? boardSettings({ ...JSON.parse(JSON.stringify(rest)), slides: [...slides] })
-      : boardSettings({ aspect: s.aspect, slides: [...slides] });
+      ? boardSettings({ ...JSON.parse(JSON.stringify(rest)), ...(slidesOwn ? { slides: [...slides], slidesOwn: true } : { slides: s.library }) })
+      : boardSettings({ aspect: s.aspect, slides: s.library });
     const nums = boards.map(b => Number(/^画板 (\d+)$/.exec(b.name)?.[1]) || 0);
     // 名称不重复：「xx 副本」已存在时依次用「xx 副本 2」「xx 副本 3」…
     const taken = new Set(boards.map(b => b.name));

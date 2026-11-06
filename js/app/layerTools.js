@@ -1,7 +1,7 @@
 import { store, actions, boardsOf } from '../state.js';
 import {
   createLayer, measureText, hitLayer, moveLayer, mapToFrame, selectionFrame, frameHandles, corners,
-  pathOf, syncPathBox, insertAnchor, nearestOnPath, bounds, rotatePoint, fontOf, FONTS,
+  pathOf, syncPathBox, withContours, insertAnchor, nearestOnPath, bounds, rotatePoint, fontOf, FONTS,
 } from '../layers/model.js';
 import { snapRect, moveRect, intersects } from '../workspace/snap.js';
 import { createPathTools } from './pathTools.js';
@@ -25,7 +25,7 @@ import { ui, setUi } from './uiState.js';
 const HANDLE = 5;        // 选框手柄半径（屏幕像素）
 const ROTATE_ZONE = 18;  // 角外侧多大范围内拖动 = 旋转
 const PICK_TOL = 4;      // 点选容差（屏幕像素）
-export const LAYER_TOOLS = ['rect', 'ellipse', 'text', 'pen', 'direct'];
+export const LAYER_TOOLS = ['rect', 'ellipse', 'line', 'text', 'pen', 'direct'];
 const ACCENT = '#7c8cff';
 
 export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, snapEnabled, getCardSelection, setCardSelection, cardPatches, onSelectionChange }) {
@@ -262,6 +262,42 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     };
   }
 
+  // 直线：两个锚点的开放路径（只有描边），画好后可以用直接选择工具调整端点
+  function lineHandler(e) {
+    const i = info();
+    const p0 = toBoard(local(e), i);
+    let id = null;
+    const ends = (p, ev) => {
+      let dx = p.x - p0.x, dy = p.y - p0.y;
+      if (ev.shiftKey) { // 按 45° 吸附
+        const len = Math.hypot(dx, dy), a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        dx = Math.cos(a) * len; dy = Math.sin(a) * len;
+      }
+      const a = ev.altKey ? { x: p0.x - dx, y: p0.y - dy } : p0;
+      return [a, { x: p0.x + dx, y: p0.y + dy }];
+    };
+    const contours = pts => [{ closed: false, anchors: pts.map(q => ({ x: q.x, y: q.y, hi: null, ho: null })) }];
+    const place = pts => {
+      const list = layersOf();
+      if (!id) {
+        const l = createLayer('path', { name: `直线 ${list.filter(x => x.name?.startsWith('直线')).length + 1}`, contours: contours(pts) }, list);
+        id = l.id;
+        setLayers([...list, l]);
+        select([id]);
+      } else {
+        setLayers(list.map(l => (l.id === id ? withContours(l, contours(pts)) : l)));
+      }
+    };
+    return {
+      move(ev) { place(ends(toBoard(local(ev), i), ev)); },
+      up(ev, moved) {
+        if (!moved) place([{ x: p0.x - 150, y: p0.y }, { x: p0.x + 150, y: p0.y }]); // 单击：放一条默认长度的水平线
+        select([id]);
+        setTool('select');
+      },
+    };
+  }
+
   /* ---------------- 文字编辑 ---------------- */
 
   function startEdit(id, { selectAll = true } = {}) {
@@ -343,7 +379,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     if (editing) finishEdit();
     const s = S();
     // 绘制类工具：点在别的画板上先切换过去
-    if (['rect', 'ellipse', 'text', 'pen'].includes(tool)) {
+    if (['rect', 'ellipse', 'line', 'text', 'pen'].includes(tool)) {
       // 点在别的画板上先切换过去；画板外也可以画（图层可以超出画板，属于当前画板）
       if (board && board !== s.activeBoard) { paths.finishPen(); actions.setActiveBoard(board); }
       if (tool === 'text') {
@@ -358,7 +394,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       }
       if (tool === 'pen') return paths.penDown(e);
       setCardSelection([]);
-      return shapeHandler(tool, e);
+      return tool === 'line' ? lineHandler(e) : shapeHandler(tool, e);
     }
     if (tool === 'direct') {
       if (board && board !== s.activeBoard) actions.setActiveBoard(board);
@@ -472,7 +508,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
 
   function hover(e, tool, board) {
     lastPointer = e;
-    if (['rect', 'ellipse'].includes(tool)) return 'crosshair';
+    if (['rect', 'ellipse', 'line'].includes(tool)) return 'crosshair';
     if (tool === 'text') return 'text';
     if (tool === 'pen') return paths.hover(e, tool);
     if (tool !== 'select' && tool !== 'direct') { if (ui.layerHover) setUi('layerHover', null); return null; }

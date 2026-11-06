@@ -8,7 +8,7 @@ import { FADE_PRESETS, fadeCss } from '../style/schema.js';
  * 遮罩让幻灯片层逐渐透明、融进背景；多选画板时一起修改。
  */
 export function createFadePicker(parent, { store, actions, onMore }) {
-  const btn = el('button', { class: 'tb-btn tb-fade', 'aria-label': '渐隐遮罩' }, icon('blend', 16));
+  const btn = el('button', { class: 'tb-btn tb-fade', 'aria-label': '渐隐遮罩' }, icon('fade', 16));
   parent.append(btn);
 
   let chips = [];

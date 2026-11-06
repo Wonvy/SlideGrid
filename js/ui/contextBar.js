@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 import { layerSchema, cropSchema } from '../layers/schema.js';
 import { BOOLEAN_OPS } from '../layers/boolean.js';
 import { createMenu } from './menu.js';
+import { foldGroup } from './fold.js';
 
 /**
  * 顶部工具条的「上下文」部分：跟随当前选择显示最常用的属性（类似 Illustrator 的控制栏）。
@@ -70,17 +71,23 @@ export function createContextBar(slot, { store, ui, setLayerProp, setCards, getC
     });
     return b;
   }
-  // 排列（层级），选中两个以上形状时下面还有布尔运算（合在一个菜单里，节省工具条宽度）
-  const arrange = menuBtn('layers', '排列', () => [
+  // 排列（层级）和布尔运算：宽度够时整排显示按钮，放不下时折叠成下拉菜单（见 fold.js）
+  const group = (ic, label, items, priority) => foldGroup({
+    priority,
+    inline: items.map(it => btn(it.icon, it.shortcut ? `${it.label}（${it.shortcut}）` : it.label, it.action)),
+    trigger: menuBtn(ic, label, items),
+  });
+  const arrange = group('layers', '排列', [
     { label: '上移一层', icon: 'arrow-up', shortcut: `${mod}]`, action: () => reorder(1) },
     { label: '下移一层', icon: 'arrow-down', shortcut: `${mod}[`, action: () => reorder(-1) },
-    { label: '置于顶层', shortcut: `⇧${mod}]`, action: () => reorder(1, true) },
-    { label: '置于底层', shortcut: `⇧${mod}[`, action: () => reorder(-1, true) },
-    ...(booleanCount() >= 2 ? [{ sep: true }, { title: '布尔运算' }, ...BOOLEAN_OPS.map(o => ({ label: o.label, icon: o.icon, action: () => booleanOp(o.id) }))] : []),
-  ]);
-  const layerActions = [arrange, btn('trash-2', '删除（Delete）', () => removeLayers())];
+    { label: '置于顶层', icon: 'arrow-up-to-line', shortcut: `⇧${mod}]`, action: () => reorder(1, true) },
+    { label: '置于底层', icon: 'arrow-down-to-line', shortcut: `⇧${mod}[`, action: () => reorder(-1, true) },
+  ], 1);
+  const boolean = group('squares-unite', '布尔运算', BOOLEAN_OPS.map(o => ({ label: o.label, icon: o.icon, action: () => booleanOp(o.id) })), 2);
+  const sep = () => el('span', { class: 'tb-fold-gap' });
+  const layerActions = [arrange, sep(), btn('trash-2', '删除（Delete）', () => removeLayers())];
   const cardActions = [btn('rotate-ccw', '复位裁切', () => getCards().forEach(resetCrop))];
-  const boolActions = []; // 布尔运算在「排列」菜单里
+  const boolActions = [boolean, sep()]; // 选中两个以上形状时才出现
 
   let key = '';
   let updateControls = () => {};

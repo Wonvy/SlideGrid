@@ -154,6 +154,13 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
       }),
     };
   }
+  // 共用图片列表（sharedIds）同样换成新 id
+  if (Array.isArray(settings?.sharedIds)) {
+    const known = x => slideIds.has(x) || slides.some(s => s.placeholder && s.id === x);
+    settings = settings.sharedIds.every(known)
+      ? { ...settings, sharedIds: settings.sharedIds.map(x => slideIds.get(x) || x) }
+      : (({ sharedIds: _, ...rest }) => rest)(settings);
+  }
   const rec = {
     id, name, createdAt: now, updatedAt: now, settings,
     order: order.some(x => typeof x === 'string') ? order : [],

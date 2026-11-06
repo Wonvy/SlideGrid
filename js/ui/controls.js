@@ -64,7 +64,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         const snap = v => Number(clampTo(Math.round(v / step) * step, def).toFixed(decimals(step)));
         wheel = (steps, fast) => Number(clampTo(current + steps * ws * (fast ? 10 : 1), def).toFixed(decimals(ws)));
         {
-          // 数值条：名称在左、数值在右，底色按比例填充；左右拖动整条调整（面板和工具条共用，工具条里更紧凑）
+          // 数值条：名称在左、数值在右，底色按比例填充；按住拖动时数值跟着鼠标位置实时变化（面板和工具条共用）
           const fill = el('span', { class: 'sfield-fill' });
           row.classList.add('sfield');
           row.tabIndex = 0;
@@ -74,7 +74,8 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
           let drag = null;
           row.addEventListener('pointerdown', e => {
             if (e.button !== 0) return;
-            drag = { x: e.clientX, v: current, w: row.getBoundingClientRect().width, moved: false };
+            const r = row.getBoundingClientRect();
+            drag = { x: e.clientX, v: current, left: r.left, w: r.width, moved: false, fineFrom: null };
             row.setPointerCapture(e.pointerId);
           });
           row.addEventListener('pointermove', e => {
@@ -83,9 +84,17 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
             if (!drag.moved && Math.abs(dx) < 3) return;
             drag.moved = true;
             row.classList.add('dragging');
-            // 拖过整条宽度 = 走完整个范围（Shift 精调 1/10）
-            const k = (def.max - def.min) / Math.max(1, drag.w) * (e.shiftKey ? 0.1 : 1);
-            const v = snap(drag.v + dx * k);
+            let v;
+            if (e.shiftKey) {
+              // Shift：从当前值开始慢速精调（1/10）
+              if (!drag.fineFrom) drag.fineFrom = { x: e.clientX, v: current };
+              v = snap(drag.fineFrom.v + (e.clientX - drag.fineFrom.x) * ((def.max - def.min) / Math.max(1, drag.w)) * 0.1);
+            } else {
+              // 直接拖数值：底色的边缘跟着鼠标走，数值就是鼠标在条上的位置
+              drag.fineFrom = null;
+              const t = Math.max(0, Math.min(1, (e.clientX - drag.left) / Math.max(1, drag.w)));
+              v = snap(def.min + t * (def.max - def.min));
+            }
             if (v !== current) onChange(def.key, v);
           });
           const end = () => { drag = null; row.classList.remove('dragging'); };
@@ -263,36 +272,47 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
 
     // 按住名称上下（或左右）拖动调整数值，类似 Photoshop：向上 / 向右增大
     //   数值条：拖过约 240 像素走完整个范围，Shift 精调；数字：每像素一步，Shift ×10
+    //   数字输入框本身也可以拖：拖动调数值，单击（没拖动）才进入输入
     if (def.type === 'range' || def.type === 'number') {
-      label.classList.add('scrub');
-      label.title = '按住上下拖动调整（Shift 精调 / 加速）· 双击恢复默认 · 悬停后可用滚轮';
-      label.addEventListener('pointerdown', e => {
+      const scrub = (e, target, onClick) => {
         if (e.button !== 0) return;
         e.stopPropagation(); // 不触发数值条本身的拖动
         e.preventDefault();
-        label.setPointerCapture(e.pointerId);
+        target.setPointerCapture(e.pointerId);
         const start = Number(current) || 0, x0 = e.clientX, y0 = e.clientY;
         const step = def.step ?? 1;
         const span = Number.isFinite(def.max - def.min) ? def.max - def.min : null;
         let moved = false;
         const move = ev => {
           const d = (ev.clientX - x0) - (ev.clientY - y0);
-          if (!moved && Math.abs(d) < 2) return;
+          if (!moved && Math.abs(d) < 3) return;
           if (!moved) { moved = true; document.body.classList.add('scrubbing'); }
           const perPx = def.type === 'range' && span ? (span / 240) * (ev.shiftKey ? 0.1 : 1) : step * (ev.shiftKey ? 10 : 1);
           const v = Number(clampTo(Math.round((start + d * perPx) / step) * step, def).toFixed(decimals(step)));
           if (v !== current) onChange(def.key, v);
         };
         const up = () => {
-          label.removeEventListener('pointermove', move);
-          label.removeEventListener('pointerup', up);
-          label.removeEventListener('pointercancel', up);
+          target.removeEventListener('pointermove', move);
+          target.removeEventListener('pointerup', up);
+          target.removeEventListener('pointercancel', up);
           document.body.classList.remove('scrubbing');
+          if (!moved) onClick?.();
         };
-        label.addEventListener('pointermove', move);
-        label.addEventListener('pointerup', up);
-        label.addEventListener('pointercancel', up);
-      });
+        target.addEventListener('pointermove', move);
+        target.addEventListener('pointerup', up);
+        target.addEventListener('pointercancel', up);
+      };
+      label.classList.add('scrub');
+      label.title = '按住上下拖动调整（Shift 精调 / 加速）· 双击恢复默认 · 悬停后可用滚轮';
+      label.addEventListener('pointerdown', e => scrub(e, label));
+      const numInput = def.type === 'number' ? row.querySelector('.num-input') : null;
+      if (numInput) {
+        numInput.classList.add('scrub-input');
+        numInput.addEventListener('pointerdown', e => {
+          if (document.activeElement === numInput) return; // 正在输入时照常选择文字
+          scrub(e, numInput, () => { numInput.focus(); numInput.select(); });
+        });
+      }
     }
 
     if (wheel && !def.nowheel) {

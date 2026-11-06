@@ -2,6 +2,7 @@ import { store, actions } from '../state.js';
 import { unionRects, alignOffsets, distributeOffsets } from '../workspace/snap.js';
 import { icon } from '../ui/icons.js';
 import { createMenu } from '../ui/menu.js';
+import { foldGroup } from '../ui/fold.js';
 import { getAdjust, is3D } from './boards.js';
 import { ui } from './uiState.js';
 
@@ -75,11 +76,14 @@ export function createAlignment({ ws, viewport, alignSlot, snapSlot, layers = ()
     applyOffsets(items, distributeOffsets(items.map(x => x.r), axis));
   }
 
-  // 工具条上只放一个「对齐」按钮，点开是 6 个对齐 + 2 个分布（节省工具条宽度）
+  // 工具条上整排显示 6 个对齐 + 2 个分布；放不下时折叠成一个「对齐」下拉按钮（见 fold.js）
   const count = () => (is3D() ? 0 : ui.selection.length) + ui.layerSel.length;
   const trigger = button('tb-btn tb-menu-btn', 'align-center-vertical', '对齐与分布', () => {});
   trigger.append(icon('chevron-down', 12));
-  alignSlot.append(trigger);
+  const alignBtns = ALIGN.map(a => button('tb-btn', a.icon, a.label, () => alignSelection(a.mode)));
+  const distBtns = DISTRIBUTE.map(d => button('tb-btn', d.icon, d.label, () => distributeSelection(d.axis)));
+  const gap = Object.assign(document.createElement('span'), { className: 'tb-fold-gap' });
+  alignSlot.append(foldGroup({ inline: [...alignBtns, gap, ...distBtns], trigger, priority: 3 }));
   createMenu(trigger, {
     className: 'align-menu',
     align: 'center',
@@ -106,6 +110,11 @@ export function createAlignment({ ws, viewport, alignSlot, snapSlot, layers = ()
     const n = count();
     alignSlot.hidden = !n;
     trigger.title = n > 1 ? `对齐与分布（选中的 ${n} 个对象）` : '对齐到画板';
+    ALIGN.forEach((a, i) => { alignBtns[i].title = n > 1 ? a.label : `${a.label}（对齐到画板）`; });
+    DISTRIBUTE.forEach((d, i) => {
+      distBtns[i].disabled = n < 3;
+      distBtns[i].title = n < 3 ? `${d.label}（选中 3 个以上）` : d.label;
+    });
   }
 
   /* ---------- 吸附开关 ---------- */

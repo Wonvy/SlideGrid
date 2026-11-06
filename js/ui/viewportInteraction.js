@@ -134,7 +134,7 @@ export function attachViewportInteraction(target, opts) {
     if (key === 'o' && e.shiftKey) { setTool('artboard'); return; }
     const TOOL_KEYS = {
       v: 'select', c: 'crop', x: 'swap', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom',
-      t: 'text', m: 'rect', l: 'ellipse', p: 'pen', a: 'direct',
+      t: 'text', m: 'rect', l: 'ellipse', p: 'pen', a: 'direct', '\\': 'line',
     };
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
 
@@ -325,7 +325,7 @@ export function attachViewportInteraction(target, opts) {
             });
           }
         } else if (cardTools.has(tool)) {
-          const ok = hit && toolAvailable(tool);
+          const ok = hit && flat && toolAvailable(tool); // 3D 版式不能单独调整卡片
           if (flat && (additive || !hit)) {
             // 空白处拖动：框选卡片；Shift/⌘：追加框选，没拖动就是单击加选 / 减选卡片
             if (!additive) { setSelection([]); layers?.clear(); }
@@ -586,7 +586,7 @@ export function attachViewportInteraction(target, opts) {
     if (!b) { fitActive(); return; } // 双击空白处：适合当前画板
     if (b === activeBoard() && cardTools.has(tool)) {
       const hit = pick(e.clientX, e.clientY);
-      if (hit && toolAvailable(tool)) resetItemAdjust(hit.order);
+      if (hit && !is3D() && toolAvailable(tool)) resetItemAdjust(hit.order);
     }
     if (b === activeBoard() && tool === 'crop') {
       const hit = pick(e.clientX, e.clientY);

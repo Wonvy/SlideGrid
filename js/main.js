@@ -16,8 +16,9 @@ import { createResizeHandles } from './ui/resizeHandles.js';
 import { createPresetsPanel } from './ui/presetsPanel.js';
 import { initResizers } from './ui/resizer.js';
 import { toast } from './ui/toast.js';
+import { el } from './ui/dom.js';
 import { setWheelMode } from './ui/wheel.js';
-import { applyIcons } from './ui/icons.js';
+import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
 import { placeholders, slidesOf, hasRealSlides, is3D, getAdjust, nextLift } from './app/boards.js';
 import { ui, setUi, setSelection, clearSelection, resetCardState, onUiChange } from './app/uiState.js';
@@ -145,8 +146,36 @@ const importing = createImporting({
 document.querySelectorAll('[data-action="pick-files"]').forEach(b => b.addEventListener('click', importing.pickFiles));
 document.querySelectorAll('[data-action="pick-folder"]').forEach(b => b.addEventListener('click', importing.pickFolder));
 $('clear-btn').addEventListener('click', () => {
-  if (hasRealSlides() && confirm('移除当前画板的全部图片？（其他画板不受影响，设置会保留）')) actions.clearSlides();
+  if (!hasRealSlides()) return;
+  const msg = store.get().slidesOwn
+    ? '移除当前画板的全部图片？（这个画板单独设置了图片，其他画板不受影响）'
+    : '清空共用的图片列表？（跟随它的画板都会清空；单独设置过图片的画板不受影响）';
+  if (confirm(msg)) actions.clearSlides();
 });
+
+// 左栏顶部：当前画板的图片来源（跟随共用列表 / 单独设置）
+const slidesMode = $('slides-mode');
+function renderSlidesMode(s) {
+  const boards = boardsOf(s);
+  const following = boards.filter(b => !b.settings.slidesOwn).length;
+  if (s.slidesOwn) {
+    slidesMode.hidden = false;
+    slidesMode.className = 'slides-mode own';
+    slidesMode.replaceChildren(
+      el('span', { class: 'sm-text', title: '在画布上单独交换 / 替换 / 移除过卡片，这个画板有自己的图片列表，共用列表的变化不影响它' },
+        icon('frame', 14), '此画板单独设置了图片'),
+      el('button', { class: 'btn ghost small', title: '改回跟随共用列表（这个画板单独的顺序和替换会丢失）', onclick: () => { actions.followLibrary(); toast('已恢复跟随共用图片'); } }, '恢复跟随'),
+      el('button', { class: 'btn ghost small', title: '把这个画板的图片列表设为共用列表，跟随的画板一起更新', onclick: () => { actions.shareBoardSlides(); toast('已设为共用图片'); } }, '设为共用'),
+    );
+  } else if (boards.length > 1) {
+    slidesMode.hidden = false;
+    slidesMode.className = 'slides-mode';
+    slidesMode.replaceChildren(el('span', { class: 'sm-text', title: '这里的修改会同步到所有跟随的画板；在画布上单独交换 / 替换 / 移除某张卡片时，只改那个画板' },
+      icon('images', 14), `共用图片 · ${following} 个画板跟随`));
+  } else {
+    slidesMode.hidden = true;
+  }
+}
 
 /* ---------------- 面板 ---------------- */
 
@@ -160,7 +189,7 @@ const slidesPanel = createSlidesPanel({
   dropzone: $('dropzone'),
   footEl: $('slides-foot'),
   viewButtons: { grid: $('view-grid'), list: $('view-list') },
-  onRemove: actions.removeSlide,
+  onRemove: id => actions.removeSlide(id),
   onMove: actions.moveSlide,
   onHover: i => setUi('listHover', i), // 左侧悬停 → 当前画板里高亮这张图出现的所有位置
   onPick: importing.pickFiles,
@@ -178,7 +207,7 @@ const settings = createSettingsPanel($('settings-panel'), {
 });
 document.querySelector('#settings-panel .rp-tabs').append(panels.collapseButton('right'));
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
-  store, actions, snapshot: exporting.snapshot, toast, download: exporting.download,
+  store, actions, snapshot: exporting.snapshot, toast, download: exporting.download, footer: settings.presetsFooter, saveFooter: settings.designFooter,
   onCount: n => settings.setPresetCount(n),
 });
 const topbarMenus = createTopbarMenus($('board-bar'), {
@@ -212,7 +241,8 @@ const CARD_TOOLS = ['select', 'rotate', 'scale'];
 const SELECT_TOOLS = [...CARD_TOOLS, 'crop']; // 切换到这些工具时保留卡片选择
 // 工具是否可用：单张卡片调整（选择 / 旋转 / 比例）只用于平面版式
 function toolAvailability(id) {
-  if (CARD_TOOLS.includes(id) && is3D()) return { ok: false, reason: '3D 版式暂不支持单张卡片调整，可在平面版式中使用' };
+  // 选择工具在 3D 版式下仍可用（选图层、移动画板），只是不能单独调整卡片
+  if (CARD_TOOLS.includes(id) && id !== 'select' && is3D()) return { ok: false, reason: '3D 版式暂不支持单张卡片调整，可在平面版式中使用' };
   return { ok: true, reason: '' };
 }
 function setTool(id) {
@@ -247,6 +277,9 @@ const toolbar = createToolbar($('app'), {
     toast('已重置当前画板的卡片调整');
   },
 });
+// 撤销 / 重做放在画布右下角的视图条最前面
+toolbar.viewbar.prepend(document.querySelector('.history-btns'));
+
 const alignment = createAlignment({ ws, viewport, alignSlot: toolbar.alignSlot, snapSlot: toolbar.viewSlot, layers: () => layerTools });
 
 // 工具条上的「画板背景」：快速切换类型、预设色板、自定义颜色
@@ -413,6 +446,7 @@ const TOOL_HINTS = {
   text: '文字：单击添加文字 · 输入完按 Esc 或点别处结束 · 双击文字可再次编辑',
   rect: '矩形：拖动绘制 · Shift 正方形 · ⌥ 从中心',
   ellipse: '椭圆：拖动绘制 · Shift 正圆 · ⌥ 从中心',
+  line: '直线：拖动绘制 · Shift 按 45° 吸附 · ⌥ 从中心 · 单击放一条默认长度的',
   pen: '钢笔：单击直角 · 拖动曲线 · Shift 45° · 拖动时 ⌥ 转角、空格移动锚点 · 点末点去掉控制柄 · 点首点闭合 · ⌘ 临时直接选择 · Enter 结束',
   direct: '直接选择：点锚点显示控制柄 · 拖锚点 / 控制柄（⌥ 打断，Shift 45°）· ⌥ 单击切换直角 / 平滑 · 双击加锚点 · Delete 删除 · 方向键微调',
   orbit: '构图：拖动调整画板内构图（3D 旋转 / Shift 平移）· 滚轮缩放构图',
@@ -455,13 +489,14 @@ onUiChange(key => {
   ws.scheduleRender();
 });
 
-const SAVED_KEYS = ['slides', 'assets', 'artboards', 'activeBoard', ...BOARD_KEYS];
+const SAVED_KEYS = ['slides', 'library', 'assets', 'artboards', 'activeBoard', ...BOARD_KEYS];
 const projectChanged = (a, b) => SAVED_KEYS.some(k => a[k] !== b[k]);
 
 let prev = store.get();
 setWheelMode(prev.wheelMode);
 store.subscribe(s => {
   if (s.wheelMode !== prev.wheelMode) setWheelMode(s.wheelMode);
+  if (s.slidesOwn !== prev.slidesOwn || s.artboards !== prev.artboards || s.activeBoard !== prev.activeBoard) renderSlidesMode(s);
   if (s.slides !== prev.slides) {
     slidesPanel.render(s.slides);
     // 只释放不再被任何画板使用的纹理
@@ -497,6 +532,7 @@ store.subscribe(s => {
 });
 
 slidesPanel.render(prev.slides);
+renderSlidesMode(prev);
 topbarMenus.update(prev);
 refreshTools();
 ws.resize();

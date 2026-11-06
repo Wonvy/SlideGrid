@@ -274,9 +274,9 @@ button { font: inherit; color: inherit; }
 }
 .ctrl:hover { background: rgba(255, 255, 255, .03); }
 /* 滚轮已激活：左侧高亮条 + 上下箭头光标 */
-.ctrl.wheel-armed { background: rgba(124, 140, 255, .09); box-shadow: inset 2px 0 0 var(--accent); cursor: ns-resize; }
+.ctrl.wheel-armed { background: rgba(124, 140, 255, .09); box-shadow: inset 2px 0 0 var(--accent); }
 .ctrl.wheel-armed .ctrl-label { color: var(--text); }
-.segmented.wheel-armed { box-shadow: 0 0 0 1px var(--accent); cursor: ns-resize; }
+.segmented.wheel-armed { box-shadow: 0 0 0 1px var(--accent); }
 .ctrl:last-child { margin-bottom: 0; }
 .ctrl-label { color: var(--muted); font-size: 12px; user-select: none; }
 .ctrl-value { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -1062,7 +1062,7 @@ html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止�
 .rp-rail .tab-count:empty { display: none; }
 .rp-rail .panel-collapse { margin-top: auto; width: 38px; height: 38px; border-radius: 11px; }
 .rp-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.rp-title { flex: none; padding: 16px 16px 4px; font-size: 16px; font-weight: 700; color: var(--text); }
+.rp-title { flex: none; padding: 16px 16px 12px; font-size: 16px; font-weight: 700; color: var(--text); }
 .rp-main .rp-pane { padding-top: 0; }
 .current-layout { background: var(--panel-2); border: 0; border-radius: 10px; padding: 8px 10px; }
 .sel-bar { padding: 8px 16px 12px; }
@@ -1226,9 +1226,9 @@ html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止�
 .ctx-controls.ctrls-inline .ctrl.nfield { width: 84px; padding: 0 2px 0 10px; }
 
 /* 按住参数名称拖动调整数值（类似 Photoshop） */
-.ctrl-label.scrub { cursor: ns-resize; touch-action: none; }
+.ctrl-label.scrub { cursor: ew-resize; touch-action: none; }
 .ctrl-label.scrub:hover { color: var(--text); }
-body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: none !important; }
+body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: none !important; }
 
 /* 面板参数：行间距加大，控件高度 34px */
 .ctrls { row-gap: 12px; }
@@ -1273,3 +1273,86 @@ body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: no
 .dropzone:not(.compact) .dz-actions .btn { background: #252a35; }
 .dropzone:not(.compact) .dz-actions .btn:hover { background: #2f3644; }
 .dropzone:not(.compact) .dz-actions .btn { flex: none; width: 100%; }
+/* 空状态更简洁：没有外框和底色，图标不加底块；拖文件进来时才显示高亮的虚线框 */
+.dropzone:not(.compact) { border-color: transparent; background: transparent; padding: 0 6px; }
+.dropzone:not(.compact) .dz-icon { width: auto; height: auto; margin-bottom: 14px; background: none; color: var(--faint); }
+.file-drag .dropzone:not(.compact) { border-color: var(--accent); background: rgba(124, 140, 255, .06); padding: 24px 6px; }
+/* 版式页的分组标题（平面 / 3D 透视）：可折叠 */
+.picker-group { margin-bottom: 10px !important; }
+.picker-grid[hidden] { display: none; }
+
+/* 页面底部固定栏（「我的版式」的保存 / 导入 / 导出）：上面的内容单独滚动 */
+.rp-pane.has-footer { display: flex; flex-direction: column; overflow: hidden; }
+.rp-pane.has-footer[hidden] { display: none; }
+.rp-pane.has-footer > .pane-body { flex: 1; min-height: 0; overflow-y: auto; }
+.rp-footer { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--line); background: var(--panel); }
+.rp-footer[hidden] { display: none; }
+.rp-footer .preset-toolbar { margin: 0; gap: 4px; }
+.rp-footer .preset-toolbar .btn { height: 34px; border: 0; border-radius: 10px; background: #252a35; font-size: 13px; }
+.rp-footer .preset-toolbar .btn:hover { background: #2f3644; }
+.rp-footer .preset-toolbar .icon-btn.visible { width: 34px; height: 34px; border-radius: 10px; }
+.rp-footer .preset-form { margin: 0; border: 0; border-radius: 12px; }
+/* 空状态的两个按钮：并排、接近正方形，图标在上、文字在下 */
+.dropzone:not(.compact) .dz-actions { flex-direction: row; gap: 8px; }
+.dropzone:not(.compact) .dz-actions .btn {
+  flex: 1 1 0; width: auto; height: auto; aspect-ratio: 6 / 5; min-width: 0;
+  flex-direction: column; justify-content: center; gap: 8px; padding: 0 6px;
+}
+.dropzone:not(.compact) .dz-actions .btn .icon { margin: 0; opacity: 1; color: var(--muted); }
+.dropzone:not(.compact) .dz-actions .btn:hover .icon { color: var(--text); }
+
+/* 顶栏中间：项目 · 保存状态 · 画板 / 比例 */
+.topbar-center { align-items: center; gap: 8px; }
+.topbar-center .save-status { margin-right: 4px; }
+/* 视图条里的撤销 / 重做 */
+.viewbar .history-btns { gap: 2px; margin: 0; }
+.viewbar .history-btns .icon-btn.visible { width: 32px; height: 32px; border-radius: 10px; color: var(--muted); }
+.viewbar .history-btns .icon-btn.visible:hover:not(:disabled) { background: var(--field); color: var(--text); }
+/* 操作提示放在画布左下角，让开右下角的视图条（撤销 / 吸附 / 缩放） */
+.stage .stage-hint { left: 16px; transform: none; text-align: left; max-width: calc(100% - 420px); }
+.stage.long .stage-hint { left: calc(var(--left-w, 248px) + 16px); transform: none; }
+/* 空状态按钮：只有图标的小方块，并排居中 */
+.dropzone:not(.compact) .dz-actions { justify-content: center; gap: 10px; margin-top: 20px; }
+.dropzone:not(.compact) .dz-actions .btn { flex: none; width: 56px; height: 48px; aspect-ratio: auto; padding: 0; gap: 0; }
+/* 空状态按钮：平时透明，悬停时显示底色 */
+.dropzone:not(.compact) .dz-actions .btn,
+.dropzone:not(.compact) .dz-actions .btn:first-child { background: transparent; transition: background .15s, color .15s; }
+.dropzone:not(.compact) .dz-actions .btn:hover,
+.dropzone:not(.compact) .dz-actions .btn:first-child:hover { background: var(--field-hover); }
+/* 画板背景快捷面板：一个色块网格 + 底部一行（自定义色、图片、幻灯片、更多） */
+.bg-menu { width: 236px; padding: 10px; }
+.bg-menu .menu-title { padding: 0 2px 8px; }
+.bg-menu .bg-grid { grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.bg-foot { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.bg-foot input[type=color] { width: 26px; height: 26px; }
+.bg-foot .bar-spacer { flex: 1; }
+.bg-foot-btn { width: 30px; height: 30px; color: var(--muted); }
+.bg-foot-btn:hover { color: var(--text); }
+.bg-foot-btn.on { background: var(--chip-on); color: var(--text); }
+/* 工具条上的可折叠按钮组：宽度够时整排显示，放不下时折叠成下拉按钮 */
+.tb-fold { display: flex; align-items: center; }
+.tb-fold-inline { display: flex; align-items: center; gap: 2px; }
+.tb-fold:not(.folded) > .tb-fold-menu, .tb-fold.folded > .tb-fold-inline { display: none; }
+.tb-fold-inline .tb-btn:disabled { opacity: .35; cursor: default; background: none; }
+.tb-fold-gap { width: 1px; height: 18px; margin: 0 4px; background: var(--line); flex: none; }
+/* 数字输入框：去掉浏览器自带的上下箭头（会盖住数值）；未输入时可左右拖动调数值 */
+.num-input { -moz-appearance: textfield; appearance: textfield; }
+.num-input::-webkit-inner-spin-button, .num-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.num-input.scrub-input:not(:focus) { cursor: ew-resize; }
+/* 右栏参数悬停（可用滚轮调）：只给输入框 / 数值条描边，不再给整行加左侧色条和底色（叠在标题上像个色块） */
+.ctrls .ctrl.wheel-armed { background: none; box-shadow: none; }
+/* 左栏顶部：当前画板的图片来源 */
+.slides-mode { display: flex; align-items: center; gap: 4px; margin: 0 12px 8px; padding: 6px 6px 6px 10px; border-radius: 10px; background: var(--field); color: var(--muted); font-size: 12px; }
+.slides-mode[hidden] { display: none; }
+.slides-mode .sm-text { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slides-mode .sm-text .icon { flex: none; }
+.slides-mode.own { background: rgba(240, 179, 90, .12); color: #f0b35a; }
+.slides-mode .btn.small { flex: none; padding: 3px 8px; font-size: 12px; color: var(--text); }
+.slides-mode.own { flex-wrap: wrap; row-gap: 6px; padding: 8px 8px 8px 10px; }
+.slides-mode.own .sm-text { flex: 1 0 100%; white-space: normal; }
+.slides-mode.own .btn.small { flex: 1; justify-content: center; background: rgba(255, 255, 255, .06); }
+.slides-mode.own .btn.small:hover { background: rgba(255, 255, 255, .12); }
+/* 设计页：内容单独滚动，底部固定「保存当前版式」 */
+.rp-pane.has-footer > .design-body { flex: 1; min-height: 0; overflow-y: auto; }
+.design-footer .preset-toolbar .btn { flex: 1; justify-content: center; }
+.preset-toolbar-note { flex: 1; font-size: 12px; color: var(--faint); }

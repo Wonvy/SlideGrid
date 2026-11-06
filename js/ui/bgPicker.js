@@ -2,28 +2,15 @@ import { createMenu } from './menu.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
 
-// 预设：常用纯色与精选渐变
-const SOLIDS = [
-  '#ffffff', '#f1f3f5', '#dee2e6', '#adb5bd', '#495057', '#2b3040',
-  '#16181d', '#000000', '#fff4e6', '#e7f5ff', '#ebfbee', '#fff0f6',
-];
+// 预设：一行纯色（第一个是透明）+ 一行渐变
+const SOLIDS = ['#ffffff', '#e9ecef', '#868e96', '#2b3040', '#000000'];
 const GRADIENTS = [
   { bgType: 'radial', bg1: '#2b3040', bg2: '#0d0f14' },
   { bgType: 'radial', bg1: '#ffffff', bg2: '#dfe3e8' },
   { bgType: 'linear', bg1: '#667eea', bg2: '#764ba2', bgAngle: 135 },
   { bgType: 'linear', bg1: '#ff9a9e', bg2: '#fad0c4', bgAngle: 135 },
   { bgType: 'linear', bg1: '#a1c4fd', bg2: '#c2e9fb', bgAngle: 160 },
-  { bgType: 'linear', bg1: '#f6d365', bg2: '#fda085', bgAngle: 135 },
-  { bgType: 'linear', bg1: '#0f2027', bg2: '#2c5364', bgAngle: 160 },
   { bgType: 'linear', bg1: '#11998e', bg2: '#38ef7d', bgAngle: 135 },
-];
-const TYPES = [
-  { value: 'transparent', label: '透明' },
-  { value: 'solid', label: '纯色' },
-  { value: 'linear', label: '线性' },
-  { value: 'radial', label: '径向' },
-  { value: 'image', label: '图片' },
-  { value: 'slide', label: '幻灯片' },
 ];
 const CHECKER = 'repeating-conic-gradient(#c8ccd4 0 25%, #ffffff 0 50%) 0 0 / 8px 8px';
 
@@ -68,58 +55,49 @@ export function createBgPicker(parent, { store, actions, pickImage, onMore }) {
 
   function build(pop, close) {
     const title = el('div', { class: 'menu-title' });
-    const types = new Map();
-    const typeRow = el('div', { class: 'bg-types' });
-    for (const t of TYPES) {
-      const b = el('button', { class: 'bg-type' }, t.label);
-      b.addEventListener('click', () => {
-        const s = store.get();
-        if (t.value === 'image' && !s.assets[s.style.bgImageId]) { close(); pickImage(); return; }
-        actions.patchStyle({ bgType: t.value });
-      });
-      types.set(t.value, b);
-      typeRow.append(b);
-    }
-
-    const solids = SOLIDS.map(c => {
-      const b = el('button', { class: 'bg-chip', title: c, style: `background:${c}` });
-      b.addEventListener('click', () => actions.patchStyle({ bgType: 'solid', bg1: c }));
-      return { b, match: st => st.bgType === 'solid' && st.bg1.toLowerCase() === c };
-    });
-    const grads = GRADIENTS.map(g => {
-      const b = el('button', { class: 'bg-chip', title: `${g.bg1} → ${g.bg2}`, style: `background:${bgCss({ bgAngle: 180, ...g })}` });
-      b.addEventListener('click', () => actions.patchStyle({ bgAngle: 180, ...g }));
-      return { b, match: st => st.bgType === g.bgType && st.bg1.toLowerCase() === g.bg1 && st.bg2.toLowerCase() === g.bg2 };
-    });
+    const chip = (style, titleText, patch, match) => {
+      const b = el('button', { class: 'bg-chip', title: titleText, style: `background:${bgCss({ bgAngle: 180, ...style })}` });
+      b.addEventListener('click', () => actions.patchStyle(patch));
+      return { b, match };
+    };
+    const chips = [
+      chip({ bgType: 'transparent' }, '透明', { bgType: 'transparent' }, st => st.bgType === 'transparent'),
+      ...SOLIDS.map(c => chip({ bgType: 'solid', bg1: c }, c, { bgType: 'solid', bg1: c },
+        st => st.bgType === 'solid' && st.bg1.toLowerCase() === c)),
+      ...GRADIENTS.map(g => chip(g, `${g.bg1} → ${g.bg2}`, { bgAngle: 180, ...g },
+        st => st.bgType === g.bgType && st.bg1.toLowerCase() === g.bg1 && st.bg2.toLowerCase() === g.bg2)),
+    ];
 
     // 自定义颜色：拖动取色时实时生效（只更新数值，不重建面板，取色器不会被打断）
-    const c1 = el('input', { type: 'color', title: '起始色 / 颜色' });
-    const c2 = el('input', { type: 'color', title: '结束色' });
+    const c1 = el('input', { type: 'color', title: '自定义颜色' });
+    const c2 = el('input', { type: 'color', title: '渐变结束色' });
     c1.addEventListener('input', () => {
       const st = store.get().style;
       actions.patchStyle({ bg1: c1.value, ...(st.bgType === 'transparent' ? { bgType: 'solid' } : {}) });
     });
     c2.addEventListener('input', () => actions.patchStyle({ bg2: c2.value }));
     const c2wrap = el('span', { class: 'bg-c2' }, el('span', { class: 'bg-arrow' }, '→'), c2);
-    const customLabel = el('span', { class: 'menu-label' }, '自定义');
 
-    const imageRow = el('div', { class: 'bg-image-row' },
-      el('button', { class: 'btn small', onclick: () => { close(); pickImage(); } }, icon('image-plus', 13), '更换背景图…'));
+    const iconBtn = (ic, label, fn) => {
+      const b = el('button', { class: 'icon-btn visible bg-foot-btn', title: label, 'aria-label': label }, icon(ic, 15));
+      b.addEventListener('click', fn);
+      return b;
+    };
+    const imageBtn = iconBtn('image', '背景图片', () => {
+      const s = store.get();
+      close();
+      if (s.style.bgType === 'image' || !s.assets[s.style.bgImageId]) pickImage();
+      else actions.patchStyle({ bgType: 'image' });
+    });
+    const slideBtn = iconBtn('images', '用幻灯片做背景', () => actions.patchStyle({ bgType: 'slide' }));
+    const moreBtn = iconBtn('settings-2', '更多背景设置（模糊、压暗、暗角…）', () => { close(); onMore(); });
 
     pop.append(
-      title, typeRow,
-      el('div', { class: 'bg-sub' }, '纯色'),
-      el('div', { class: 'bg-grid' }, solids.map(x => x.b)),
-      el('div', { class: 'bg-sub' }, '渐变'),
-      el('div', { class: 'bg-grid grads' }, grads.map(x => x.b)),
-      el('div', { class: 'bg-custom' }, customLabel, c1, c2wrap),
-      imageRow,
-      el('div', { class: 'menu-sep' }),
-      el('button', { class: 'menu-item', onclick: () => { close(); onMore(); } },
-        el('span', { class: 'menu-check' }, icon('settings-2', 14)),
-        el('span', { class: 'menu-label' }, '更多背景设置（模糊、压暗、暗角…）')),
+      title,
+      el('div', { class: 'bg-grid' }, chips.map(x => x.b)),
+      el('div', { class: 'bg-foot' }, c1, c2wrap, el('span', { class: 'bar-spacer' }), imageBtn, slideBtn, moreBtn),
     );
-    return { title, types, solids, grads, c1, c2, c2wrap, customLabel, imageRow };
+    return { title, chips, c1, c2, c2wrap, imageBtn, slideBtn };
   }
 
   // 刷新工具条上的色块；面板打开时同步面板内容
@@ -135,14 +113,12 @@ export function createBgPicker(parent, { store, actions, pickImage, onMore }) {
     const st = s.style;
     const board = s.artboards.find(b => b.id === s.activeBoard);
     refs.title.textContent = `画板背景 · ${board?.name || ''}`;
-    refs.types.forEach((b, v) => b.classList.toggle('active', v === st.bgType));
-    for (const x of [...refs.solids, ...refs.grads]) x.b.classList.toggle('active', x.match(st));
+    for (const x of refs.chips) x.b.classList.toggle('active', x.match(st));
     if (document.activeElement !== refs.c1) refs.c1.value = st.bg1;
     if (document.activeElement !== refs.c2) refs.c2.value = st.bg2;
-    const gradient = st.bgType === 'linear' || st.bgType === 'radial';
-    refs.c2wrap.hidden = !gradient;
-    refs.customLabel.textContent = gradient ? '自定义渐变' : st.bgType === 'image' || st.bgType === 'slide' ? '底色' : '自定义颜色';
-    refs.imageRow.hidden = st.bgType !== 'image';
+    refs.c2wrap.hidden = st.bgType !== 'linear' && st.bgType !== 'radial';
+    refs.imageBtn.classList.toggle('on', st.bgType === 'image');
+    refs.slideBtn.classList.toggle('on', st.bgType === 'slide');
   }
 
   update(store.get());

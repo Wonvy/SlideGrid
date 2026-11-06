@@ -226,28 +226,41 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     toast(`已粘贴 SVG：${layers.length} 个可编辑图层`);
   }
 
+  // 剪贴板里的 image/svg+xml 数据（PowerPoint、Office 复制图形时会同时放 PNG 和 SVG）。
+  // paste 事件里浏览器只给 PNG，SVG 要通过异步剪贴板接口读取（可能请求一次授权；拒绝时返回 null）
+  async function readClipboardSvg() {
+    if (!navigator.clipboard?.read) return null;
+    try {
+      const perm = await navigator.permissions?.query({ name: 'clipboard-read' }).catch(() => null);
+      if (perm?.state === 'denied') return null;
+      for (const it of await navigator.clipboard.read()) {
+        if (it.types.includes('image/svg+xml')) return extractSvg(await (await it.getType('image/svg+xml')).text());
+      }
+    } catch (err) { console.warn(err); }
+    return null;
+  }
+
   // ⌘V / Ctrl+V：浏览器的 paste 事件直接带有剪贴板内容，不需要额外授权
-  //   SVG 代码（Illustrator / Figma 复制的矢量）或 .svg 文件 → 矢量图层
-  //   图片：选中卡片时替换它的图片，否则作为图片图层放到当前画板
+  //   SVG 代码（Illustrator / Figma 复制的矢量）、.svg 文件、剪贴板里的 image/svg+xml 数据 → 矢量图层
+  //   图片：选中卡片时替换它的图片，否则作为图片图层放到当前画板（剪贴板同时有 SVG 时优先用 SVG）
   document.addEventListener('paste', async e => {
     if (isTyping(e.target)) return;
     const dt = e.clipboardData;
     if (!dt) return;
     const files = [...dt.items].filter(it => it.kind === 'file').map(it => it.getAsFile()).filter(Boolean);
-    const svgText = extractSvg(dt.getData('text/plain')) || extractSvg(dt.getData('text/html'));
     const svgFile = files.find(f => f.type === 'image/svg+xml' || /\.svg$/i.test(f.name || ''));
     const images = files.filter(f => f.type.startsWith('image/') && f !== svgFile);
-    if (svgText || svgFile) {
-      e.preventDefault();
-      addSvg(svgText || await svgFile.text());
-      return;
-    }
+    const replacing = selectedSlideIndex() != null && !ui.layerSel.length; // 选中了卡片：用图片替换它
+    let svg = extractSvg(dt.getData('image/svg+xml')) || extractSvg(dt.getData('text/plain')) || extractSvg(dt.getData('text/html'));
+    if (svg || svgFile || images.length) e.preventDefault();
+    if (!svg && svgFile) svg = extractSvg(await svgFile.text());
+    if (!svg && images.length && !replacing) svg = await readClipboardSvg();
+    if (svg) { addSvg(svg); return; }
     if (!images.length) {
       if (selectedSlideIndex() != null) toast('剪贴板里没有图片', { error: true });
       return;
     }
-    e.preventDefault();
-    if (selectedSlideIndex() != null && !ui.layerSel.length) importPasted(images); // 选中了卡片：替换它
+    if (replacing) importPasted(images);
     else addImageLayers(images);
   });
 
@@ -257,7 +270,7 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     const images = [];
     let svg = null;
     for (const it of items) {
-      if (it.types.includes('image/svg+xml')) { svg = await (await it.getType('image/svg+xml')).text(); continue; }
+      if (it.types.includes('image/svg+xml')) { svg = extractSvg(await (await it.getType('image/svg+xml')).text()); if (svg) continue; }
       const type = it.types.find(x => x.startsWith('image/'));
       if (type) { images.push(await it.getType(type)); continue; }
       if (it.types.includes('text/plain')) svg ||= extractSvg(await (await it.getType('text/plain')).text());
