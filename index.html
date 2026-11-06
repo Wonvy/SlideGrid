@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SlideGrid</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand"><span class="logo" data-icon="layout-grid" data-icon-size="13"></span>SlideGrid</div>
+        <button class="project-btn" id="project-btn" data-icon="folder-kanban" title="项目：新建、打开、导入、导出">
+          <span class="project-title" id="project-title">…</span>
+          <span class="caret" data-icon="chevron-down" data-icon-size="14"></span>
+        </button>
+        <span class="save-status" id="save-status"></span>
+      </div>
+      <div class="topbar-center" id="aspect-bar"></div>
+      <div class="topbar-right">
+        <div class="size-picker" id="size-picker"></div>
+        <button class="btn" id="copy-btn" data-icon="clipboard-copy" title="按当前尺寸生成 PNG 并复制到剪贴板">复制到剪贴板</button>
+        <button class="btn primary" id="export-btn" data-icon="download">导出图片</button>
+      </div>
+    </header>
+
+    <aside class="sidebar left" id="slides-panel">
+      <div class="slides-head">
+        <h2>幻灯片<span class="count" id="slide-count"></span></h2>
+        <div class="head-actions">
+          <div class="view-toggle" role="group" aria-label="显示方式">
+            <button class="icon-btn visible" id="view-grid" data-icon="layout-grid" data-icon-size="14" title="网格视图"></button>
+            <button class="icon-btn visible" id="view-list" data-icon="list" data-icon-size="14" title="列表视图"></button>
+          </div>
+          <span class="head-sep"></span>
+          <button class="icon-btn visible" data-action="pick-files" data-icon="image-plus" data-icon-size="15" title="添加图片"></button>
+          <button class="icon-btn visible" data-action="pick-folder" data-icon="folder-open" data-icon-size="15" title="添加文件夹"></button>
+          <button class="icon-btn visible danger" id="clear-btn" data-icon="trash-2" data-icon-size="15" title="清空全部图片（设置保留）"></button>
+        </div>
+      </div>
+
+      <div class="slides-scroll">
+        <div class="dropzone" id="dropzone">
+          <div class="dz-icon" data-icon="images" data-icon-size="30"></div>
+          <div class="dz-title">拖入图片或文件夹</div>
+          <div class="dz-sub">按文件名自然排序 · 图片只在本地处理</div>
+          <div class="dz-actions">
+            <button class="btn small" data-action="pick-files" data-icon="image-plus" data-icon-size="14">选择图片</button>
+            <button class="btn small" data-action="pick-folder" data-icon="folder-open" data-icon-size="14">选择文件夹</button>
+          </div>
+          <div class="dz-note" id="empty-tip">预览里是示例图：拖到某张卡片上可单独放入</div>
+          <div class="dz-compact" data-icon="plus" data-icon-size="14" title="点击选择图片，或把图片 / 文件夹拖进来">拖入或点击添加更多</div>
+        </div>
+        <ol class="slide-list" id="slide-list"></ol>
+      </div>
+
+      <div class="slides-foot" id="slides-foot"></div>
+      <input type="file" id="file-input" accept="image/*" multiple hidden>
+      <input type="file" id="folder-input" webkitdirectory multiple hidden>
+    </aside>
+
+    <main class="stage" id="stage">
+      <div class="viewport" id="viewport">
+        <canvas id="bg-canvas"></canvas>
+        <canvas id="gl-canvas"></canvas>
+      </div>
+      <div class="stage-hint" id="stage-hint"></div>
+    </main>
+
+    <aside class="sidebar right" id="settings-panel"></aside>
+  </div>
+
+  <div class="drop-overlay" id="drop-overlay">
+    <div class="drop-label"><span data-icon="upload"></span><span id="drop-label">松开以导入图片或文件夹</span></div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

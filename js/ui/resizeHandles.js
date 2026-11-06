@@ -1,0 +1,109 @@
+import { clamp } from '../core/utils.js';
+import { el } from './dom.js';
+
+/**
+ * 选中卡片的四个角点缩放手柄（等比缩放）。
+ *   拖动角点：对角固定；按住 ⌥/Alt：以中心为基准
+ * 手柄是叠在预览区上的 DOM 元素，跟随卡片的旋转 / 位置；在 pointerdown 时阻止冒泡，
+ * 因此不会触发预览区的其他工具。
+ *
+ * 依赖（由 main.js 提供）：
+ *   getTarget() → 当前选中的 scene item 或 null
+ *   cornersClient(item) / centerClient(item) → 屏幕坐标
+ *   getAdjust(order) / setItemAdjust(order, patch) / nextLift()
+ *   toLayoutDelta(dxPx, dyPx) → 版式坐标中的位移
+ */
+export function createResizeHandles(viewport, opts) {
+  const { getTarget, cornersClient, centerClient, getAdjust, setItemAdjust, toLayoutDelta, nextLift } = opts;
+
+  const layer = el('div', { class: 'resize-layer', hidden: true });
+  const badge = el('div', { class: 'resize-badge', hidden: true });
+  const handles = [0, 1, 2, 3].map(() => el('div', { class: 'resize-handle', title: '拖动等比缩放（⌥ 以中心为基准）' }));
+  layer.append(...handles, badge);
+  viewport.append(layer);
+
+  let drag = null;
+
+  handles.forEach((h, i) => {
+    h.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const item = getTarget();
+      if (!item) return;
+      e.stopPropagation(); // 不交给预览区的移动 / 旋转工具
+      e.preventDefault();
+      h.setPointerCapture(e.pointerId);
+      const corners = cornersClient(item);
+      const a = { dx: 0, dy: 0, ...getAdjust(item.order) };
+      drag = {
+        order: item.order,
+        start: corners[i],
+        opposite: corners[(i + 2) % 4],
+        center: centerClient(item),
+        s0: a.s > 0 ? a.s : 1,
+        adj: a,
+        lifted: false,
+      };
+      layer.classList.add('dragging');
+    });
+
+    h.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const anchor = e.altKey ? drag.center : drag.opposite;
+      // 把指针投影到「锚点 → 起始角点」方向上，得到缩放倍数
+      const vx = drag.start[0] - anchor[0], vy = drag.start[1] - anchor[1];
+      const t = ((e.clientX - anchor[0]) * vx + (e.clientY - anchor[1]) * vy) / (vx * vx + vy * vy || 1);
+      const s1 = clamp(drag.s0 * t, 0.1, 8);
+      const k = s1 / drag.s0;
+      // 锚点不动：新的中心 = 锚点 + (原中心 - 锚点) × k
+      const cx = anchor[0] + (drag.center[0] - anchor[0]) * k;
+      const cy = anchor[1] + (drag.center[1] - anchor[1]) * k;
+      const [lx, ly] = toLayoutDelta(cx - drag.center[0], cy - drag.center[1]);
+      setItemAdjust(drag.order, {
+        s: s1,
+        dx: drag.adj.dx + lx,
+        dy: drag.adj.dy + ly,
+        ...(drag.lifted ? {} : { lift: nextLift() }),
+      });
+      drag.lifted = true;
+      const r = viewport.getBoundingClientRect();
+      badge.hidden = false;
+      badge.textContent = `${Math.round(s1 * 100)}%`;
+      badge.style.transform = `translate(${e.clientX - r.left + 14}px, ${e.clientY - r.top + 14}px)`;
+    });
+
+    const end = () => {
+      if (!drag) return;
+      drag = null;
+      badge.hidden = true;
+      layer.classList.remove('dragging');
+    };
+    h.addEventListener('pointerup', end);
+    h.addEventListener('pointercancel', end);
+  });
+
+  // 屏幕方向 → 对应的缩放光标
+  function cursorFor(dx, dy) {
+    const a = (((Math.atan2(dy, dx) * 180) / Math.PI) % 180 + 180) % 180;
+    if (a < 22.5 || a >= 157.5) return 'ew-resize';
+    if (a < 67.5) return 'nwse-resize';
+    if (a < 112.5) return 'ns-resize';
+    return 'nesw-resize';
+  }
+
+  /** 每次渲染后调用：同步手柄位置 */
+  function update() {
+    const item = getTarget();
+    if (!item) { layer.hidden = true; return; }
+    const r = viewport.getBoundingClientRect();
+    const corners = cornersClient(item);
+    const [cx, cy] = centerClient(item);
+    corners.forEach(([x, y], i) => {
+      const h = handles[i];
+      h.style.transform = `translate(${x - r.left}px, ${y - r.top}px)`;
+      h.style.cursor = cursorFor(x - cx, y - cy);
+    });
+    layer.hidden = false;
+  }
+
+  return { update, isDragging: () => !!drag };
+}
