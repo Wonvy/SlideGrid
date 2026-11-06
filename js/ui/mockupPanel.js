@@ -75,7 +75,7 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const pad = 8, w = Math.min(W - pad * 2, ((H - pad * 2) * t.frameW) / t.frameH), h = (w * t.frameH) / t.frameW;
-    drawDevice(ctx, { device: 'custom', screen: t.screen, fit: 'cover', shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide(), t.frameImg);
+    drawDevice(ctx, { device: 'custom', screen: t.screen, quad: t.quad, screenOnTop: t.screenOnTop, fit: 'cover', shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide(), t.frameImg);
   }
 
   // 缩略图：按设备比例画在 2 倍分辨率的小画布上

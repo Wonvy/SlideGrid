@@ -4,9 +4,12 @@
  *
  * 内置设备在自己的坐标系里定义（宽 1000），w / h 为整体尺寸，screen 为屏幕区域 [x, y, w, h]。
  * 绘制时按图层的框等比缩放、居中（图层框的比例与设备一致，见 deviceSize）。
- * 自定义样机：frameAssetId 为 PNG 素材，frameW / frameH 为原图尺寸，screen 为屏幕区域占图片的比例 [x, y, w, h]
- * （上传时由 findScreen 找出图片里被包围的透明区域）。先画屏幕内容，再把 PNG 盖在上面。
+ * 自定义样机：frameAssetId 为 PNG 素材，frameW / frameH 为原图尺寸；
+ *   quad：屏幕的四个角（占图片的比例，左上、右上、右下、左下），上传时由用户对准，图片按透视填充进去（layers/warp.js）
+ *   screen：旧数据的矩形屏幕区域 [x, y, w, h]（没有 quad 时使用）
+ *   screenOnTop：PNG 的屏幕区域不透明时，图片画在外框上面；否则先画图片，再把 PNG 盖在上面
  */
+import { drawWarped } from './warp.js';
 export const DEVICES = {
   laptop: { label: '笔记本', icon: 'laptop', w: 1000, h: 562, screen: [106, 26, 788, 474], radius: 4 },
   monitor: { label: '显示器', icon: 'monitor', w: 1000, h: 764, screen: [18, 18, 964, 542], radius: 3 },
@@ -191,9 +194,23 @@ export function drawDevice(ctx, l, img, frameImg = null) {
   ctx.restore();
 }
 
-// 自定义 PNG 样机：投影 → 屏幕内容 → PNG 外框
+// 屏幕的四个角（画板坐标）
+export const quadOf = l => (l.quad || (([x, y, w, h]) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]])(l.screen || [0.1, 0.1, 0.8, 0.8]))
+  .map(([qx, qy]) => [l.x + qx * l.w, l.y + qy * l.h]);
+
+// 屏幕内容：黑底 + 透视填充的图片
+function drawQuadScreen(ctx, l, img) {
+  const q = quadOf(l);
+  ctx.beginPath();
+  q.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.closePath();
+  ctx.fillStyle = img?.width ? '#000' : '#1b1d22';
+  ctx.fill();
+  if (img?.width) drawWarped(ctx, img, q, { fit: l.fit });
+}
+
+// 自定义 PNG 样机：投影 → 屏幕内容 → PNG 外框（屏幕不透明的 PNG：外框 → 屏幕内容）
 function drawCustom(ctx, l, img, frameImg) {
-  const [fx, fy, fw, fh] = l.screen || [0.1, 0.1, 0.8, 0.8];
   if (frameImg && l.shadow !== false) {
     // 只要投影、不要第二遍图像：把图像画到很远的地方，用投影偏移把影子挪回来（任意旋转下都成立）
     const m = ctx.getTransform(), D = 50000, px = Math.hypot(m.a, m.b) * (l.w / 1000);
@@ -205,10 +222,11 @@ function drawCustom(ctx, l, img, frameImg) {
     ctx.drawImage(frameImg, l.x - D, l.y, l.w, l.h);
     ctx.restore();
   }
-  drawScreen(ctx, { screen: [l.x + fx * l.w, l.y + fy * l.h, fw * l.w, fh * l.h], radius: 0 }, img, l.fit, false);
+  if (!l.screenOnTop) drawQuadScreen(ctx, l, img);
   if (frameImg) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(frameImg, l.x, l.y, l.w, l.h);
+    if (l.screenOnTop) drawQuadScreen(ctx, l, img);
   } else {
     ctx.strokeStyle = 'rgba(124, 140, 255, .6)';
     ctx.lineWidth = Math.max(1, l.w / 300);

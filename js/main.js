@@ -34,6 +34,10 @@ import { createContextBar } from './ui/contextBar.js';
 import { setUsedFonts } from './ui/fontPicker.js';
 import { applyLayerProp, typeName, createLayer } from './layers/model.js';
 import { deviceSize, deviceOf, deviceAspect, findScreen } from './layers/devices.js';
+import { openQuadPicker } from './ui/quadPicker.js';
+
+// 矩形 [x, y, w, h] → 四个角（左上、右上、右下、左下）
+const rectQuad = ([x, y, w, h]) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
 import { createMockupPanel } from './ui/mockupPanel.js';
 
 /**
@@ -344,21 +348,29 @@ const mockupPanel = createMockupPanel(settings.mockupSlot, {
     const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === device).length + 1;
     addDeviceLayer({ device, frame, name: `${d.label} ${n}` }, d.label);
   },
-  // 上传 PNG 样机：找出透明的屏幕区域
+  // 上传 PNG 样机：先自动识别透明的屏幕区域作为初始位置，再弹窗让用户拖四个角对准屏幕（支持透视）
   async onUpload(file) {
+    let asset;
     try {
-      toast('正在识别样机的屏幕区域…', { sticky: true });
-      const asset = await importing.createAsset({ file });
-      const screen = findScreen(asset.preview);
-      if (!screen) { toast('没有找到透明的屏幕区域：PNG 里屏幕部分需要是透明的，并被外框包围', { error: true, duration: 5000 }); return; }
-      const name = file.name.replace(/\.[^.]+$/, '');
-      addDeviceLayer({ device: 'custom', frameAssetId: asset.id, frameW: asset.width, frameH: asset.height, screen, name }, `「${name}」`, asset);
+      toast('正在读取样机…', { sticky: true });
+      asset = await importing.createAsset({ file });
     } catch (err) {
       console.error(err);
       toast('无法读取这张图片', { error: true });
+      return;
     }
+    toast('拖动四个角对准屏幕', { duration: 1500 });
+    const found = findScreen(asset.preview);
+    const auto = found && rectQuad(found);
+    const quad = await openQuadPicker({
+      image: asset.preview, quad: auto || rectQuad([0.2, 0.2, 0.6, 0.6]), auto,
+      preview: slidesOf(store.get())[0]?.preview, screenOnTop: !found,
+    });
+    if (!quad) { asset.preview?.close?.(); return; }
+    const name = file.name.replace(/\.[^.]+$/, '');
+    addDeviceLayer({ device: 'custom', frameAssetId: asset.id, frameW: asset.width, frameH: asset.height, quad, screenOnTop: !found, name }, `「${name}」`, asset);
   },
-  onAddCustom: t => addDeviceLayer({ device: 'custom', frameAssetId: t.frameAssetId, frameW: t.frameW, frameH: t.frameH, screen: t.screen, name: t.name }, `「${t.name}」`),
+  onAddCustom: t => addDeviceLayer({ device: 'custom', frameAssetId: t.frameAssetId, frameW: t.frameW, frameH: t.frameH, screen: t.screen, quad: t.quad, screenOnTop: t.screenOnTop, name: t.name }, `「${t.name}」`),
   // 本项目所有画板里用到的 PNG 样机（按外框去重）
   getCustom() {
     const s = store.get();
@@ -366,7 +378,7 @@ const mockupPanel = createMockupPanel(settings.mockupSlot, {
     for (const b of boardsOf(s)) {
       for (const l of b.settings.layers || []) {
         if (l.type !== 'device' || l.device !== 'custom' || !s.assets[l.frameAssetId] || seen.has(l.frameAssetId)) continue;
-        seen.set(l.frameAssetId, { frameAssetId: l.frameAssetId, frameW: l.frameW, frameH: l.frameH, screen: l.screen, name: l.name.replace(/ \d+$/, ''), frameImg: s.assets[l.frameAssetId].preview });
+        seen.set(l.frameAssetId, { frameAssetId: l.frameAssetId, frameW: l.frameW, frameH: l.frameH, screen: l.screen, quad: l.quad, screenOnTop: l.screenOnTop, name: l.name.replace(/ \d+$/, ''), frameImg: s.assets[l.frameAssetId].preview });
       }
     }
     return [...seen.values()];
@@ -377,6 +389,17 @@ const mockupPanel = createMockupPanel(settings.mockupSlot, {
 const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: settings.layersSlot }, {
   store, actions, ui, is3D, setTool,
   onDeviceImage: l => importing.pickDeviceImage(l),
+  // 重新调整 PNG 样机的屏幕四角
+  async onDeviceQuad(l) {
+    const frame = store.get().assets[l.frameAssetId]?.preview;
+    if (!frame) return;
+    const found = findScreen(frame);
+    const quad = await openQuadPicker({
+      title: '调整屏幕区域', image: frame, quad: l.quad || rectQuad(l.screen || [0.1, 0.1, 0.8, 0.8]), auto: found && rectQuad(found),
+      preview: l.imageId ? store.get().assets[l.imageId]?.preview : slidesOf(store.get())[(l.slide || 1) - 1]?.preview, screenOnTop: !!l.screenOnTop,
+    });
+    if (quad) actions.updateLayers([l.id], { quad });
+  },
   selectLayers: ids => layerTools.select(ids),
   getCards: () => ui.selection,
   reorder: dir => layerTools.reorder(dir),

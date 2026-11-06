@@ -1378,3 +1378,14 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: no
 .device-image-row[hidden] { display: none; }
 .device-image-row .btn { flex: 1; height: 34px; border: 0; border-radius: 10px; background: var(--field); justify-content: center; gap: 6px; font-size: 13px; }
 .device-image-row .btn:hover { background: var(--field-hover); }
+/* 标出 PNG 样机屏幕区域的弹窗 */
+.qp-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(5, 6, 9, .62); backdrop-filter: blur(4px); }
+.qp-dialog { display: flex; flex-direction: column; gap: 12px; max-width: 92vw; padding: 16px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0, 0, 0, .5); }
+.qp-title { font-size: 16px; font-weight: 700; color: var(--text); }
+.qp-hint { margin-top: 4px; font-size: 12px; color: var(--muted); max-width: 720px; line-height: 1.5; }
+.qp-stage { display: flex; justify-content: center; border-radius: 10px; overflow: hidden; background: #0d0f13; }
+.qp-canvas { display: block; touch-action: none; }
+.qp-foot { display: flex; align-items: center; gap: 8px; }
+.qp-foot .bar-spacer { flex: 1; }
+.qp-foot .btn { height: 34px; padding: 0 14px; border-radius: 10px; gap: 6px; }
+.qp-preview { display: flex; align-items: center; gap: 8px; margin-left: 6px; font-size: 13px; color: var(--muted); }

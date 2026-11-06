@@ -20,7 +20,7 @@ const ADD_TOOLS = [
   { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
 ];
 
-export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, onDeviceImage = () => {} }) {
+export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, onDeviceImage = () => {}, onDeviceQuad = () => {} }) {
   /* ---------- 设计页：选中对象的标题栏 ---------- */
   const selTitle = el('span', { class: 'sel-title' });
   const selBar = el('div', { class: 'sel-bar' }, selTitle,
@@ -35,12 +35,16 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     el('button', { class: 'btn', title: '选择一张图片放进样机的屏幕（也可以把图片拖到样机上，或选中后粘贴）', onclick: () => { const l = selectedDevice(); if (l) onDeviceImage(l); } },
       icon('image-plus', 14), '更换屏幕图片…'),
     deviceUseSlide);
+  // PNG 样机：重新对准屏幕的四个角
+  const deviceQuad = el('button', { class: 'btn', title: '重新拖动四个角，对准 PNG 里屏幕的位置', onclick: () => { const l = selectedDevice(); if (l) onDeviceQuad(l); } },
+    icon('scan', 14), '调整屏幕区域…');
+  const deviceQuadRow = el('div', { class: 'device-image-row', hidden: true }, deviceQuad);
   deviceUseSlide.addEventListener('click', () => { const l = selectedDevice(); if (l) actions.setDeviceImage(l.id, null); });
   const selectedDevice = () => {
     const l = ui.layerSel.length === 1 ? (store.get().layers || []).find(x => x.id === ui.layerSel[0]) : null;
     return l?.type === 'device' ? l : null;
   };
-  const propsSection = el('div', { class: 'groups-box' }, propsBox, deviceRow);
+  const propsSection = el('div', { class: 'groups-box' }, propsBox, deviceRow, deviceQuadRow);
   const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
 
   /* ---------- 选中的卡片：裁切 + 位置 ---------- */
@@ -80,6 +84,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     updateProps(values);
     const dev = selectedDevice();
     deviceRow.hidden = !dev;
+    deviceQuadRow.hidden = dev?.device !== 'custom';
     deviceUseSlide.hidden = !dev?.imageId;
   }
 
