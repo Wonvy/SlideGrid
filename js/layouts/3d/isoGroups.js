@@ -1,8 +1,8 @@
 import { DEG } from '../../core/utils.js';
 import { svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES } from '../helpers.js';
 
-// 分组展台：等距展台的有限网格版，每一行（或每一列）是一组、用一个图集的图片——
-// 适合分组展示（例如第一行 App 界面、第二行海报、第三行名片）。组与组之间可以多留一点间距；
+// 分组展台：等距展台的有限网格版，每一列（也可以改成每一行）是一组、用一个图集的图片——
+// 适合分组展示（例如第一列 App 界面、第二列海报、第三列名片）。组与组之间可以多留一点间距；
 // 选中任意卡片可以单独抬起 / 倾斜（和等距展台一样，在「设计」页调）。
 export default {
   id: 'isoGroups',
@@ -13,13 +13,14 @@ export default {
     <polygon points="10,22 18,18 24,21 16,25" opacity=".55"/><polygon points="20,17 28,13 34,16 26,20" opacity=".55"/><polygon points="30,12 38,8 44,11 36,15" opacity=".55"/>
     <polygon points="20,29 28,25 34,28 26,32" opacity=".3"/><polygon points="38,15 46,11 48,18 40,22" opacity=".85"/>`),
   params: [
-    { key: 'groupBy', label: '分组', type: 'select', default: 'row', options: [{ value: 'row', label: '每行一组' }, { value: 'col', label: '每列一组' }] },
-    { key: 'rows', label: '行数', type: 'range', min: 1, max: 10, default: 3 },
-    { key: 'cols', label: '列数', type: 'range', min: 1, max: 12, default: 5 },
+    // 默认每列一组（key 用 groupAxis：之前保存过的「每行一组」不再沿用）
+    { key: 'groupAxis', label: '分组', type: 'select', default: 'col', options: [{ value: 'col', label: '每列一组' }, { value: 'row', label: '每行一组' }] },
+    { key: 'rows', label: '行数', type: 'range', min: 1, max: 10, default: 4 },
+    { key: 'cols', label: '列数', type: 'range', min: 1, max: 12, default: 3 },
     {
       key: 'groups', label: '每组用的图集', type: 'albumGroups', default: [],
-      count: v => Math.max(1, Math.round(v.groupBy === 'col' ? v.cols : v.rows)),
-      itemLabel: (v, i) => `第 ${i + 1} ${v.groupBy === 'col' ? '列' : '行'}`,
+      count: v => Math.max(1, Math.round(v.groupAxis !== 'row' ? v.cols : v.rows)),
+      itemLabel: (v, i) => `第 ${i + 1} ${v.groupAxis !== 'row' ? '列' : '行'}`,
     },
     { key: 'gap', label: '间距', type: 'range', min: 0, max: 160, default: 30 },
     { key: 'groupGap', label: '组间距', type: 'range', min: 0, max: 400, default: 70 },
@@ -34,7 +35,7 @@ export default {
   cardParams: raiseCardParams,
   compute({ aspect, W, H, p, cards = {}, albums = [] }) {
     const rows = Math.max(1, Math.round(p.rows)), cols = Math.max(1, Math.round(p.cols));
-    const byCol = p.groupBy === 'col';
+    const byCol = p.groupAxis !== 'row';
     // 每组用哪个图集：指定了就用指定的，否则按图集顺序轮流
     const groups = Array.isArray(p.groups) ? p.groups : [];
     const albumOf = g => {
