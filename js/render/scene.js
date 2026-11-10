@@ -205,12 +205,13 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
     // order：在版式结果中的序号（同一版式下稳定，用于悬停/拖放定位）
     // slideIndex：对应第几张幻灯片（铺满型版式中会重复出现）
     return {
-      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted,
+      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0,
       opacity: it.opacity ?? 1,
       uv: it.crop?.fit === 'contain' ? [1, 1, 0, 0] : cropUV(imgAspect, w / h, it.crop),
     };
   });
-  items.sort((a, b) => (a.depth - b.depth) || (a.order - b.order));
+  // 由远及近绘制；版式给了 stack（叠放层级，例如桌面上一堆卡片谁压着谁）时先按 stack，同一层再按远近
+  items.sort((a, b) => (a.stack - b.stack) || (a.depth - b.depth) || (a.order - b.order));
 
   const z0 = raw[0]?.z || 0;
   const coplanar = raw.every(it => (it.z || 0) === z0 && !it.rx && !it.ry);

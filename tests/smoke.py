@@ -195,7 +195,7 @@ def t_layers(page, errors):
     r = page.evaluate('''async () => {
       const S = SlideGrid, before = S.store.get().layoutId;
       const sizes = [];
-      for (const id of ['floating', 'isoStage', 'tumble']) {
+      for (const id of ['floating', 'isoStage', 'tumble', 'pile']) {
         S.actions.setLayout(id);
         const b = await S.renderToBlob({ longSide: 400, preview: true });
         sizes.push(b.width);
@@ -217,7 +217,7 @@ def t_layers(page, errors):
       S.actions.setLayout(before);
       return { sizes, raised, under, exp: exp.width };
     }''')
-    assert r['sizes'] == [400, 400, 400] and r['raised'] and r['under'] and r['exp'] == 400, r
+    assert r['sizes'] == [400, 400, 400, 400] and r['raised'] and r['under'] and r['exp'] == 400, r
     assert not errors, errors
 
 

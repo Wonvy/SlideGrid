@@ -5,7 +5,8 @@
 //   ordered（可选）：true 时图片始终按版式顺序分配（第一张是主图 / 最前面），不受「图片顺序」设置影响
 //   params   参数 schema，右侧面板据此自动生成控件
 //   compute({ n, aspect, W, H, p }) => {
-//     items:  [{ i, x, y, z?, rx?, ry?, rz?, w, h, opacity? }]   // i 为幻灯片序号，超出数量时自动循环
+//     items:  [{ i, x, y, z?, rx?, ry?, rz?, w, h, opacity?, stack? }]   // i 为幻灯片序号，超出数量时自动循环；
+//             stack：叠放层级（大的画在上面，优先于远近），不给时按离镜头的远近
 //     group?: { x, y, z, rx, ry, rz, s }                         // 整组变换（角度单位：度）
 //     camera: { type: 'ortho' } | { type: 'perspective', fov }
 //   }
@@ -24,8 +25,9 @@ import carousel from './3d/carousel.js';
 import floating from './3d/floating.js';
 import isoStage from './3d/isoStage.js';
 import tumble from './3d/tumble.js';
+import pile from './3d/pile.js';
 
-export const layouts = [grid, hero, staggered, tilted, scatter, fan, isoWall, corridor, cylinder, cascade, carousel, floating, isoStage, tumble];
+export const layouts = [grid, hero, staggered, tilted, scatter, fan, isoWall, corridor, cylinder, cascade, carousel, floating, isoStage, tumble, pile];
 
 const byId = new Map(layouts.map(l => [l.id, l]));
 export const getLayout = id => byId.get(id);
