@@ -94,6 +94,44 @@ export function cropUV(imgAspect, cellAspect, crop = null) {
 }
 
 /**
+ * 每个位置用第几张幻灯片。
+ *   'layout'（默认）：按版式给的序号循环（it.i % n）
+ *   'visible'：先给画板里看得见的卡片（卡片中心投影在画板内），按行从上到下、行内从左到右；
+ *   'center'：先给看得见的卡片，从画板中心向外。
+ *   两种方式下，画板外的卡片接着往后分配（离画板越近越先），这样可见区域里尽量不重复。
+ * project(it) → 卡片中心、上边中点、下边中点的齐次裁剪坐标 [[x, y, z, w] × 3]；aspect：画板宽高比（算距离时把横向拉回实际比例）
+ */
+function assignSlides(raw, n, mode, project, aspect) {
+  if (mode !== 'visible' && mode !== 'center') return raw.map(it => ((it.i % n) + n) % n);
+  const pts = raw.map((it, order) => {
+    const [c, top, bottom] = project(it);
+    if (c[3] <= 1e-6) return { order, x: 0, y: 0, h: 0, visible: false, far: Infinity };
+    const x = c[0] / c[3], y = -c[1] / c[3]; // y 向下
+    const h = top[3] > 1e-6 && bottom[3] > 1e-6 ? Math.abs(top[1] / top[3] - bottom[1] / bottom[3]) : 0; // 屏幕上的卡片高度
+    const visible = x >= -1 && x <= 1 && y >= -1 && y <= 1;
+    // 离画板的远近：画板外的卡片按到画板中心的距离排
+    return { order, x, y, h, visible, far: Math.hypot(x * aspect, y) };
+  });
+  const vis = pts.filter(p => p.visible);
+  if (mode === 'center') {
+    vis.sort((a, b) => a.far - b.far || Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
+  } else {
+    // 按行：和这一行第一张的中心相差不到半张卡片高度的算同一行；行内从左到右
+    vis.sort((a, b) => a.y - b.y);
+    let row = 0, head = vis[0];
+    for (const p of vis) {
+      if (p.y - head.y > Math.max(0.01, Math.min(head.h, p.h || head.h) * 0.5)) { row++; head = p; }
+      p.row = row;
+    }
+    vis.sort((a, b) => a.row - b.row || a.x - b.x);
+  }
+  const rest = pts.filter(p => !p.visible).sort((a, b) => a.far - b.far || a.order - b.order);
+  const out = new Array(raw.length);
+  [...vis, ...rest].forEach((p, k) => { out[p.order] = k % n; });
+  return out;
+}
+
+/**
  * 把「幻灯片 + 版式 + 参数」转换成渲染器可以直接绘制的场景。
  * 预览和导出共用这一函数。
  */
@@ -128,8 +166,14 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   const { proj, view } = makeCamera(result.camera || { type: 'ortho' }, camera || {}, W, H);
   const viewProj = m4.multiply(proj, view);
 
+  const slideOf = assignSlides(raw, n, style?.slideOrder, it => {
+    const model = m4.multiply(groupM, m4.compose(it.x || 0, it.y || 0, it.z || 0, (it.rx || 0) * DEG, (it.ry || 0) * DEG, (it.rz || 0) * DEG, 1));
+    const mvp = m4.multiply(viewProj, model);
+    return [[0, 0], [0, -it.h / 2], [0, it.h / 2]].map(([x, y]) => m4.transformVec4(mvp, [x, y, 0, 1]));
+  }, W / H);
+
   const items = raw.map((it, order) => {
-    const slideIndex = ((it.i % n) + n) % n;
+    const slideIndex = slideOf[order];
     const slide = slides[slideIndex];
     const model = m4.multiply(groupM, m4.compose(
       it.x || 0, it.y || 0, it.z || 0, (it.rx || 0) * DEG, (it.ry || 0) * DEG, (it.rz || 0) * DEG, 1,
