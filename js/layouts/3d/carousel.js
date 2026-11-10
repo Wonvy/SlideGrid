@@ -1,16 +1,18 @@
 import { DEG } from '../../core/utils.js';
-import { svg } from '../helpers.js';
+import { svg, countParam } from '../helpers.js';
 
 // 幻灯片围成一圈，俯视角度可调。
 export default {
   id: 'carousel',
   name: '环形展台',
   category: '3d',
+  ordered: true, // 图片按版式顺序分配（不受「图片顺序」设置影响）
   icon: svg(`
     <polygon points="19,16 29,16 29,26 19,26"/>
     <polygon points="6,13 15,15 15,24 6,21" opacity=".75"/><polygon points="33,15 42,13 42,21 33,24" opacity=".75"/>
     <polygon points="10,5 16,6 16,12 10,11" opacity=".4"/><polygon points="32,6 38,5 38,11 32,12" opacity=".4"/><polygon points="21,4 27,4 27,9 21,9" opacity=".3"/>`),
   params: [
+    countParam(12),
     { key: 'size', label: '大小', type: 'range', min: 0.12, max: 0.7, step: 0.01, default: 0.34 },
     { key: 'spacing', label: '间隔', type: 'range', min: 0, max: 1.5, step: 0.01, default: 0.2 },
     { key: 'tilt', label: '俯视角度', type: 'range', min: -30, max: 45, default: 10, unit: '°' },

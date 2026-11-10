@@ -1,5 +1,5 @@
 import { mulberry32 } from '../../core/utils.js';
-import { svg } from '../helpers.js';
+import { svg, countParam } from '../helpers.js';
 
 export default {
   id: 'scatter',
@@ -12,6 +12,7 @@ export default {
     <rect x="9" y="17" width="14" height="9" rx="1" transform="rotate(6 16 21.5)"/>
     <rect x="28" y="16" width="14" height="9" rx="1" transform="rotate(-7 35 20.5)"/>`),
   params: [
+    countParam(0),
     { key: 'size', label: '大小', type: 'range', min: 0.5, max: 1.8, step: 0.01, default: 1.05 },
     { key: 'rotate', label: '随机旋转', type: 'range', min: 0, max: 45, default: 10, unit: '°' },
     { key: 'jitter', label: '随机位移', type: 'range', min: 0, max: 1, step: 0.01, default: 0.45 },

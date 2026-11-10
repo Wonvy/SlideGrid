@@ -1,21 +1,23 @@
-import { gridInRect, svg } from '../helpers.js';
+import { gridInRect, svg, countParam } from '../helpers.js';
 
 // 第一张作为主图（在左侧列表拖动排序即可更换主图）
 export default {
   id: 'hero',
   name: '主图 + 网格',
   category: 'flat',
+  ordered: true, // 图片按版式顺序分配（不受「图片顺序」设置影响）
   long: true, // 支持长图模式
   icon: svg(`
-    <rect x="4" y="5" width="24" height="20" rx="1.5"/>
-    <rect x="30" y="5" width="14" height="9" rx="1.5"/><rect x="30" y="16" width="14" height="9" rx="1.5"/>`),
+    <rect x="12" y="3" width="24" height="14" rx="1.5"/>
+    <rect x="6" y="20" width="11" height="7" rx="1.2"/><rect x="18.5" y="20" width="11" height="7" rx="1.2"/><rect x="31" y="20" width="11" height="7" rx="1.2"/>`),
   params: [
+    countParam(0),
     {
-      key: 'side', label: '主图位置', type: 'select', default: 'left',
+      key: 'side', label: '主图位置', type: 'select', default: 'top',
       options: [{ value: 'left', label: '左侧' }, { value: 'right', label: '右侧' }, { value: 'top', label: '上方' }],
     },
     { key: 'heroSize', label: '主图占比', type: 'range', min: 0.3, max: 0.8, step: 0.01, default: 0.6 },
-    { key: 'cols', label: '小图列数', type: 'range', min: 1, max: 8, default: 2 },
+    { key: 'cols', label: '小图列数', type: 'range', min: 1, max: 8, default: 3 },
     { key: 'gap', label: '间距', type: 'range', min: 0, max: 120, default: 24 },
     { key: 'margin', label: '边距', type: 'range', min: 0, max: 300, default: 80 },
   ],

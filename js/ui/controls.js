@@ -59,7 +59,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         const display = el('span', { class: 'ctrl-value' });
         // 0 ~ 1 的比例（不透明度、位置…）显示成百分比
         const percent = !def.unit && def.min >= 0 && def.max <= 1 && step < 1;
-        const fmt = v => (percent ? `${Math.round(v * 100)}%` : (step < 1 ? Number(v).toFixed(2) : String(Math.round(v))) + (def.unit || ''));
+        const fmt = def.format || (v => (percent ? `${Math.round(v * 100)}%` : (step < 1 ? Number(v).toFixed(2) : String(Math.round(v))) + (def.unit || '')));
         const ws = def.wheelStep ?? step;
         const snap = v => Number(clampTo(Math.round(v / step) * step, def).toFixed(decimals(step)));
         wheel = (steps, fast) => Number(clampTo(current + steps * ws * (fast ? 10 : 1), def).toFixed(decimals(ws)));

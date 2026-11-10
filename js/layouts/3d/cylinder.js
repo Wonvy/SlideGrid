@@ -1,5 +1,5 @@
 import { DEG } from '../../core/utils.js';
-import { svg } from '../helpers.js';
+import { svg, countParam } from '../helpers.js';
 
 // 幻灯片排在圆柱面上：内凹（环抱观众）或外凸。
 export default {
@@ -10,6 +10,7 @@ export default {
     <polygon points="2,4 9,6 9,14 2,14"/><polygon points="11,6.3 19,7.4 19,14 11,14"/><polygon points="21,7.6 27,7.6 27,14 21,14"/><polygon points="29,7.4 37,6.3 37,14 29,14"/><polygon points="39,6 46,4 46,14 39,14"/>
     <polygon points="2,16 9,16 9,24 2,26"/><polygon points="11,16 19,16 19,22.6 11,23.7"/><polygon points="21,16 27,16 27,22.4 21,22.4"/><polygon points="29,16 37,16 37,23.7 29,22.6"/><polygon points="39,16 46,16 46,26 39,24"/>`),
   params: [
+    countParam(0),
     {
       key: 'mode', label: '方向', type: 'select', default: 'concave',
       options: [{ value: 'concave', label: '内凹（环抱）' }, { value: 'convex', label: '外凸' }],

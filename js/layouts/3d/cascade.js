@@ -1,16 +1,18 @@
-import { svg } from '../helpers.js';
+import { svg, countParam } from '../helpers.js';
 
 // 卡片沿纵深依次排开（层叠/阶梯）。
 export default {
   id: 'cascade',
   name: '纵深层叠',
   category: '3d',
+  ordered: true, // 图片按版式顺序分配（不受「图片顺序」设置影响）
   icon: svg(`
     <polygon points="30,6 40,4 40,18 30,17" opacity=".45"/>
     <polygon points="22,7 34,5 34,20 22,19" opacity=".65"/>
     <polygon points="12,8 27,6 27,23 12,22" opacity=".85"/>
     <polygon points="2,9 20,7 20,27 2,25"/>`),
   params: [
+    countParam(6),
     { key: 'size', label: '大小', type: 'range', min: 0.2, max: 0.9, step: 0.01, default: 0.55 },
     { key: 'dx', label: '横向间隔', type: 'range', min: -400, max: 400, default: 170 },
     { key: 'dy', label: '纵向间隔', type: 'range', min: -200, max: 200, default: 0 },

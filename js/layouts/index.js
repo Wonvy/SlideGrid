@@ -2,6 +2,7 @@
 //
 // 每个版式是一个对象：
 //   id, name, category ('flat' | '3d'), icon (SVG 字符串)
+//   ordered（可选）：true 时图片始终按版式顺序分配（第一张是主图 / 最前面），不受「图片顺序」设置影响
 //   params   参数 schema，右侧面板据此自动生成控件
 //   compute({ n, aspect, W, H, p }) => {
 //     items:  [{ i, x, y, z?, rx?, ry?, rz?, w, h, opacity? }]   // i 为幻灯片序号，超出数量时自动循环

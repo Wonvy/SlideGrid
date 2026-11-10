@@ -53,3 +53,12 @@ export function fillGrid({ n, aspect, W, gap, cols, offset = 0, extent }) {
 }
 
 export const svg = body => `<svg viewBox="0 0 48 30" fill="currentColor" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+
+/**
+ * 「数量」参数：最多显示几张卡片（0 = 全部图片）。图片比数量少时按图片数量显示。
+ * 用在卡片数量跟着图片数量走的版式里（扇形、环形、层叠…），避免图片多了显得拥挤。
+ */
+export const countParam = (defaultCount = 0) => ({
+  key: 'count', label: '数量', type: 'range', min: 0, max: 40, default: defaultCount,
+  format: v => (v > 0 ? `最多 ${Math.round(v)} 张` : '全部'),
+});

@@ -1,16 +1,18 @@
 import { DEG } from '../../core/utils.js';
-import { svg } from '../helpers.js';
+import { svg, countParam } from '../helpers.js';
 
 export default {
   id: 'fan',
   name: '扇形展开',
   category: 'flat',
+  ordered: true, // 图片按版式顺序分配（不受「图片顺序」设置影响）
   icon: svg(`
     <rect x="17" y="6" width="14" height="19" rx="1.5" transform="rotate(-30 24 40)" opacity=".55"/>
     <rect x="17" y="6" width="14" height="19" rx="1.5" transform="rotate(-10 24 40)" opacity=".75"/>
     <rect x="17" y="6" width="14" height="19" rx="1.5" transform="rotate(10 24 40)" opacity=".9"/>
     <rect x="17" y="6" width="14" height="19" rx="1.5" transform="rotate(30 24 40)"/>`),
   params: [
+    countParam(7),
     { key: 'size', label: '大小', type: 'range', min: 0.2, max: 0.8, step: 0.01, default: 0.42 },
     { key: 'spread', label: '展开角度', type: 'range', min: 0, max: 200, default: 70, unit: '°' },
     { key: 'radius', label: '半径', type: 'range', min: 0.6, max: 6, step: 0.05, default: 2.2 },
