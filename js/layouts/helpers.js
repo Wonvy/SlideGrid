@@ -57,6 +57,7 @@ export const svg = body => `<svg viewBox="0 0 48 30" fill="currentColor" xmlns="
 /**
  * 「数量」参数：最多显示几张卡片（0 = 全部图片）。图片比数量少时按图片数量显示。
  * 用在卡片数量跟着图片数量走的版式里（扇形、环形、层叠…），避免图片多了显得拥挤。
+ * 长图模式下不限制（长图要把所有图片排下来）；铺满型版式（卡片铺满画板）没有这个参数，疏密用列数 / 缩放调。
  */
 export const countParam = (defaultCount = 0) => ({
   key: 'count', label: '数量', type: 'range', min: 0, max: 40, default: defaultCount,

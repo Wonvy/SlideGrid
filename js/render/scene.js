@@ -29,7 +29,7 @@ export function resolveCanvas({ slides, layout, params, aspect }) {
     return { W: WORLD_H * a, H: WORLD_H, long: false };
   }
   const W = LONG_W;
-  const n = cardCount(params, slides.length);
+  const n = slides.length; // 长图模式不限制数量
   if (!n || !layout.long) return { W, H: W * 16 / 9, long: true };
   const probe = layout.compute({ n, aspect: slides[0].aspect || 16 / 9, W, H: 1e5, p: params, long: true }) || {};
   const margin = params.margin ?? 80;
@@ -93,8 +93,8 @@ export function cropUV(imgAspect, cellAspect, crop = null) {
   return [sx, sy, ox, oy];
 }
 
-// 版式要排几张卡片：有「数量」参数（> 0）时最多这么多张，否则和图片一样多
-const cardCount = (params, n) => (params?.count > 0 ? Math.max(1, Math.min(n, Math.round(params.count))) : n);
+// 版式要排几张卡片：有「数量」参数（> 0）时最多这么多张，否则和图片一样多；长图模式要把所有图片排下来，不限制
+const cardCount = (params, n, long = false) => (!long && params?.count > 0 ? Math.max(1, Math.min(n, Math.round(params.count))) : n);
 
 // 卡片的手动调整里除了「固定显示哪张图」（slide）之外还有别的（位置、旋转、缩放、裁切）
 export const hasAdjust = a => !!a && Object.keys(a).some(k => k !== 'slide');
@@ -149,7 +149,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
 
   const slideAspect = slides[0].aspect || 16 / 9;
   // 版式的「数量」参数：只排这么多张卡片（图片仍按 n 张循环分配）
-  const result = layout.compute({ n: cardCount(params, n), aspect: slideAspect, W, H, p: params, long }) || {};
+  const result = layout.compute({ n: cardCount(params, n, long), aspect: slideAspect, W, H, p: params, long }) || {};
   // 手动调整（移动 / 旋转工具）按位置序号叠加在版式结果上
   const raw = (result.items || []).filter(it => it.w > 0 && it.h > 0).map((it, order) => {
     const a = adjust?.[order];

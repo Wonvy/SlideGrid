@@ -11,7 +11,7 @@ export default {
     <rect x="12" y="3" width="24" height="14" rx="1.5"/>
     <rect x="6" y="20" width="11" height="7" rx="1.2"/><rect x="18.5" y="20" width="11" height="7" rx="1.2"/><rect x="31" y="20" width="11" height="7" rx="1.2"/>`),
   params: [
-    countParam(0),
+    countParam(7),
     {
       key: 'side', label: '主图位置', type: 'select', default: 'top',
       options: [{ value: 'left', label: '左侧' }, { value: 'right', label: '右侧' }, { value: 'top', label: '上方' }],
