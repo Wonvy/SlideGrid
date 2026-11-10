@@ -1,4 +1,4 @@
-import { ASPECTS, PIXEL_PRESETS, aspectValue, aspectLabel, isLongAspect, parseRatio, parsePixels } from '../config.js';
+import { ASPECTS, PIXEL_PRESETS, aspectValue, aspectLabel, isLongAspect, parsePixels } from '../config.js';
 import { boardsOf, selectionOf } from '../state.js';
 import { createMenu } from './menu.js';
 import { attachWheel } from './wheel.js';
@@ -14,7 +14,7 @@ function ratioShape(id, max = 18) {
 }
 
 /**
- * 顶栏中间：画板切换器 + 画布比例。
+ * 顶栏中间：画板切换器 + 画板尺寸（像素）。
  *   onActivate(id)、onAdd({ duplicate })、onRename(id)、onDelete(id)、onFitAll()
  */
 export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onDuplicateSelected, onRename, onDelete, onDeleteSelected, onFitAll }) {
@@ -68,83 +68,90 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
     },
   });
 
-  /* ---------- 比例 ---------- */
+  /* ---------- 画板尺寸（像素） ---------- */
+  // 画板尺寸统一用像素：宽 × 高输入框、常用比例（保持当前短边）、平台尺寸、长图开关
   const ratioShapeSlot = el('span', { class: 'ratio-slot' });
   const ratioText = el('span', { class: 'tb-ratio-text' });
-  const ratioBtn = el('button', { class: 'topbar-btn', 'aria-haspopup': 'menu', title: '当前画板的画布比例（悬停滚轮切换）' },
+  const ratioBtn = el('button', { class: 'topbar-btn', 'aria-haspopup': 'menu', title: '当前画板的尺寸（像素；悬停滚轮切换比例）' },
     ratioShapeSlot, ratioText, icon('chevron-down', 13));
+
+  const RATIOS = ASPECTS.filter(a => a.value);
+  const ratioMatch = (id, a) => { const p = parsePixels(id); return !!p && Math.abs(p.w / p.h - a.value) < 0.002; };
 
   const ratioMenu = createMenu(ratioBtn, {
     className: 'ratio-menu',
     render(pop, close) {
       const cur = store.get().aspect;
+      const long = isLongAspect(cur);
+      const px = parsePixels(cur) || { w: 1920, h: 1080 };
       pop.innerHTML = '';
-      pop.append(el('div', { class: 'menu-title' }, '画布比例'));
+
+      // 1. 宽 × 高（像素）
+      const w = el('input', { type: 'number', class: 'num-input', min: 16, max: 16000, step: 1, value: px.w, 'aria-label': '宽（像素）' });
+      const h = el('input', { type: 'number', class: 'num-input', min: 16, max: 16000, step: 1, value: px.h, 'aria-label': '高（像素）' });
+      const apply = (keepOpen = false) => {
+        const id = `${Math.round(Number(w.value))}x${Math.round(Number(h.value))}`;
+        if (!parsePixels(id)) { w.focus(); return; }
+        if (id !== store.get().aspect) actions.setAspect(id);
+        if (!keepOpen) close();
+      };
+      for (const inp of [w, h]) {
+        inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') apply(); });
+        inp.addEventListener('change', () => apply(true));
+      }
+      const swap = el('button', { class: 'icon-btn visible', title: '横竖互换', 'aria-label': '横竖互换' }, icon('arrow-left-right', 14));
+      swap.addEventListener('click', () => { [w.value, h.value] = [h.value, w.value]; apply(true); });
+      pop.append(
+        el('div', { class: 'menu-title' }, long ? '画板尺寸（当前为长图）' : '画板尺寸'),
+        el('div', { class: 'size-row' },
+          el('label', { class: 'size-field' }, el('span', {}, '宽'), w),
+          el('span', { class: 'size-times' }, '×'),
+          el('label', { class: 'size-field' }, el('span', {}, '高'), h),
+          el('span', { class: 'size-unit' }, 'px'),
+          swap),
+        el('div', { class: 'size-note' }, '导出 1× 时就是这个像素；倍率在右上角选择'),
+      );
+
+      // 2. 常用比例：保持当前短边
       const grid = el('div', { class: 'ratio-grid' });
-      for (const a of ASPECTS) {
-        const chip = el('button', { class: `ratio-chip${a.id === cur ? ' active' : ''}`, title: a.value ? `${a.id}` : '长图：宽度固定，高度随内容' },
-          el('span', { class: 'ratio-box' }, ratioShape(a.id, 26)),
-          el('span', {}, a.label || a.id));
+      for (const a of RATIOS) {
+        const active = !long && ratioMatch(cur, a);
+        const chip = el('button', { class: `ratio-chip${active ? ' active' : ''}`, title: `${a.id}（保持短边 ${Math.min(px.w, px.h)} px）` },
+          el('span', { class: 'ratio-box' }, ratioShape(a.id, 24)),
+          el('span', {}, a.id));
         chip.addEventListener('click', () => { close(); actions.setAspect(a.id); });
         grid.append(chip);
       }
-      // 自定义比例
-      const known = ASPECTS.some(a => a.id === cur);
-      const [cw, ch] = !known && parseRatio(cur) ? cur.split(':') : ['5', '4'];
-      const w = el('input', { type: 'number', class: 'num-input', min: 0.1, step: 'any', value: cw, 'aria-label': '宽' });
-      const h = el('input', { type: 'number', class: 'num-input', min: 0.1, step: 'any', value: ch, 'aria-label': '高' });
-      const apply = () => {
-        const id = `${Number(w.value)}:${Number(h.value)}`;
-        if (!parseRatio(id)) { w.focus(); return; }
-        close();
-        actions.setAspect(id);
-      };
-      for (const inp of [w, h]) inp.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
-      // 精确像素尺寸：画板按这个比例，导出尺寸选「画板」时正好输出这么多像素（设置后导出尺寸自动改为「画板」）
-      const setPixels = id => {
-        close();
-        actions.setAspect(id);
-        const size = store.get().exportOpts.size;
-        if (size !== 'board' && size !== 'board2x') actions.setExport('size', 'board');
-      };
-      const curPx = parsePixels(cur);
-      const pxList = el('div', { class: 'px-grid' }, PIXEL_PRESETS.map(p => {
+      pop.append(el('div', { class: 'menu-sep' }), el('div', { class: 'menu-title' }, '常用比例'), grid);
+
+      // 3. 平台尺寸
+      const list = el('div', { class: 'px-grid' }, PIXEL_PRESETS.map(p => {
         const [pw, ph] = p.id.split('x');
-        const b = el('button', { class: `px-chip${p.id === cur ? ' active' : ''}`, title: `画板 ${pw} × ${ph} 像素` },
+        const b = el('button', { class: `px-chip${p.id === cur ? ' active' : ''}`, title: `${pw} × ${ph} 像素` },
           el('span', { class: 'ratio-box' }, ratioShape(p.id, 18)),
           el('span', { class: 'px-size' }, `${pw} × ${ph}`),
           el('span', { class: 'px-note' }, p.note));
-        b.addEventListener('click', () => setPixels(p.id));
+        b.addEventListener('click', () => { close(); actions.setAspect(p.id); });
         return b;
       }));
-      const pw = el('input', { type: 'number', class: 'num-input', min: 16, max: 16000, step: 1, value: curPx?.w ?? 1920, 'aria-label': '宽（像素）' });
-      const ph = el('input', { type: 'number', class: 'num-input', min: 16, max: 16000, step: 1, value: curPx?.h ?? 1080, 'aria-label': '高（像素）' });
-      const applyPx = () => {
-        const id = `${Math.round(Number(pw.value))}x${Math.round(Number(ph.value))}`;
-        if (!parsePixels(id)) { pw.focus(); return; }
-        setPixels(id);
-      };
-      for (const inp of [pw, ph]) inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') applyPx(); });
-      const pxKnown = PIXEL_PRESETS.some(p => p.id === cur);
-      pop.append(grid, el('div', { class: 'menu-sep' }),
-        el('div', { class: `ratio-custom${!known && !curPx ? ' active' : ''}` },
-          el('span', { class: 'menu-label' }, '自定义'), w, el('span', { class: 'ratio-colon' }, ':'), h,
-          el('button', { class: 'btn small primary', onclick: apply }, '应用')),
-        el('div', { class: 'menu-sep' }),
-        el('div', { class: 'menu-title' }, '像素尺寸（导出「画板」尺寸时精确输出）'),
-        pxList,
-        el('div', { class: `ratio-custom${curPx && !pxKnown ? ' active' : ''}` },
-          el('span', { class: 'menu-label' }, '自定义'), pw, el('span', { class: 'ratio-colon' }, '×'), ph, el('span', { class: 'size-unit' }, 'px'),
-          el('button', { class: 'btn small primary', onclick: applyPx }, '应用')));
+      pop.append(el('div', { class: 'menu-sep' }), el('div', { class: 'menu-title' }, '平台尺寸'), list);
+
+      // 4. 长图
+      const longBtn = el('button', { class: `menu-item${long ? ' active' : ''}`, title: '宽度固定，高度随内容（导出 1× 宽 1920）' },
+        el('span', { class: 'menu-check' }, long ? icon('check', 14) : el('span', { class: 'ratio-box' }, ratioShape('long', 14))),
+        el('span', { class: 'menu-label' }, '长图'),
+        el('span', { class: 'menu-meta' }, '高度随内容'));
+      longBtn.addEventListener('click', () => { close(); actions.setAspect(long ? '1920x1080' : 'long'); });
+      pop.append(el('div', { class: 'menu-sep' }), longBtn);
     },
   });
 
-  // 滚轮切换预设比例
+  // 滚轮切换常用比例（保持短边）
   attachWheel(ratioBtn, steps => {
     const cur = store.get().aspect;
-    const idx = Math.max(0, ASPECTS.findIndex(a => a.id === cur));
-    const next = ASPECTS[Math.min(ASPECTS.length - 1, Math.max(0, idx - steps))];
-    if (next.id !== cur) actions.setAspect(next.id);
+    const idx = Math.max(0, RATIOS.findIndex(a => ratioMatch(cur, a)));
+    const next = RATIOS[Math.min(RATIOS.length - 1, Math.max(0, idx - steps))];
+    if (!ratioMatch(cur, next)) actions.setAspect(next.id);
   });
 
   root.append(el('div', { class: 'topbar-group' }, boardBtn, el('span', { class: 'topbar-divider' }), ratioBtn));

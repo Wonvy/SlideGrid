@@ -27,7 +27,7 @@ const hiddenInput = accept => {
   return input;
 };
 
-export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel, onProjectFile, onLayoutFile, onLayersAdded = () => {}, deviceAt = () => null, onDeviceChanged = () => {} }) {
+export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel, onProjectFile, onLayoutFile, onLayersAdded = () => {}, deviceAt = () => null, onDeviceChanged = () => {}, targetAlbum = () => null, onAlbumCreated = () => {}, listSlide = () => null }) {
   async function runImport(listPromise, { replaceIndex = null } = {}) {
     let list;
     try {
@@ -57,9 +57,15 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
       const extra = slides.length > 1 ? `，并在其后插入 ${slides.length - 1} 张` : '';
       toast(`已${verb}第 ${replaceIndex + 1} 张${extra}${tail}`, { error: failed > 0 });
     } else {
-      actions.fillSlots(slides);
+      addLoose(slides);
       toast(`已导入 ${slides.length} 张${tail}`, { error: failed > 0 });
     }
+  }
+  // 散的图片：查看别的图集时加到那个图集，否则加到当前画板的图集（先填示例空位）
+  function addLoose(slides) {
+    const target = targetAlbum();
+    if (target) actions.editAlbum(target, list => [...list.filter(x => !x.placeholder), ...slides]);
+    else actions.fillSlots(slides);
   }
 
   // 按最外层文件夹分组：[{ name, items }]；散的图片 name 为 null。没有任何文件夹时返回 null（按普通图片导入）
@@ -76,7 +82,7 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
   }
 
   /**
-   * 导入文件夹：散的图片加到当前图集；每个文件夹新建一个图集，当前画板换成第一个新图集。
+   * 导入文件夹：散的图片加到当前（正在查看的）图集；每个文件夹新建一个图集，左栏切到第一个新图集查看（画板不变）。
    * 当前图集还没有图片（只有示例）时，第一个文件夹直接放进当前图集，并把图集改成文件夹名。
    */
   async function importAlbums(groups, total) {
@@ -89,22 +95,23 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
       if (!slides.length) continue;
       const s = store.get();
       const album = albumOf(s);
-      const empty = !s.slidesOwn && !albumSlides(s).some(x => !x.placeholder);
+      const empty = !targetAlbum() && !s.slidesOwn && !albumSlides(s).some(x => !x.placeholder);
       if (!g.name) {
-        actions.fillSlots(slides);
+        addLoose(slides);
       } else if (first && empty) {
         actions.fillSlots(slides);
         actions.renameAlbum(album.id, g.name);
         created++;
         first = false;
       } else {
-        actions.addAlbum(g.name, slides, { switchBoards: first });
+        const id = actions.addAlbum(g.name, slides, { switchBoards: false });
+        if (first) onAlbumCreated(id);
         created++;
         first = false;
       }
     }
     const tail = failed ? `，${failed} 张无法读取` : '';
-    toast(created > 1 ? `已导入 ${created} 个图集（共 ${total - failed} 张）${tail}，在左栏顶部切换图集` : `已导入图集「${albumOf(store.get()).name}」（${total - failed} 张）${tail}`, { error: failed > 0, duration: 4000 });
+    toast(created > 1 ? `已导入 ${created} 个图集（共 ${total - failed} 张）${tail}，点左栏的图集查看` : `已导入 ${total - failed} 张${tail}：点左栏的图集查看，拖图片到卡片上替换，或右键图集「用于当前画板」`, { error: failed > 0, duration: 5000 });
   }
 
   /* ---------------- 背景图 ---------------- */
@@ -157,28 +164,47 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
     const hit = deviceAt(e.clientX, e.clientY);
     return hit && hit.board === store.get().activeBoard ? hit : null;
   };
+  // 拖到画布的卡片上：只替换这一张卡片的图片（图片可以来自任何图集，记在卡片的手动调整里）
+  let slideDropCard = null;
+  const clearSlideDrop = () => {
+    if (slideDropDevice) setUi('layerHover', null);
+    if (slideDropCard) setUi('dropTarget', null);
+    slideDropDevice = slideDropCard = null;
+  };
   window.addEventListener('dragover', e => {
     if (!isSlideDrag(e)) return;
+    if (e.target.closest?.('#slides-panel')) { if (slideDropDevice || slideDropCard) clearSlideDrop(); return; } // 左栏里是排序 / 拖到图集
     const hit = deviceOnActive(e);
     if ((hit?.layer.id || null) !== (slideDropDevice?.layer.id || null)) setUi('layerHover', hit?.layer.id || null);
     slideDropDevice = hit;
-    if (!hit) return;
+    const board = hit ? null : ws.boardAt(e.clientX, e.clientY);
+    const card = board ? ws.pickOn(board, e.clientX, e.clientY) : null;
+    slideDropCard = card ? { ...card, board } : null;
+    setUi('dropTarget', card && board === store.get().activeBoard ? card.order : null);
+    if (!hit && !card) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move'; // 左栏拖动只允许 move
+    e.dataTransfer.dropEffect = 'move';
   });
   window.addEventListener('drop', e => {
-    if (!isSlideDrag(e) || !slideDropDevice) return;
+    if (!isSlideDrag(e) || (!slideDropDevice && !slideDropCard)) return;
     e.preventDefault();
-    const index = Number(e.dataTransfer.getData('text/x-slidegrid'));
-    const target = slideDropDevice;
-    slideDropDevice = null;
-    setUi('layerHover', null);
-    if (!Number.isInteger(index)) return;
-    actions.setDeviceImage(target.layer.id, null, index + 1);
-    onDeviceChanged(target.layer.id);
-    toast(`「${target.layer.name}」改为显示第 ${index + 1} 张`);
+    const slide = listSlide(e.dataTransfer.getData('application/x-slidegrid-slide'));
+    const device = slideDropDevice, card = slideDropCard;
+    clearSlideDrop();
+    if (!slide) return;
+    if (device) {
+      const index = store.get().slides.findIndex(x => x.id === slide.id);
+      if (index < 0) { toast('样机只能显示当前画板图集里的图片：先把它拖到这个画板的图集里', { error: true, duration: 4000 }); return; }
+      actions.setDeviceImage(device.layer.id, null, index + 1);
+      onDeviceChanged(device.layer.id);
+      toast(`「${device.layer.name}」改为显示第 ${index + 1} 张`);
+      return;
+    }
+    if (card.board !== store.get().activeBoard) actions.setActiveBoard(card.board);
+    actions.pinCard(card.order, slide.id);
+    toast(`已把「${slide.name}」放到这张卡片（只改这一张；右键可恢复）`);
   });
-  window.addEventListener('dragend', () => { if (slideDropDevice) { slideDropDevice = null; setUi('layerHover', null); } });
+  window.addEventListener('dragend', clearSlideDrop);
 
   /* ---------------- 拖入文件 ---------------- */
 

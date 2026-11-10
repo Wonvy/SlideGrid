@@ -141,6 +141,9 @@ window.addEventListener('keydown', e => {
 
 const importing = createImporting({
   ws,
+  targetAlbum: () => browsedAlbum()?.id || null,       // 查看别的图集时，散的图片导入到那个图集
+  onAlbumCreated: id => setUi('browseAlbum', id),        // 拖入文件夹新建的图集：左栏切过去查看（画板不变）
+  listSlide: id => libraryOf(store.get()).find(x => x.id === id) || null,
   deviceAt: (x, y) => layerTools?.deviceAtClient(x, y) || null,
   onDeviceChanged: id => { setTool('select'); clearSelection(); layerTools.select([id]); },
   fileInput: $('file-input'),
@@ -155,6 +158,11 @@ const importing = createImporting({
 document.querySelectorAll('[data-action="pick-files"]').forEach(b => b.addEventListener('click', importing.pickFiles));
 document.querySelectorAll('[data-action="pick-folder"]').forEach(b => b.addEventListener('click', importing.pickFolder));
 $('clear-btn').addEventListener('click', () => {
+  const browsing = browsedAlbum();
+  if (browsing) {
+    if (browsing.slides.length && confirm(`清空图集「${browsing.name}」的图片？（用这个图集的画板都会清空）`)) actions.editAlbum(browsing.id, () => []);
+    return;
+  }
   if (!hasRealSlides()) return;
   const msg = store.get().slidesOwn
     ? '移除当前画板的全部图片？（这个画板单独设置了图片，其他画板不受影响）'
@@ -162,8 +170,55 @@ $('clear-btn').addEventListener('click', () => {
   if (confirm(msg)) actions.clearSlides();
 });
 
-// 左栏顶部：图集切换
-const albumBar = createAlbumBar($('album-bar'), { store, actions, toast });
+// 左栏查看的图集：点图集只是查看（列表显示它的图片），不会改变画板；排序 / 删除 / 导入改的是这个图集。
+// 把列表里的图片拖到画布卡片上 = 只替换这一张；拖到别的图集上 = 移到那个图集（按住 Alt 复制）
+function browsedAlbum(s = store.get()) {
+  const id = ui.browseAlbum;
+  return id && id !== albumOf(s)?.id ? s.albums.find(a => a.id === id) || null : null;
+}
+const listSlides = (s = store.get()) => browsedAlbum(s)?.slides ?? s.slides;
+// 列表图片的来源图集（拖到别的图集时从这里移走）；画板单独设置的列表没有来源图集
+const listAlbumId = (s = store.get()) => browsedAlbum(s)?.id ?? (s.slidesOwn ? null : albumOf(s)?.id);
+const setBrowse = id => setUi('browseAlbum', id && id !== albumOf(store.get())?.id ? id : null);
+
+// 左栏顶部：图集（叠放）
+const albumBar = createAlbumBar($('album-bar'), {
+  store, actions, toast,
+  browsingId: () => browsedAlbum()?.id || albumOf(store.get())?.id,
+  onBrowse: setBrowse,
+  onUseForBoard: id => { actions.setBoardAlbum(id); setBrowse(null); },
+  onDropSlide: (slideId, to, copy) => {
+    const name = libraryOf(store.get()).find(x => x.id === slideId)?.name || '图片';
+    const from = listAlbumId();
+    if (actions.moveSlideToAlbum(slideId, from, to, copy || !from)) {
+      toast(`已${copy || !from ? '复制' : '移动'}「${name}」到图集「${store.get().albums.find(a => a.id === to)?.name}」`);
+    }
+  },
+});
+
+// 图集和图片列表之间的分隔条：上下拖动调整图集区域的高度（记住；双击恢复）
+{
+  const bar = $('album-bar'), split = $('album-splitter'), KEY = 'slidegrid:album-h';
+  const setH = h => { if (h) bar.style.setProperty('--album-h', `${h}px`); else bar.style.removeProperty('--album-h'); };
+  try { setH(Number(localStorage.getItem(KEY)) || 0); } catch { /* 忽略 */ }
+  split.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    split.setPointerCapture(e.pointerId);
+    const y0 = e.clientY, h0 = bar.getBoundingClientRect().height;
+    const max = () => $('slides-panel').getBoundingClientRect().height * 0.7;
+    document.body.classList.add('resizing-v');
+    const move = ev => setH(Math.round(Math.max(64, Math.min(max(), h0 + ev.clientY - y0))));
+    const up = () => {
+      split.removeEventListener('pointermove', move);
+      document.body.classList.remove('resizing-v');
+      try { localStorage.setItem(KEY, String(Math.round(bar.getBoundingClientRect().height))); } catch { /* 忽略 */ }
+    };
+    split.addEventListener('pointermove', move);
+    split.addEventListener('pointerup', up, { once: true });
+    split.addEventListener('pointercancel', up, { once: true });
+  });
+  split.addEventListener('dblclick', () => { setH(0); try { localStorage.removeItem(KEY); } catch { /* 忽略 */ } });
+}
 
 // 左栏顶部：当前画板的图片来源（跟随图集 / 单独设置）
 const slidesMode = $('slides-mode');
@@ -171,6 +226,19 @@ function renderSlidesMode(s) {
   const boards = boardsOf(s);
   const album = albumOf(s);
   const following = boards.filter(b => !b.settings.slidesOwn && albumOf(s, b.settings.albumId)?.id === album?.id).length;
+  const browsing = browsedAlbum(s);
+  if (browsing) {
+    // 查看别的图集：画板不变；拖图片到卡片上只替换那一张
+    slidesMode.hidden = false;
+    slidesMode.className = 'slides-mode browse';
+    slidesMode.replaceChildren(
+      el('span', { class: 'sm-text', title: '点图集只是查看：把图片拖到画布的卡片上，只替换那一张；拖到上面别的图集上，移动过去（按住 Alt 复制）' },
+        icon('images', 14), `正在查看「${browsing.name}」· 拖图片到卡片上替换单张`),
+      el('button', { class: 'btn ghost small', title: `当前画板（多选时所选画板）换成图集「${browsing.name}」`, onclick: () => { actions.setBoardAlbum(browsing.id); setBrowse(null); toast(`已换成图集「${browsing.name}」`); } }, '用于当前画板'),
+      el('button', { class: 'btn ghost small', title: `回到当前画板的图集「${album?.name}」`, onclick: () => setBrowse(null) }, '返回'),
+    );
+    return;
+  }
   if (s.slidesOwn) {
     slidesMode.hidden = false;
     slidesMode.className = 'slides-mode own';
@@ -202,9 +270,14 @@ const slidesPanel = createSlidesPanel({
   dropzone: $('dropzone'),
   footEl: $('slides-foot'),
   viewButtons: { grid: $('view-grid'), list: $('view-list') },
-  onRemove: id => actions.removeSlide(id),
-  onMove: actions.moveSlide,
-  onHover: i => setUi('listHover', i), // 左侧悬停 → 当前画板里高亮这张图出现的所有位置
+  // 查看别的图集时，删除 / 排序改的是那个图集
+  onRemove: id => { const b = browsedAlbum(); if (b) actions.editAlbum(b.id, l => l.filter(x => x.id !== id)); else actions.removeSlide(id); },
+  onMove: (from, to) => {
+    const b = browsedAlbum();
+    if (!b) { actions.moveSlide(from, to); return; }
+    actions.editAlbum(b.id, l => { if (from === to || !l[from]) return null; const n = [...l]; const [x] = n.splice(from, 1); n.splice(Math.min(to, n.length), 0, x); return n; });
+  },
+  onHover: i => setUi('listHover', browsedAlbum() ? null : i), // 左侧悬停 → 当前画板里高亮这张图出现的所有位置
   onPick: importing.pickFiles,
 });
 const settings = createSettingsPanel($('settings-panel'), {
@@ -503,6 +576,12 @@ ws.hooks.afterRender = s => {
 
 let hadSelection = false;
 onUiChange(key => {
+  if (key === 'browseAlbum') {
+    const s = store.get();
+    slidesPanel.render(listSlides(s));
+    renderSlidesMode(s);
+    albumBar.update(s);
+  }
   if (key === 'selection' || key === 'layerSel') alignment.refreshAlign();
   if (key === 'selection' || key === 'layerSel') {
     syncInspector();
@@ -526,8 +605,8 @@ store.subscribe(s => {
     albumBar.update(s);
   }
   mockups.update(s, prev);
+  if (s.slides !== prev.slides || s.albums !== prev.albums || s.albumId !== prev.albumId) slidesPanel.render(listSlides(s));
   if (s.slides !== prev.slides) {
-    slidesPanel.render(s.slides);
     // 只释放不再被任何画板使用的纹理
     ws.renderer.prune(new Set([...libraryOf(s), ...placeholders].map(x => x.id)));
   }
@@ -560,7 +639,7 @@ store.subscribe(s => {
   ws.scheduleRender();
 });
 
-slidesPanel.render(prev.slides);
+slidesPanel.render(listSlides(prev));
 renderSlidesMode(prev);
 topbarMenus.update(prev);
 refreshTools();

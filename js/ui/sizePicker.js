@@ -2,17 +2,14 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 import { createMenu } from './menu.js';
 import { attachWheel } from './wheel.js';
-import { sizeSchema, resolveLongSide, exportSize } from '../export/schema.js';
+import { SCALES, resolveScale, exportSize } from '../export/schema.js';
 
 /**
- * 顶栏的导出尺寸：按钮显示「4K · 3840 × 2160」，点击展开尺寸菜单。
- * 每项显示名称和当前画板实际输出的像素；「自定义」可直接输入长边（长图为宽度）。滚轮切换尺寸。
- * canvasOf(s) → 当前画板的 { W, H, long }
+ * 顶栏的导出倍率：按钮显示「1× 1920 × 1080」（当前画板输出的像素），点击展开倍率菜单。
+ * 倍率 = 画板的像素尺寸 × 几倍（1× 就是画板原始像素）；也可以输入任意倍率。滚轮切换。
+ * canvasOf(s) → 当前画板的 { W, H, long, px }
  */
-const PRESETS = sizeSchema[0].options.filter(o => o.value !== 'custom').map(o => ({
-  value: o.value, name: o.label.split('·')[1]?.trim() || String(o.value),
-}));
-const nameOf = o => (o.size === 'custom' ? '自定义' : PRESETS.find(p => p.value === o.size)?.name || `${o.size}`);
+const fmtScale = v => `${Number(v.toFixed(2))}×`;
 
 export function createSizePicker(root, { store, actions, canvasOf }) {
   const name = el('span', { class: 'sp-name' });
@@ -20,8 +17,8 @@ export function createSizePicker(root, { store, actions, canvasOf }) {
   const btn = el('button', { class: 'sp-btn', 'aria-haspopup': 'menu' }, name, dims, icon('chevron-down', 12));
   root.replaceChildren(btn);
 
-  const px = (s, size) => {
-    const { width, height } = exportSize(canvasOf(s), size);
+  const px = (s, scale) => {
+    const { width, height } = exportSize(canvasOf(s), { scale });
     return `${width} × ${height}`;
   };
 
@@ -30,53 +27,52 @@ export function createSizePicker(root, { store, actions, canvasOf }) {
     className: 'size-menu',
     align: 'right',
     render(pop, close) {
-      const s = store.get(), o = s.exportOpts;
-      const long = canvasOf(s).long;
+      const s = store.get();
+      const cur = resolveScale(s.exportOpts);
       pop.innerHTML = '';
-      pop.append(el('div', { class: 'menu-title' }, long ? '导出尺寸（长图按宽度）' : '导出尺寸（按长边）'));
-      for (const p of PRESETS) {
-        const active = o.size === p.value;
+      pop.append(el('div', { class: 'menu-title' }, canvasOf(s).long ? '导出倍率（长图：1× 宽 1920）' : '导出倍率（画板像素 × 倍率）'));
+      for (const v of SCALES) {
+        const active = cur === v;
         const item = el('button', { class: `size-item${active ? ' active' : ''}`, role: 'menuitemradio', 'aria-checked': String(active) },
           el('span', { class: 'size-check' }, active ? icon('check', 14) : null),
-          el('span', { class: 'size-name' }, p.name),
-          el('span', { class: 'size-px' }, px(s, p.value)));
-        item.addEventListener('click', () => { actions.setExport('size', p.value); close(); });
+          el('span', { class: 'size-name' }, v === 1 ? '1× 原始像素' : fmtScale(v)),
+          el('span', { class: 'size-px' }, px(s, v)));
+        item.addEventListener('click', () => { actions.setExport('scale', v); close(); });
         pop.append(item);
       }
-      // 自定义：直接输入
-      custom = el('input', { type: 'number', class: 'num-input size-input', min: 256, max: 12000, step: 100, value: o.customSize });
+      // 任意倍率
+      const isCustom = !SCALES.includes(cur);
+      custom = el('input', { type: 'number', class: 'num-input size-input', min: 0.1, max: 8, step: 0.1, value: isCustom ? cur : 1.5 });
       const apply = () => {
-        const v = Math.max(256, Math.min(12000, Math.round(Number(custom.value) || 0)));
-        actions.setExport('customSize', v);
-        actions.setExport('size', 'custom');
+        const v = Math.max(0.1, Math.min(8, Number(custom.value) || 1));
+        actions.setExport('scale', Number(v.toFixed(2)));
       };
       custom.addEventListener('change', apply);
       custom.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { apply(); close(); } });
-      custom.addEventListener('focus', () => { if (o.size !== 'custom') apply(); });
-      const isCustom = o.size === 'custom';
       pop.append(
         el('div', { class: 'menu-sep' }),
         el('div', { class: `size-item custom${isCustom ? ' active' : ''}` },
           el('span', { class: 'size-check' }, isCustom ? icon('check', 14) : null),
           el('span', { class: 'size-name' }, '自定义'),
-          el('span', { class: 'size-custom' }, custom, el('span', { class: 'size-unit' }, 'px'))),
+          el('span', { class: 'size-custom' }, custom, el('span', { class: 'size-unit' }, '×'))),
+        el('div', { class: 'size-hint' }, '画板的像素尺寸在顶栏中间的尺寸按钮里设置'),
       );
     },
   });
 
-  // 滚轮：在预设尺寸之间切换（工具栏不会滚动，悬停即可）
+  // 滚轮：在预设倍率之间切换（工具栏不会滚动，悬停即可）
   attachWheel(btn, steps => {
-    const o = store.get().exportOpts;
-    const i = PRESETS.findIndex(p => p.value === o.size);
-    const next = PRESETS[Math.max(0, Math.min(PRESETS.length - 1, (i < 0 ? PRESETS.length - 1 : i) + (steps > 0 ? 1 : -1)))];
-    actions.setExport('size', next.value);
+    const cur = resolveScale(store.get().exportOpts);
+    const i = SCALES.indexOf(cur);
+    const next = SCALES[Math.max(0, Math.min(SCALES.length - 1, (i < 0 ? 1 : i) + (steps > 0 ? 1 : -1)))];
+    actions.setExport('scale', next);
   }, { immediate: true });
 
   function update(s) {
-    const o = s.exportOpts;
-    name.textContent = nameOf(o);
-    dims.textContent = px(s, resolveLongSide(o));
-    btn.title = `导出 / 复制尺寸：${dims.textContent} px（点击选择，滚轮切换）`;
+    const scale = resolveScale(s.exportOpts);
+    name.textContent = fmtScale(scale);
+    dims.textContent = px(s, scale);
+    btn.title = `导出 / 复制：${dims.textContent} px（画板像素 × ${fmtScale(scale)}，点击选择，滚轮切换）`;
     if (menu.isOpen() && document.activeElement !== custom) menu.refresh();
   }
   update(store.get());

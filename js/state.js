@@ -3,7 +3,7 @@ import { schemaDefaults } from './core/utils.js';
 import { layouts, getLayout } from './layouts/index.js';
 import { styleSchema, backgroundTypeDefaults } from './style/schema.js';
 import { exportSchema } from './export/schema.js';
-import { DEFAULT_CAMERA, isValidAspect } from './config.js';
+import { DEFAULT_CAMERA, isValidAspect, normalizeAspect, shortSide } from './config.js';
 
 // 项目（图片 + 版式/样式/视图设置）保存在 IndexedDB，见 project/controller.js；
 // localStorage 只存跨项目的偏好（导出设置）。
@@ -37,7 +37,8 @@ export function boardSettings(saved = {}) {
     layoutId: getLayout(saved.layoutId) ? saved.layoutId : 'grid',
     params: defaultParams(saved.params),
     style: { ...schemaDefaults(styleSchema), ...(saved.style || {}) },
-    aspect: isValidAspect(saved.aspect) ? saved.aspect : '16:9',
+    // 画板尺寸：像素 "宽x高"（旧数据的比例会换成像素，见 normalizeAspect）或长图 'long'
+    aspect: normalizeAspect(isValidAspect(saved.aspect) ? saved.aspect : '1920x1080'),
     camera: { ...DEFAULT_CAMERA, ...(saved.camera || {}) },
     // 单张卡片的手动调整：{ [layoutId]: { [位置序号]: { dx, dy, rz, s, lift, cropX, cropY, cropZ, fit } } }
     //   s：等比缩放；cropX / cropY：图片在卡片里的平移（-1 ~ 1，占可移动范围的比例）；cropZ：图片放大；fit：'contain' 完整显示
@@ -122,12 +123,20 @@ export function libraryOf(s) {
 }
 
 const prefs = loadPrefs();
+// 旧的导出尺寸（长边像素 / 画板 / 画板 @2x）换成倍率：按 1920 宽的画板估算
+function migrateExportOpts(o) {
+  if (o.size == null || prefs.exportOpts?.scale != null) return o;
+  const { size, customSize, scope, ...rest } = o;
+  const px = size === 'custom' ? Number(customSize) : Number(size);
+  const scale = size === 'board2x' ? 2 : size === 'board' || !px ? 1 : Math.max(1, Math.round(px / 1920));
+  return { ...rest, scale };
+}
 
 export const store = createStore({
   project: null, // { id, name }
   assets: {},    // 素材（背景图）：{ [id]: { id, name, file, preview, thumb } }
   ...projectSettings(),
-  exportOpts: { ...schemaDefaults(exportSchema), ...(prefs.exportOpts || {}) }, // 导出偏好跨项目保留
+  exportOpts: migrateExportOpts({ ...schemaDefaults(exportSchema), ...(prefs.exportOpts || {}) }), // 导出偏好跨项目保留
   wheelMode: ['hover', 'alt', 'off'].includes(prefs.wheelMode) ? prefs.wheelMode : 'hover',
   wheelNav: prefs.wheelNav === 'scroll' ? 'scroll' : 'zoom', // 工作区滚轮：缩放视图（默认）/ 滚动视图
   snap: prefs.snap !== false, // 拖动时吸附对齐
@@ -326,6 +335,31 @@ export const actions = {
     });
     return true;
   },
+  // 直接修改某个图集的图片（左栏查看别的图集时的排序、删除、导入）；fn(list) → 新列表（null 表示不改）
+  editAlbum(id, fn) {
+    const s = store.get();
+    const album = s.albums.find(a => a.id === id);
+    const next = album && fn(album.slides);
+    if (next) store.set(albumPatch(s, id, next));
+  },
+  /**
+   * 把一张图片移到（copy 时复制到）另一个图集，放在最后；from 为来源图集（null：只复制，比如来自画板单独的列表）
+   */
+  moveSlideToAlbum(slideId, from, to, copy = false) {
+    const s = store.get();
+    const target = s.albums.find(a => a.id === to);
+    const slide = libraryOf(s).find(x => x.id === slideId);
+    if (!target || !slide || from === to) return false;
+    let next = target.slides.some(x => x.id === slideId) ? s : { ...s, ...albumPatch(s, to, [...target.slides.filter(x => !x.placeholder), slide]) };
+    const src = from && next.albums.find(a => a.id === from);
+    if (src && !copy) next = { ...next, ...albumPatch(next, from, src.slides.filter(x => x.id !== slideId)) };
+    store.set({ albums: next.albums, artboards: next.artboards, slides: next.slides });
+    return true;
+  },
+  // 某张卡片固定显示一张图片（可以是别的图集里的），只影响这张卡片
+  pinCard(order, slideId) {
+    actions.setItemAdjust(order, { slide: slideId });
+  },
   // 当前画板（及多选的画板）换成某个图集，并跟随它
   setBoardAlbum(id) {
     const s = store.get();
@@ -489,8 +523,9 @@ export const actions = {
       };
     });
   },
-  setAspect(id) {
+  setAspect(rawId) {
     const s = store.get();
+    const id = normalizeAspect(rawId, shortSide(s.aspect)); // 比例 → 像素（保持当前短边）
     // 切到长图时，版式不支持就换成规整网格
     const fix = st => (id === 'long' && !getLayout(st.layoutId).long ? { layoutId: 'grid', camera: { ...DEFAULT_CAMERA } } : {});
     store.set({ aspect: id, ...fix(s), artboards: syncSelected(s, st => ({ ...st, aspect: id, ...fix(st) })) });
@@ -607,8 +642,8 @@ export const actions = {
     const layout = getLayout(p.layoutId);
     if (!layout) return { ok: false, reason: `版式「${p.layoutId}」在当前版本中不存在` };
     store.set(s => {
-      let aspect = isValidAspect(p.aspect) ? p.aspect : s.aspect;
-      if (aspect === 'long' && !layout.long) aspect = '16:9';
+      let aspect = normalizeAspect(isValidAspect(p.aspect) ? p.aspect : s.aspect, shortSide(s.aspect));
+      if (aspect === 'long' && !layout.long) aspect = '1920x1080';
       const style = p.style ? { ...s.style, ...p.style, bgImageId: s.style.bgImageId } : s.style;
       return {
         layoutId: layout.id,

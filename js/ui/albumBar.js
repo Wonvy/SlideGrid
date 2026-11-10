@@ -5,8 +5,10 @@ import { showContextMenu } from './contextMenu.js';
 
 /**
  * 左栏顶部的图集：一排「叠放」（类似 macOS 程序坞的叠放 / 相册）——每个图集用前几张图片叠成一摞，
- * 下面是名称和张数；当前画板的图集高亮。点一摞 = 当前画板换成这个图集（多选画板时一起换），
- * 右键一摞：重命名、删除；最后一个「+」新建图集。
+ * 下面是名称和张数。点一摞 = 在下面的列表里查看这个图集（画板不变，可以把图片拖到卡片上单独替换）；
+ * 正在查看的高亮，当前画板用的图集带「画板」标记。右键：用于当前画板、重命名、新建、删除；最后一个「+」新建。
+ * 把列表里的图片拖到一摞上 = 移到这个图集（按住 Alt 复制）。
+ *   browsingId() → 正在查看的图集；onBrowse(id)；onUseForBoard(id)；onDropSlide(slideId, albumId, copy)
  */
 const THUMB_W = 64, THUMB_H = 50, DPR = 2;
 
@@ -62,7 +64,7 @@ function drawStack(canvas, slides) {
   });
 }
 
-export function createAlbumBar(root, { store, actions, toast }) {
+export function createAlbumBar(root, { store, actions, toast, browsingId, onBrowse, onUseForBoard, onDropSlide }) {
   const strip = el('div', { class: 'album-strip', role: 'listbox', 'aria-label': '图集' });
   root.append(strip);
 
@@ -88,28 +90,44 @@ export function createAlbumBar(root, { store, actions, toast }) {
   let key = '';
   function render(s) {
     const cur = albumOf(s);
-    const k = [cur?.id, s.slidesOwn, selectionOf(s).length, ...s.albums.map(a => `${a.id}:${a.name}:${a.slides.slice(0, 3).map(x => x.id).join('.')}:${a.slides.length}`)].join('|');
+    const viewing = browsingId();
+    const k = [cur?.id, viewing, s.slidesOwn, selectionOf(s).length, ...s.albums.map(a => `${a.id}:${a.name}:${a.slides.slice(0, 3).map(x => x.id).join('.')}:${a.slides.length}`)].join('|');
     if (k === key) return;
     key = k;
     const n = selectionOf(s).length;
     strip.replaceChildren(...s.albums.map(a => {
       const canvas = el('canvas', { class: 'album-stack' });
       drawStack(canvas, a.slides);
-      const active = a.id === cur?.id;
+      const active = a.id === cur?.id;     // 当前画板用的图集
+      const browsing = a.id === viewing;   // 下面列表正在显示的图集
       const b = el('button', {
-        class: `album-tile${active ? ' active' : ''}${active && s.slidesOwn ? ' own' : ''}`, role: 'option', 'aria-selected': String(active),
-        title: `${a.name} · ${real(a)} 张${active ? (s.slidesOwn ? '（当前画板单独设置了图片）' : '（当前画板）') : n > 1 ? `\n点击：所选的 ${n} 个画板换成这个图集` : '\n点击：当前画板换成这个图集'}\n右键：重命名 / 删除`,
-      }, canvas, el('span', { class: 'album-label' }, a.name), el('span', { class: 'album-meta' }, `${real(a)} 张`));
-      b.addEventListener('click', () => {
-        if (active && !s.slidesOwn) return;
-        actions.setBoardAlbum(a.id);
-        toast(`已换成图集「${a.name}」`);
+        class: `album-tile${browsing ? ' active' : ''}${active && s.slidesOwn ? ' own' : ''}`, role: 'option', 'aria-selected': String(browsing),
+        title: `${a.name} · ${real(a)} 张${active ? (s.slidesOwn ? '（当前画板的图集，画板单独设置了图片）' : '（当前画板的图集）') : ''}\n点击：在下面查看（不改变画板，可以把图片拖到卡片上单独替换）\n右键：用于当前画板 / 重命名 / 删除\n把图片拖到这里：移到这个图集（按住 Alt 复制）`,
+      }, canvas, active ? el('span', { class: 'album-badge', title: '当前画板在用这个图集' }, '画板') : null,
+      el('span', { class: 'album-label' }, a.name), el('span', { class: 'album-meta' }, `${real(a)} 张`));
+      b.addEventListener('click', () => onBrowse(a.id));
+      // 从列表拖来的图片：移到 / 复制到这个图集
+      const isSlide = e => [...(e.dataTransfer?.types || [])].includes('application/x-slidegrid-slide');
+      b.addEventListener('dragover', e => {
+        if (!isSlide(e) || browsing) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
+        b.classList.add('drop-hover');
+      });
+      b.addEventListener('dragleave', () => b.classList.remove('drop-hover'));
+      b.addEventListener('drop', e => {
+        b.classList.remove('drop-hover');
+        if (!isSlide(e) || browsing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDropSlide(e.dataTransfer.getData('application/x-slidegrid-slide'), a.id, e.altKey);
       });
       b.addEventListener('contextmenu', e => {
         e.preventDefault();
         showContextMenu(e.clientX, e.clientY, [
           { title: a.name },
-          !active && { label: n > 1 ? `所选的 ${n} 个画板换成这个图集` : '当前画板换成这个图集', icon: 'images', action: () => actions.setBoardAlbum(a.id) },
+          !browsing && { label: '查看这个图集', icon: 'eye', action: () => onBrowse(a.id) },
+          (!active || s.slidesOwn) && { label: n > 1 ? `用于所选的 ${n} 个画板` : '用于当前画板', icon: 'images', action: () => { onUseForBoard(a.id); toast(`已换成图集「${a.name}」`); } },
           { label: '重命名…', icon: 'pencil', action: () => rename(a) },
           { label: '新建图集…', icon: 'plus', action: create },
           { sep: true },

@@ -142,7 +142,7 @@ function assignSlides(raw, n, mode, project, aspect) {
  * 把「幻灯片 + 版式 + 参数」转换成渲染器可以直接绘制的场景。
  * 预览和导出共用这一函数。
  */
-export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null }) {
+export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null, pool = null }) {
   const { W, H, long, px } = resolveCanvas({ slides, layout, params, aspect });
   const n = slides.length;
   const empty = { W, H, long, px, items: [], viewProj: m4.identity(), coplanar: true, style };
@@ -181,12 +181,17 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
     return [[0, 0], [0, -it.h / 2], [0, it.h / 2]].map(([x, y]) => m4.transformVec4(mvp, [x, y, 0, 1]));
   }, W / H);
 
-  // 交换图片：卡片的手动调整里记了 slide（幻灯片 id）时，这个位置固定显示那一张（只影响这张卡片）
+  // 交换 / 替换单张：卡片的手动调整里记了 slide（幻灯片 id）时，这个位置固定显示那一张（只影响这张卡片）；
+  // 可以是这个画板图片列表里的，也可以是别的图集里的（在 pool 里找）
   const indexById = new Map(slides.map((x, i) => [x.id, i]));
+  const extraSlides = new Map(); // 不在这个画板列表里的图片（渲染前要上传贴图）
   const items = raw.map((it, order) => {
     const pinned = adjust?.[order]?.slide;
-    const slideIndex = pinned != null && indexById.has(pinned) ? indexById.get(pinned) : slideOf[order];
-    const slide = slides[slideIndex];
+    const inList = pinned != null && indexById.has(pinned);
+    const foreign = pinned != null && !inList ? pool?.get(pinned) : null;
+    const slideIndex = inList ? indexById.get(pinned) : slideOf[order];
+    const slide = foreign || slides[slideIndex];
+    if (foreign) extraSlides.set(foreign.id, foreign);
     const model = m4.multiply(groupM, m4.compose(
       it.x || 0, it.y || 0, it.z || 0, (it.rx || 0) * DEG, (it.ry || 0) * DEG, (it.rz || 0) * DEG, 1,
     ));
@@ -210,7 +215,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   const z0 = raw[0]?.z || 0;
   const coplanar = raw.every(it => (it.z || 0) === z0 && !it.rx && !it.ry);
 
-  return { W, H, long, px, items, viewProj, coplanar, style, groupM, ortho: (result.camera || {}).type !== 'perspective' };
+  return { W, H, long, px, items, viewProj, coplanar, style, groupM, extraSlides: [...extraSlides.values()], ortho: (result.camera || {}).type !== 'perspective' };
 }
 
 /**
@@ -253,7 +258,7 @@ export function textureNeeds(scene, pxW, pxH) {
  * 工作区每帧要为每个画板取场景 / 尺寸，用缓存避免重复排版（铺满型版式一个画板上千张卡片）；
  * 场景对象保持不变也让点选、对齐用的投影缓存（按 scene 缓存）在帧之间持续有效。
  */
-const SCENE_KEYS = ['slides', 'layout', 'params', 'style', 'aspect', 'camera', 'adjust'];
+const SCENE_KEYS = ['slides', 'layout', 'params', 'style', 'aspect', 'camera', 'adjust', 'pool'];
 const CANVAS_KEYS = ['slides', 'layout', 'params', 'aspect'];
 
 function memo(fn, keys, size) {

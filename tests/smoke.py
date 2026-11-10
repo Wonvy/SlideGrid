@@ -178,6 +178,18 @@ def t_export(page, errors):
     assert r['width'] == 1600 and r['height'] == 900 and r['size'] > 20000, r
 
 
+def t_pixels(page, errors):
+    # 画板像素尺寸 × 倍率：1242 × 1660 的画板 1× / 2× 导出正好是这么多像素
+    r = page.evaluate('''async () => {
+      const before = SlideGrid.store.get().aspect;
+      SlideGrid.actions.setAspect('1242x1660');
+      const a = await SlideGrid.renderToBlob({ scale: 1 }), b = await SlideGrid.renderToBlob({ scale: 2 });
+      SlideGrid.actions.setAspect(before);
+      return [a.width, a.height, b.width, b.height];
+    }''')
+    assert r == [1242, 1660, 2484, 3320], r
+
+
 def t_persist(page, errors):
     page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
     page.reload()
@@ -189,7 +201,8 @@ def t_persist(page, errors):
 
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
-         ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export), ('刷新后数据还在', t_persist)]
+         ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
+         ('画板像素 × 倍率导出', t_pixels), ('刷新后数据还在', t_persist)]
 
 
 def run(browser, label, url) -> bool:

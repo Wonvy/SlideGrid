@@ -66,8 +66,9 @@ export function createSlidesPanel({ listEl, countEl, emptyEl, dropzone, footEl, 
       li.addEventListener('dragstart', e => {
         dragFrom = i;
         onHover(null);
-        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.effectAllowed = 'copyMove'; // 列表内排序 / 拖到卡片上为 move，拖到别的图集按住 Alt 为 copy
         e.dataTransfer.setData('text/x-slidegrid', String(i));
+        e.dataTransfer.setData('application/x-slidegrid-slide', slide.id);
         li.classList.add('dragging');
       });
       li.addEventListener('dragend', () => {

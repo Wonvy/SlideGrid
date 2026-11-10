@@ -39,6 +39,20 @@ export const PIXEL_PRESETS = [
   { id: '1080x1920', note: '竖屏 9:16' },
   { id: '900x383', note: '公众号封面' },
 ];
+/**
+ * 画板尺寸统一用像素（"宽x高"）。旧数据 / 比例预设（如 "16:9"、"5:4"）换成像素：保持短边 short（默认 1080）。
+ * 长图（'long'）保持不变：宽度固定，高度随内容。
+ */
+export function ratioToPixels(a, short = 1080) {
+  return a >= 1 ? `${Math.round(short * a)}x${short}` : `${short}x${Math.round(short / a)}`;
+}
+export function normalizeAspect(id, short = 1080) {
+  if (id === 'long' || parsePixels(id)) return id;
+  const a = ASPECTS.find(x => x.id === id && x.value)?.value ?? parseRatio(id);
+  return a ? ratioToPixels(a, short) : '1920x1080';
+}
+// 当前尺寸的短边（换比例时保持短边不变）
+export const shortSide = id => (p => (p ? Math.min(p.w, p.h) : 1080))(parsePixels(id));
 export const isValidAspect = id => id === 'long' || ASPECTS.some(a => a.id === id) || parseRatio(id) != null || parsePixels(id) != null;
 export const aspectValue = id => ASPECTS.find(a => a.id === id && a.value)?.value ?? parseRatio(id)
   ?? (p => (p ? p.w / p.h : null))(parsePixels(id)) ?? ASPECTS[0].value;

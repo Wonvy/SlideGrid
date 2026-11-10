@@ -1,6 +1,6 @@
 import { store, actions, boardsOf, selectionOf } from '../state.js';
 import { renderToBlob, renderToCanvas, downloadBlob } from '../export/exporter.js';
-import { resolveLongSide, exportSize } from '../export/schema.js';
+import { resolveScale, exportSize } from '../export/schema.js';
 import { copyPngToClipboard } from '../export/clipboard.js';
 import { createZip } from '../persist/zip.js';
 import { createExportPopover } from '../ui/exportPopover.js';
@@ -9,7 +9,7 @@ import { boardInput, sceneInput, canvasOf, safeName } from './boards.js';
 
 /**
  * 导出图片 / 复制到剪贴板 / 离屏预览。
- *   导出范围：当前画板、所选画板、全部画板（多个画板打包成 ZIP）
+ *   尺寸：每个画板的像素尺寸 × 导出倍率；导出面板里勾选要导出的画板（多个打包成 ZIP）
  *   预览（导出面板、项目缩略图、我的版式缩略图）用内存里的预览图离屏渲染，速度快
  */
 export function createExporting({ copyBtn, exportBtn }) {
@@ -17,18 +17,20 @@ export function createExporting({ copyBtn, exportBtn }) {
 
   const exportOptions = (s, overrides = {}) => {
     const o = s.exportOpts;
-    return { longSide: resolveLongSide(o), format: o.format, quality: o.quality, transparent: o.format === 'png' && !!o.transparent, ...overrides };
+    return { scale: resolveScale(o), format: o.format, quality: o.quality, transparent: o.format === 'png' && !!o.transparent, ...overrides };
   };
 
-  function exportInfo(s) {
-    const { width, height } = exportSize(canvasOf(s), resolveLongSide(s.exportOpts));
-    const board = s.artboards.find(b => b.id === s.activeBoard);
+  // 某个画板导出的像素
+  const boardSize = (s, b) => exportSize(canvasOf({ ...s, ...b.settings }), { scale: resolveScale(s.exportOpts) });
+  // 导出面板用：每个画板的名称和输出像素；ids 为要导出的画板时的默认文件名
+  function exportInfo(s, ids = [s.activeBoard]) {
     const base = safeName(s.project?.name || 'slidegrid');
+    const boards = boardsOf(s).map(b => ({ id: b.id, name: b.name, ...boardSize(s, b) }));
+    const pick = boards.filter(b => ids.includes(b.id));
+    const one = pick[0];
     return {
-      width, height,
-      defaultName: s.exportOpts.scope === 'all' ? `${base}-全部画板`
-        : s.exportOpts.scope === 'selected' && selectionOf(s).length > 1 ? `${base}-所选画板`
-          : `${base}-${safeName(board?.name || '画板')}-${width}x${height}`,
+      boards,
+      defaultName: pick.length > 1 ? `${base}-${pick.length}个画板` : one ? `${base}-${safeName(one.name)}-${one.width}x${one.height}` : base,
     };
   }
 
@@ -69,7 +71,7 @@ export function createExporting({ copyBtn, exportBtn }) {
   const snapshot = async width =>
     (await renderToBlob(sceneInput(store.get()), { longSide: Math.round(width * 1.6), format: 'jpg', quality: 0.85, preview: true })).blob;
 
-  const popover = createExportPopover({ anchor: exportBtn, store, actions, drawPreview, info: exportInfo });
+  const popover = createExportPopover({ anchor: exportBtn, store, actions, drawPreview, info: exportInfo, defaultIds: s => selectionOf(s) });
 
   /* ---------------- 导出 ---------------- */
 
@@ -119,19 +121,16 @@ export function createExporting({ copyBtn, exportBtn }) {
     toast(`已导出 ${boards.length} 个画板（${file}）`);
   }
 
-  // ids 不传时按导出面板里选的范围导出
+  // ids 不传时导出面板里勾选的画板（面板没打开时为所选画板）
   async function doExport(ids = null) {
     if (busy) return;
     popover.setBusy(true);
     try {
       await withBusy(async () => {
-        const s = store.get();
         if (ids) { await exportBoards(ids); return; } // 右键菜单：导出指定画板
-        const scope = s.exportOpts.scope;
-        const target = scope === 'all' ? s.artboards.map(b => b.id)
-          : scope === 'selected' ? selectionOf(s)
-            : [s.activeBoard];
-        await exportBoards(target, popover.filename());
+        const target = popover.targets();
+        if (!target.length) throw new Error('没有勾选要导出的画板');
+        await exportBoards(target, popover.filename(target));
       });
     } catch (err) {
       console.error(err);

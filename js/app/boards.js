@@ -1,4 +1,4 @@
-import { store, boardSettingsOf } from '../state.js';
+import { store, boardSettingsOf, libraryOf } from '../state.js';
 import { getLayout } from '../layouts/index.js';
 import { cachedCanvas } from '../render/scene.js';
 import { createPlaceholders } from '../slides/placeholders.js';
@@ -31,10 +31,22 @@ function bgSourceOf(s, st) {
 }
 
 // 某个画板（st 为该画板的设置）的渲染输入，与 buildScene / renderToCanvas 的参数一致
+// 项目里全部图片的 id → 幻灯片（卡片可以固定显示别的图集里的图片，见 scene.js）。按引用缓存，场景缓存才不会每帧失效
+let poolKey = [], poolVal = new Map();
+export function slidePool(s) {
+  const key = [s.albums, s.artboards, s.slides];
+  if (key.some((v, i) => v !== poolKey[i])) {
+    poolKey = key;
+    poolVal = new Map(libraryOf(s).map(x => [x.id, x]));
+  }
+  return poolVal;
+}
+
 export function boardInput(s, st) {
   const layout = getLayout(st.layoutId);
   return {
     slides: boardSlides(st.slides),
+    pool: slidePool(s),
     layout,
     params: st.params[layout.id],
     style: st.style,

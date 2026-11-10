@@ -179,6 +179,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       if (vx1 <= vx0 || vy1 <= vy0) continue;
       for (const slide of input.slides) renderer.setTexture(slide.id, slide.preview); // 同一来源不会重复上传
       info.scene = cachedScene(input);
+      for (const slide of info.scene.extraSlides || []) renderer.setTexture(slide.id, slide.preview); // 单张卡片用了别的图集的图片
       if (active) lastScene = info.scene;
       const tile = tileMatrix(vx0 - px.x, vy0 - px.y, vx1 - vx0, vy1 - vy0, px.w, px.h);
       renderer.render(info.scene, tile, active ? buildOverlays(info.scene) : [], {

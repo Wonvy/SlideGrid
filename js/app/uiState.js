@@ -13,6 +13,7 @@ export const ui = {
   tempHand: false,   // 按住空格临时抓手
   layerSel: [],      // 选中的图层 id（当前画板）
   layerHover: null,  // 悬停的图层 id
+  browseAlbum: null, // 左栏正在查看的图集 id（null = 当前画板的图集）；只是查看，不会改变画板
 };
 
 const listeners = new Set();

@@ -97,13 +97,13 @@ function previewRenderer() {
 /**
  * 离屏渲染到一张 canvas。
  * @param input  与 buildScene 相同的参数
- * @param opts   longSide：导出尺寸；fill：透明背景时的填充（'white' 或不填 = 保留透明）；
+ * @param opts   scale：倍率（画板像素 × 倍率）或 longSide：长边像素；fill：透明背景时的填充（'white' 或不填 = 保留透明）；
  *               preview：true 时直接用内存里的预览图（快，用于缩略图 / 导出面板预览），否则重新读取原图
  * @returns { canvas, width, height }
  */
-export async function renderToCanvas(input, { longSide, fill = null, preview = false, onProgress, transparent = false } = {}) {
+export async function renderToCanvas(input, { longSide, scale = null, fill = null, preview = false, onProgress, transparent = false } = {}) {
   const scene = buildScene(input);
-  const { width: pxW, height: pxH } = exportSize(scene, longSide);
+  const { width: pxW, height: pxH } = exportSize(scene, scale != null ? { scale } : { longSide });
 
   const out = document.createElement('canvas');
   out.width = pxW;
@@ -178,9 +178,9 @@ export async function renderToCanvas(input, { longSide, fill = null, preview = f
 }
 
 /** 离屏渲染出高清图片：{ blob, width, height } */
-export async function renderToBlob(input, { longSide, format = 'png', quality = 0.92, onProgress, preview = false, transparent = false } = {}) {
+export async function renderToBlob(input, { longSide, scale = null, format = 'png', quality = 0.92, onProgress, preview = false, transparent = false } = {}) {
   const { canvas, width, height } = await renderToCanvas(input, {
-    longSide, preview, onProgress, transparent, fill: format === 'jpg' ? '#ffffff' : null, // JPG 不支持透明
+    longSide, scale, preview, onProgress, transparent, fill: format === 'jpg' ? '#ffffff' : null, // JPG 不支持透明
   });
   const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
   const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, quality));
