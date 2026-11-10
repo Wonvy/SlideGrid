@@ -6,6 +6,7 @@ import { BOOLEAN_OPS } from '../layers/boolean.js';
 import { setSelection } from './uiState.js';
 import { stackCards, canStack } from './cardOrder.js';
 import { toast } from '../ui/toast.js';
+import { getLayout } from '../layouts/index.js';
 
 /**
  * 工作区右键菜单：
@@ -85,6 +86,19 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         cropped && { label: '复位裁切', icon: 'rotate-ccw', action: () => actions.resetCrop(card.order) },
         flat && adjusted && { label: '复位这张卡片', icon: 'undo-2', action: () => actions.resetItemAdjust(card.order) },
         pinned && { label: '恢复这张卡片原来的图片', icon: 'rotate-ccw', action: () => actions.unpinCard(card.order) },
+        // 等距展台 / 分组展台：抬起 / 放平（选中的卡片一起改），细调在「设计」页的「抬起」
+        ...(getLayout(store.get().layoutId).cardParams ? (() => {
+          const orders = ui.selection.includes(card.order) ? [...ui.selection] : [card.order];
+          const set = raise => () => { setSelection(orders, card.order); actions.setItemAdjusts(orders.map(order => ({ order, patch: { raise } }))); };
+          const cur = adj?.raise || 'auto';
+          return [
+            { sep: true },
+            cur !== 'up' && { label: orders.length > 1 ? `抬起这 ${orders.length} 张` : '抬起这张', icon: 'arrow-up-to-line', action: set('up') },
+            cur !== 'flat' && { label: orders.length > 1 ? `放平这 ${orders.length} 张` : '放平这张', icon: 'arrow-down-to-line', action: set('flat') },
+            cur !== 'auto' && { label: '跟随版式（自动）', icon: 'rotate-ccw', action: set('auto') },
+            { label: '选中，调整角度…', icon: 'mouse-pointer-2', action: () => { setTool('select'); setSelection(orders, card.order); } },
+          ];
+        })() : []),
         ...(canStack() ? (() => {
           // 右键点到的卡片在选中的卡片里：一起调；否则只调这一张
           const orders = ui.selection.includes(card.order) ? [...ui.selection] : [card.order];

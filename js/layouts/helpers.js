@@ -1,4 +1,5 @@
 // 版式通用工具。所有坐标为世界单位，原点在画布中心，y 轴向上。
+import { DEG } from '../core/utils.js';
 
 /**
  * 在矩形区域内按列数排网格，整体等比缩放以完全放入区域并居中。
@@ -63,3 +64,48 @@ export const countParam = (defaultCount = 0) => ({
   key: 'count', label: '数量', type: 'range', min: 0, max: 40, default: defaultCount,
   format: v => (v > 0 ? `最多 ${Math.round(v)} 张` : '全部'),
 });
+
+/**
+ * 把平放在地面（版式坐标的 xy 平面）上的卡片翻起来：以一条边为轴往镜头方向立起 angle 度，再整体抬高 height；
+ * turn：卡片在自己平面里再转一点（显得随意）。edge：轴在哪条边（bottom / top / left / right）。
+ */
+export function raiseItem(it, { angle = 0, height = 0, edge = 'bottom', turn = 0 } = {}) {
+  const a = angle * DEG, c = Math.cos(a), s = Math.sin(a);
+  const out = { ...it, z: (it.z || 0) + height, rz: (it.rz || 0) + turn };
+  if (edge === 'top') Object.assign(out, { y: it.y + it.h / 2 - (it.h / 2) * c, z: out.z + (it.h / 2) * s, rx: -angle });
+  else if (edge === 'left') Object.assign(out, { x: it.x - it.w / 2 + (it.w / 2) * c, z: out.z + (it.w / 2) * s, ry: -angle });
+  else if (edge === 'right') Object.assign(out, { x: it.x + it.w / 2 - (it.w / 2) * c, z: out.z + (it.w / 2) * s, ry: angle });
+  else Object.assign(out, { y: it.y - it.h / 2 + (it.h / 2) * c, z: out.z + (it.h / 2) * s, rx: angle });
+  // 叠放层级：抬起的卡片始终压在平放的上面（俯视时近处平放的卡片离镜头更近，不能只按远近排）
+  out.stack = 1 + out.z;
+  return out;
+}
+
+export const RAISE_EDGES = [
+  { value: 'bottom', label: '下边' }, { value: 'top', label: '上边' }, { value: 'left', label: '左边' }, { value: 'right', label: '右边' },
+];
+
+/**
+ * 单张卡片的「抬起」设置（选中卡片后在「设计」页调，存在卡片的手动调整里）：
+ *   raise：auto 跟随版式（自动翻起中间几张）/ up 抬起 / flat 放平；抬起时的角度、高度、轴、转角，没设置时用版式参数
+ */
+export const raiseCardParams = [
+  { key: 'raise', label: '抬起', type: 'select', default: 'auto', options: [{ value: 'auto', label: '跟随版式' }, { value: 'up', label: '抬起' }, { value: 'flat', label: '放平' }] },
+  { key: 'raiseAngle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°', show: v => v.raise === 'up' },
+  { key: 'raiseHeight', label: '浮起高度', type: 'range', min: 0, max: 400, default: 36, show: v => v.raise === 'up' },
+  { key: 'raiseEdge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES, show: v => v.raise === 'up' },
+  { key: 'raiseTurn', label: '倾斜', type: 'range', min: -45, max: 45, default: 0, unit: '°', show: v => v.raise === 'up' },
+];
+
+// 卡片的抬起设置（缺的用版式参数补上）：返回 null = 平放
+export function cardRaise(card, p, auto) {
+  const mode = card?.raise || 'auto';
+  if (mode === 'flat' || (mode === 'auto' && !auto)) return null;
+  if (mode === 'auto') return auto;
+  return {
+    angle: card.raiseAngle ?? p.angle,
+    height: card.raiseHeight ?? p.height,
+    edge: card.raiseEdge ?? p.edge ?? 'bottom',
+    turn: card.raiseTurn ?? 0,
+  };
+}

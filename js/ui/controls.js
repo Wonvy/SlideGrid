@@ -8,7 +8,7 @@ const decimals = step => (String(step).split('.')[1] || '').length;
 
 /**
  * 根据 schema 自动生成控件。
- * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image'|'textarea'|'font', default, show?(values), ... }
+ * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image'|'textarea'|'font'|'albumGroups', default, show?(values), ... }
  *          或 { group: '分组标题' }
  * label 可以是函数 (values) => 文本。
  * ctx（可选）：image 控件需要 { imageThumb(id) → canvas|null, pickImage(key), dropTarget }；
@@ -258,6 +258,37 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         render = v => { if (document.activeElement !== input) input.value = v ?? ''; };
         row.classList.add('stacked');
         row.append(input);
+        break;
+      }
+      case 'albumGroups': {
+        // 分组版式：每一组（行 / 列）用哪个图集。def.count(values) 组数，def.itemLabel(values, i) 名称；ctx.albums() 图集列表
+        const box = el('div', { class: 'album-groups' });
+        let key = '';
+        render = v => {
+          const vals = lastValues || {};
+          const albums = ctx.albums?.() || [];
+          const n = def.count(vals);
+          const list = Array.isArray(v) ? v : [];
+          const k = JSON.stringify([n, list, albums.map(a => [a.id, a.name]), def.itemLabel(vals, 0)]);
+          if (k === key) return;
+          key = k;
+          if (!albums.length) { box.replaceChildren(el('p', { class: 'note' }, '还没有图集')); return; }
+          box.replaceChildren(...Array.from({ length: n }, (_, i) => {
+            const autoName = albums[i % albums.length].name;
+            const sel = el('select', { class: 'select' },
+              el('option', { value: '' }, `自动 · ${autoName}`),
+              ...albums.map(a => el('option', { value: a.id }, a.name)));
+            sel.value = list[i] && albums.some(a => a.id === list[i]) ? list[i] : '';
+            sel.addEventListener('change', () => {
+              const next = Array.from({ length: Math.max(n, list.length) }, (_, j) => list[j] ?? null);
+              next[i] = sel.value || null;
+              onChange(def.key, next);
+            });
+            return el('div', { class: 'ag-row' }, el('span', { class: 'ag-label' }, def.itemLabel(vals, i)), sel);
+          }));
+        };
+        row.classList.add('stacked');
+        row.append(box);
         break;
       }
       case 'seed': {

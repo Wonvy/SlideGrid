@@ -39,7 +39,7 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  */
 export function attachViewportInteraction(target, opts) {
   const {
-    getTool, setTool, toolAvailable, is3D, canSwap, getSlide, onTempHand,
+    getTool, setTool, toolAvailable, is3D, canSwap, getSlide, onTempHand, cardSelectable = () => false,
     // 画板与视图
     boardAt, activeBoard, activateBoard, boardRect, deleteSelectedBoards,
     selectedBoards, toggleBoardSelection, selectBoards, selectAllBoards, moveBoards, setMarquee,
@@ -348,7 +348,13 @@ export function attachViewportInteraction(target, opts) {
           }
         } else if (cardTools.has(tool)) {
           const ok = hit && flat && toolAvailable(tool); // 3D 版式不能单独调整卡片
-          if (flat && (additive || !hit)) {
+          if (!flat && hit && tool === 'select' && cardSelectable()) {
+            // 有单卡设置的 3D 版式（等距展台、分组展台）：点选卡片（Shift / ⌘ 加选、减选），在「设计」页调抬起
+            const cur = getSelection();
+            layers?.clear();
+            if (additive) setSelection(cur.includes(hit.order) ? cur.filter(o => o !== hit.order) : [...cur, hit.order], hit.order);
+            else setSelection([hit.order]);
+          } else if (flat && (additive || !hit)) {
             // 空白处拖动：框选卡片；Shift/⌘：追加框选，没拖动就是单击加选 / 减选卡片
             if (!additive) { setSelection([]); layers?.clear(); }
             mode = 'cardMarquee';

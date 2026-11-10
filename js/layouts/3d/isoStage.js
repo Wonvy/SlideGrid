@@ -1,8 +1,9 @@
 import { DEG } from '../../core/utils.js';
-import { fillGrid, svg } from '../helpers.js';
+import { fillGrid, svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES } from '../helpers.js';
 
 // 等距展台：卡片平铺在地面上（正交、等距视角），中间几张翻起或浮起，像桌面上摊开的名片 / 网页样机。
 // 翻起：以卡片下边为轴立起来；浮起：整张抬高。翻起的角度依次变化（全角度 → 平放浮起 → 六成角度…）显得错落。
+// 也可以选中任意卡片，在「设计」页单独设置抬起 / 放平、角度、高度、翻起的轴和倾斜（cardParams）。
 export default {
   id: 'isoStage',
   name: '等距展台',
@@ -18,29 +19,26 @@ export default {
     { key: 'raise', label: '翻起数量', type: 'range', min: 0, max: 8, default: 3, format: v => (v > 0 ? `${Math.round(v)} 张` : '不翻起') },
     { key: 'angle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°' },
     { key: 'height', label: '浮起高度', type: 'range', min: 0, max: 300, default: 36 },
+    { key: 'edge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES },
     { key: 'tilt', label: '俯视角度', type: 'range', min: 20, max: 80, default: 55, unit: '°' },
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },
     { key: 'zoom', label: '缩放', type: 'range', min: 0.5, max: 3, step: 0.01, default: 1.35 },
   ],
-  compute({ n, aspect, W, H, p }) {
+  cardParams: raiseCardParams,
+  compute({ n, aspect, W, H, p, cards = {} }) {
     const extent = (Math.hypot(W, H) * 1.5) / p.zoom / Math.max(Math.cos(p.tilt * DEG), 0.3);
     const items = fillGrid({ n, aspect, W, gap: p.gap, cols: p.cols, offset: p.offset, extent });
-    // 离中心最近的几张翻起 / 浮起
+    // 离中心最近的几张自动翻起 / 浮起（角度依次变化）；单张卡片的设置优先
     const raise = Math.max(0, Math.round(p.raise));
     const near = items.map((it, k) => ({ k, d: Math.hypot(it.x, it.y * 1.2) })).sort((a, b) => a.d - b.d).slice(0, raise);
     const PATTERN = [1, 0, 0.6, 0.85, 0.3];
-    near.forEach(({ k }, j) => {
-      const it = items[k];
-      const a = p.angle * PATTERN[j % PATTERN.length] * DEG;
-      const lift = p.height * (1 + (j % 3) * 0.6);
-      // 以下边为轴往上翻：下边留在原处（再抬高 lift），上边翻向镜头
-      items[k] = {
-        ...it,
-        y: it.y - it.h / 2 + (it.h / 2) * Math.cos(a),
-        z: lift + (it.h / 2) * Math.sin(a),
-        rx: a / DEG,
-      };
-    });
+    const auto = new Map(near.map(({ k }, j) => [k, {
+      angle: p.angle * PATTERN[j % PATTERN.length], height: p.height * (1 + (j % 3) * 0.6), edge: p.edge || 'bottom', turn: 0,
+    }]));
+    for (let k = 0; k < items.length; k++) {
+      const r = cardRaise(cards[k], p, auto.get(k));
+      if (r) items[k] = raiseItem(items[k], r);
+    }
     return {
       items,
       group: { rx: -p.tilt, rz: p.turn, s: p.zoom },

@@ -25,7 +25,7 @@ const ADD_TOOLS = [
   { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
 ];
 
-export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, cards, onFade = () => {}, notify = () => {}, onDeviceImage = () => {}, onDeviceQuad = () => {} }) {
+export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, cardParams = () => null, cards, onFade = () => {}, notify = () => {}, onDeviceImage = () => {}, onDeviceQuad = () => {} }) {
   /* ---------- 设计页：选中对象的标题栏 ---------- */
   const selTitle = el('span', { class: 'sel-title' });
   const selBar = el('div', { class: 'sel-bar' }, selTitle,
@@ -62,7 +62,26 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   const cardSection = section('位置', cardBox, resetBtn('复位选中卡片的位置、旋转和缩放', () => getCards().forEach(o => actions.setItemAdjust(o, { dx: 0, dy: 0, rz: 0, s: 1 }))), 'section:card-transform');
   const updateCard = buildControls(cardBox, cardSchema, { ...cardAdjust(-1), single: true }, setCards);
 
-  selectionSlot.append(selBar, propsSection, cropSection, cardSection);
+  // 3D 版式的单卡设置（等距展台 / 分组展台的「抬起」）：schema 来自版式的 cardParams，缺的值用版式参数补上
+  const raiseBox = el('div');
+  const raiseSection = section('抬起', raiseBox, resetBtn('选中的卡片改回跟随版式', () => actions.setItemAdjusts(getCards().map(order => ({ order, patch: { raise: 'auto', raiseAngle: undefined, raiseHeight: undefined, raiseEdge: undefined, raiseTurn: undefined } })))), 'section:card-raise');
+  let raiseSchema = null;
+  let updateRaise = () => {};
+  const raiseValues = order => {
+    const s = store.get();
+    const p = s.params[s.layoutId] || {};
+    const a = cardAdjust(order);
+    return { raise: a.raise || 'auto', raiseAngle: a.raiseAngle ?? p.angle ?? 58, raiseHeight: a.raiseHeight ?? p.height ?? 36, raiseEdge: a.raiseEdge ?? p.edge ?? 'bottom', raiseTurn: a.raiseTurn ?? 0 };
+  };
+  function renderRaise(cards) {
+    const schema = cardParams?.() || null;
+    raiseSection.hidden = !schema || !cards.length || ui.layerSel.length > 0;
+    if (raiseSection.hidden) return;
+    if (schema !== raiseSchema) { raiseSchema = schema; updateRaise = buildControls(raiseBox, schema, raiseValues(cards[0]), setCards); }
+    updateRaise(raiseValues(cards[0]));
+  }
+
+  selectionSlot.append(selBar, propsSection, raiseSection, cropSection, cardSection);
 
   /* ---------- 图层页 ---------- */
   const addRow = el('div', { class: 'layer-add' }, ADD_TOOLS.map(t =>
@@ -94,6 +113,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   }
 
   function renderCards(s, cards) {
+    renderRaise(cards);
     const show = cards.length > 0 && !ui.layerSel.length;
     cropSection.hidden = !show || !s.slides.length;
     cardSection.hidden = !show || is3D();

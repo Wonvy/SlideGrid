@@ -142,7 +142,7 @@ function assignSlides(raw, n, mode, project, aspect) {
  * 把「幻灯片 + 版式 + 参数」转换成渲染器可以直接绘制的场景。
  * 预览和导出共用这一函数。
  */
-export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null, pool = null }) {
+export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null, pool = null, albums = null }) {
   const { W, H, long, px } = resolveCanvas({ slides, layout, params, aspect });
   const n = slides.length;
   const empty = { W, H, long, px, items: [], viewProj: m4.identity(), coplanar: true, style };
@@ -150,7 +150,8 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
 
   const slideAspect = slides[0].aspect || 16 / 9;
   // 版式的「数量」参数：只排这么多张卡片（图片仍按 n 张循环分配）
-  const result = layout.compute({ n: cardCount(params, n, long), aspect: slideAspect, W, H, p: params, long }) || {};
+  // cards：每张卡片的手动调整（版式可以读取自己的单卡设置，例如等距展台的「抬起」）；albums：分组版式按图集取图
+  const result = layout.compute({ n: cardCount(params, n, long), aspect: slideAspect, W, H, p: params, long, cards: adjust || {}, albums: albums || [] }) || {};
   // 手动调整（移动 / 旋转工具）按位置序号叠加在版式结果上
   const raw = (result.items || []).filter(it => it.w > 0 && it.h > 0).map((it, order) => {
     const a = adjust?.[order];
@@ -185,11 +186,16 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   // 可以是这个画板图片列表里的，也可以是别的图集里的（在 pool 里找）
   const indexById = new Map(slides.map((x, i) => [x.id, i]));
   const extraSlides = new Map(); // 不在这个画板列表里的图片（渲染前要上传贴图）
+  const albumById = new Map((albums || []).map(a => [a.id, a.slides.filter(x => !x.placeholder)]));
   const items = raw.map((it, order) => {
     const pinned = adjust?.[order]?.slide;
     const inList = pinned != null && indexById.has(pinned);
-    const foreign = pinned != null && !inList ? pool?.get(pinned) : null;
-    const slideIndex = inList ? indexById.get(pinned) : slideOf[order];
+    // 分组版式：卡片指定了图集（album）和图集里的第几张（ai）
+    const fromAlbum = albumById.get(it.album);
+    const grouped = pinned == null && fromAlbum?.length ? fromAlbum[((it.ai || 0) % fromAlbum.length + fromAlbum.length) % fromAlbum.length] : null;
+    const foreign = grouped && !indexById.has(grouped.id) ? grouped
+      : pinned != null && !inList ? pool?.get(pinned) : null;
+    const slideIndex = inList ? indexById.get(pinned) : grouped && indexById.has(grouped.id) ? indexById.get(grouped.id) : slideOf[order];
     const slide = foreign || slides[slideIndex];
     if (foreign) extraSlides.set(foreign.id, foreign);
     const model = m4.multiply(groupM, m4.compose(
@@ -259,7 +265,7 @@ export function textureNeeds(scene, pxW, pxH) {
  * 工作区每帧要为每个画板取场景 / 尺寸，用缓存避免重复排版（铺满型版式一个画板上千张卡片）；
  * 场景对象保持不变也让点选、对齐用的投影缓存（按 scene 缓存）在帧之间持续有效。
  */
-const SCENE_KEYS = ['slides', 'layout', 'params', 'style', 'aspect', 'camera', 'adjust', 'pool'];
+const SCENE_KEYS = ['slides', 'layout', 'params', 'style', 'aspect', 'camera', 'adjust', 'pool', 'albums'];
 const CANVAS_KEYS = ['slides', 'layout', 'params', 'aspect'];
 
 function memo(fn, keys, size) {

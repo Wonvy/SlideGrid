@@ -1,4 +1,5 @@
 import { store, actions, selectionOf, libraryOf, boardsOf, albumOf, BOARD_KEYS } from './state.js';
+import { getLayout } from './layouts/index.js';
 import { createAlbumBar } from './ui/albumBar.js';
 import { createSizePicker } from './ui/sizePicker.js';
 import { canvasOf } from './app/boards.js';
@@ -426,6 +427,7 @@ function refreshUsed(s = store.get()) {
 // 检查器：「设计」页里选中对象的属性、「图层」页的图层列表
 const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: settings.layersSlot }, {
   store, actions, ui, is3D, setTool,
+  cardParams: () => getLayout(store.get().layoutId).cardParams || null,
   onDeviceImage: l => mockups.pickImage(l),
   onDeviceQuad: l => mockups.adjustQuad(l),
   selectLayers: ids => layerTools.select(ids),
@@ -501,6 +503,7 @@ interaction = attachViewportInteraction(viewport, {
   setTool,
   toolAvailable: id => toolAvailability(id).ok,
   is3D,
+  cardSelectable: () => !!getLayout(store.get().layoutId).cardParams,
   canSwap: hasRealSlides,
   getSlide: i => store.get().slides[i],
   onTempHand: on => { ui.tempHand = on; refreshTools(); },

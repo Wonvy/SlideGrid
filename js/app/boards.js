@@ -47,6 +47,7 @@ export function boardInput(s, st) {
   return {
     slides: boardSlides(st.slides),
     pool: slidePool(s),
+    albums: s.albums, // 分组版式按行 / 列取各个图集的图片
     layout,
     params: st.params[layout.id],
     style: st.style,

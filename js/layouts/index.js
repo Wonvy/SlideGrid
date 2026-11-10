@@ -26,8 +26,9 @@ import floating from './3d/floating.js';
 import isoStage from './3d/isoStage.js';
 import tumble from './3d/tumble.js';
 import pile from './3d/pile.js';
+import isoGroups from './3d/isoGroups.js';
 
-export const layouts = [grid, hero, staggered, tilted, scatter, fan, isoWall, corridor, cylinder, cascade, carousel, floating, isoStage, tumble, pile];
+export const layouts = [grid, hero, staggered, tilted, scatter, fan, isoWall, corridor, cylinder, cascade, carousel, floating, isoStage, isoGroups, tumble, pile];
 
 const byId = new Map(layouts.map(l => [l.id, l]));
 export const getLayout = id => byId.get(id);
