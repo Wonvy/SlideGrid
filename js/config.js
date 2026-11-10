@@ -20,9 +20,29 @@ export function parseRatio(id) {
   const v = Number(m[1]) / Number(m[2]);
   return v >= 0.1 && v <= 10 ? v : null;
 }
-export const isValidAspect = id => id === 'long' || ASPECTS.some(a => a.id === id) || parseRatio(id) != null;
-export const aspectValue = id => ASPECTS.find(a => a.id === id && a.value)?.value ?? parseRatio(id) ?? ASPECTS[0].value;
-export const aspectLabel = id => ASPECTS.find(a => a.id === id)?.label || id;
+// 精确像素尺寸写作 "宽x高"（如 "1920x1080"）：画板按这个比例，导出「画板尺寸」时正好是这么多像素
+const PX_RE = /^(\d{2,5})x(\d{2,5})$/;
+export function parsePixels(id) {
+  const m = PX_RE.exec(String(id || ''));
+  if (!m) return null;
+  const w = Number(m[1]), h = Number(m[2]);
+  return w >= 16 && h >= 16 && w <= 16000 && h <= 16000 && w / h >= 0.1 && w / h <= 10 ? { w, h } : null;
+}
+// 常用的像素尺寸（画布比例菜单里的预设）
+export const PIXEL_PRESETS = [
+  { id: '1920x1080', note: 'FHD 16:9' },
+  { id: '2560x1440', note: '2K 16:9' },
+  { id: '3840x2160', note: '4K 16:9' },
+  { id: '1080x1080', note: '方形' },
+  { id: '1080x1350', note: '竖版 4:5' },
+  { id: '1242x1660', note: '小红书 3:4' },
+  { id: '1080x1920', note: '竖屏 9:16' },
+  { id: '900x383', note: '公众号封面' },
+];
+export const isValidAspect = id => id === 'long' || ASPECTS.some(a => a.id === id) || parseRatio(id) != null || parsePixels(id) != null;
+export const aspectValue = id => ASPECTS.find(a => a.id === id && a.value)?.value ?? parseRatio(id)
+  ?? (p => (p ? p.w / p.h : null))(parsePixels(id)) ?? ASPECTS[0].value;
+export const aspectLabel = id => ASPECTS.find(a => a.id === id)?.label || (p => (p ? `${p.w} × ${p.h}` : id))(parsePixels(id));
 
 // 预览纹理的最长边（导出时会重新读取原图）
 export const PREVIEW_MAX_SIDE = 1600;

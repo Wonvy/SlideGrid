@@ -1,4 +1,4 @@
-import { ASPECTS, aspectValue, aspectLabel, isLongAspect, parseRatio } from '../config.js';
+import { ASPECTS, PIXEL_PRESETS, aspectValue, aspectLabel, isLongAspect, parseRatio, parsePixels } from '../config.js';
 import { boardsOf, selectionOf } from '../state.js';
 import { createMenu } from './menu.js';
 import { attachWheel } from './wheel.js';
@@ -100,10 +100,42 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
         actions.setAspect(id);
       };
       for (const inp of [w, h]) inp.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
+      // 精确像素尺寸：画板按这个比例，导出尺寸选「画板」时正好输出这么多像素（设置后导出尺寸自动改为「画板」）
+      const setPixels = id => {
+        close();
+        actions.setAspect(id);
+        const size = store.get().exportOpts.size;
+        if (size !== 'board' && size !== 'board2x') actions.setExport('size', 'board');
+      };
+      const curPx = parsePixels(cur);
+      const pxList = el('div', { class: 'px-grid' }, PIXEL_PRESETS.map(p => {
+        const [pw, ph] = p.id.split('x');
+        const b = el('button', { class: `px-chip${p.id === cur ? ' active' : ''}`, title: `画板 ${pw} × ${ph} 像素` },
+          el('span', { class: 'ratio-box' }, ratioShape(p.id, 18)),
+          el('span', { class: 'px-size' }, `${pw} × ${ph}`),
+          el('span', { class: 'px-note' }, p.note));
+        b.addEventListener('click', () => setPixels(p.id));
+        return b;
+      }));
+      const pw = el('input', { type: 'number', class: 'num-input', min: 16, max: 16000, step: 1, value: curPx?.w ?? 1920, 'aria-label': '宽（像素）' });
+      const ph = el('input', { type: 'number', class: 'num-input', min: 16, max: 16000, step: 1, value: curPx?.h ?? 1080, 'aria-label': '高（像素）' });
+      const applyPx = () => {
+        const id = `${Math.round(Number(pw.value))}x${Math.round(Number(ph.value))}`;
+        if (!parsePixels(id)) { pw.focus(); return; }
+        setPixels(id);
+      };
+      for (const inp of [pw, ph]) inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') applyPx(); });
+      const pxKnown = PIXEL_PRESETS.some(p => p.id === cur);
       pop.append(grid, el('div', { class: 'menu-sep' }),
-        el('div', { class: `ratio-custom${!known ? ' active' : ''}` },
+        el('div', { class: `ratio-custom${!known && !curPx ? ' active' : ''}` },
           el('span', { class: 'menu-label' }, '自定义'), w, el('span', { class: 'ratio-colon' }, ':'), h,
-          el('button', { class: 'btn small primary', onclick: apply }, '应用')));
+          el('button', { class: 'btn small primary', onclick: apply }, '应用')),
+        el('div', { class: 'menu-sep' }),
+        el('div', { class: 'menu-title' }, '像素尺寸（导出「画板」尺寸时精确输出）'),
+        pxList,
+        el('div', { class: `ratio-custom${curPx && !pxKnown ? ' active' : ''}` },
+          el('span', { class: 'menu-label' }, '自定义'), pw, el('span', { class: 'ratio-colon' }, '×'), ph, el('span', { class: 'size-unit' }, 'px'),
+          el('button', { class: 'btn small primary', onclick: applyPx }, '应用')));
     },
   });
 

@@ -1,6 +1,6 @@
 import * as m4 from './math.js';
 import { DEG } from '../core/utils.js';
-import { aspectValue, isLongAspect } from '../config.js';
+import { aspectValue, isLongAspect, parsePixels } from '../config.js';
 
 // 世界坐标：画布高度固定为 1000，宽度 = 1000 × 画布比例，原点在画布中心，y 轴向上。
 // 长图模式：宽度固定为 LONG_W，高度由版式内容决定。
@@ -26,7 +26,8 @@ function verticalExtent(items) {
 export function resolveCanvas({ slides, layout, params, aspect }) {
   if (!isLongAspect(aspect)) {
     const a = typeof aspect === 'number' ? aspect : aspectValue(aspect);
-    return { W: WORLD_H * a, H: WORLD_H, long: false };
+    // px：精确像素尺寸的画板（导出「画板尺寸」时用）
+    return { W: WORLD_H * a, H: WORLD_H, long: false, px: parsePixels(aspect) };
   }
   const W = LONG_W;
   const n = slides.length; // 长图模式不限制数量
@@ -142,9 +143,9 @@ function assignSlides(raw, n, mode, project, aspect) {
  * 预览和导出共用这一函数。
  */
 export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null }) {
-  const { W, H, long } = resolveCanvas({ slides, layout, params, aspect });
+  const { W, H, long, px } = resolveCanvas({ slides, layout, params, aspect });
   const n = slides.length;
-  const empty = { W, H, long, items: [], viewProj: m4.identity(), coplanar: true, style };
+  const empty = { W, H, long, px, items: [], viewProj: m4.identity(), coplanar: true, style };
   if (!n) return empty;
 
   const slideAspect = slides[0].aspect || 16 / 9;
@@ -209,7 +210,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   const z0 = raw[0]?.z || 0;
   const coplanar = raw.every(it => (it.z || 0) === z0 && !it.rx && !it.ry);
 
-  return { W, H, long, items, viewProj, coplanar, style, groupM, ortho: (result.camera || {}).type !== 'perspective' };
+  return { W, H, long, px, items, viewProj, coplanar, style, groupM, ortho: (result.camera || {}).type !== 'perspective' };
 }
 
 /**
