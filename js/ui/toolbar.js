@@ -20,7 +20,7 @@ export const TOOLS = [
   { sep: true },
   { id: 'hand', icon: 'hand', label: '抓手', key: 'H', desc: '平移视图（任何工具下按住空格或中键也可以）' },
   { id: 'zoom', icon: 'search', label: '放大镜', key: 'Z', desc: '单击放大视图，按住 ⌥ 单击缩小（Ctrl/⌘ + 滚轮也可以）' },
-  { id: 'artboard', icon: 'frame', label: '画板', key: '⇧O', desc: '点击切换画板，拖动移动画板位置，Delete 删除画板' },
+  { id: 'artboard', icon: 'frame', label: '画板', key: '⇧O', desc: '点击切换画板，拖动移动画板位置（按住 ⌥ 拖动 = 复制），⌘D 复制，Delete 删除画板' },
 ];
 
 export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut, onFit, onFitAll, onActualSize, onResetAdjust }) {

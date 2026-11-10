@@ -60,5 +60,19 @@ export function createBoardOps(ws) {
     toast(`已复制 ${created.length} 个画板`);
   }
 
-  return { activateBoard, addBoard, renameBoard, deleteBoards, deleteBoard: id => deleteBoards([id]), duplicateSelected };
+  // 在原地复制画板（Alt 拖动时用）：副本和原画板位置相同，选中副本；返回副本的 id（与 ids 一一对应）
+  function duplicateInPlace(ids) {
+    const s = store.get();
+    const active = s.activeBoard;
+    const created = ids.map(id => {
+      const b = store.get().artboards.find(v => v.id === id);
+      return b ? actions.addArtboard({ x: b.x, y: b.y, duplicate: true, from: id }).id : null;
+    });
+    if (created.some(id => !id)) return null;
+    actions.selectBoards(created, created[ids.indexOf(active)] ?? created[created.length - 1]);
+    toast(created.length > 1 ? `已复制 ${created.length} 个画板` : '已复制画板');
+    return created;
+  }
+
+  return { activateBoard, addBoard, renameBoard, deleteBoards, deleteBoard: id => deleteBoards([id]), duplicateSelected, duplicateInPlace };
 }

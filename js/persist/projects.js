@@ -156,6 +156,12 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
       }),
     };
   }
+  // 交换过图片的卡片（adjust[版式][位置].slide）同样换成新 id
+  if (Array.isArray(settings?.artboards)) {
+    const remapAdjust = adjust => Object.fromEntries(Object.entries(adjust || {}).map(([layout, cards]) => [layout,
+      Object.fromEntries(Object.entries(cards || {}).map(([k, c]) => [k, c?.slide != null && slideIds.has(c.slide) ? { ...c, slide: slideIds.get(c.slide) } : c]))]));
+    settings = { ...settings, artboards: settings.artboards.map(b => (b.settings?.adjust ? { ...b, settings: { ...b.settings, adjust: remapAdjust(b.settings.adjust) } } : b)) };
+  }
   // 共用图片列表（sharedIds）同样换成新 id
   if (Array.isArray(settings?.sharedIds)) {
     const known = x => slideIds.has(x) || slides.some(s => s.placeholder && s.id === x);

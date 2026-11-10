@@ -451,10 +451,21 @@ export const actions = {
       return { adjust: { ...s.adjust, [s.layoutId]: cur } };
     });
   },
+  // 复位卡片的位置 / 旋转 / 缩放 / 裁切；交换过的图片（slide）保留
   resetItemAdjust(order) {
     store.set(s => {
       const cur = { ...(s.adjust[s.layoutId] || {}) };
-      delete cur[order];
+      if (cur[order]?.slide != null) cur[order] = { slide: cur[order].slide }; else delete cur[order];
+      return { adjust: { ...s.adjust, [s.layoutId]: cur } };
+    });
+  },
+  // 交换两张卡片的图片：只改这两个位置（记在卡片的手动调整里），其他卡片、幻灯片列表、其他画板都不变
+  swapCards(orderA, slideA, orderB, slideB) {
+    if (orderA === orderB || !slideA || !slideB) return;
+    store.set(s => {
+      const cur = { ...(s.adjust[s.layoutId] || {}) };
+      cur[orderA] = { ...cur[orderA], slide: slideB };
+      cur[orderB] = { ...cur[orderB], slide: slideA };
       return { adjust: { ...s.adjust, [s.layoutId]: cur } };
     });
   },
@@ -497,8 +508,33 @@ export const actions = {
   resetCrop(order) {
     actions.setItemAdjust(order, { cropX: 0, cropY: 0, cropZ: 1, fit: 'cover' });
   },
+  // 清除所有卡片的位置 / 旋转 / 缩放 / 裁切；交换过的图片保留
   resetAdjust() {
-    store.set(s => ({ adjust: { ...s.adjust, [s.layoutId]: {} } }));
+    store.set(s => {
+      const kept = Object.fromEntries(Object.entries(s.adjust[s.layoutId] || {}).filter(([, a]) => a.slide != null).map(([k, a]) => [k, { slide: a.slide }]));
+      return { adjust: { ...s.adjust, [s.layoutId]: kept } };
+    });
+  },
+  // 这张卡片不再固定显示交换来的图片
+  unpinCard(order) {
+    store.set(s => {
+      const cur = { ...(s.adjust[s.layoutId] || {}) };
+      if (!cur[order]) return {};
+      const { slide, ...rest } = cur[order];
+      if (Object.keys(rest).length) cur[order] = rest; else delete cur[order];
+      return { adjust: { ...s.adjust, [s.layoutId]: cur } };
+    });
+  },
+  // 恢复所有卡片的图片顺序（取消交换）
+  resetSwaps() {
+    store.set(s => {
+      const out = {};
+      for (const [k, a] of Object.entries(s.adjust[s.layoutId] || {})) {
+        const { slide, ...rest } = a;
+        if (Object.keys(rest).length) out[k] = rest;
+      }
+      return { adjust: { ...s.adjust, [s.layoutId]: out } };
+    });
   },
   /**
    * 套用「我的版式」。缺省字段用默认值，所以旧版本保存的版式也能套用。

@@ -33,7 +33,8 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  *   Shift/⌘ + 单击其他画板  加选 / 减选画板
  *   ⌘A                    全选当前画板的卡片（平面版式、卡片工具下）；画板工具 / 3D 版式下全选画板
  *   ⇧⌘A / Esc             取消选择
- *   画板工具：单击选择、拖动移动（多选时一起移动）、Delete 删除所选；任何工具下拖画板名称都可以移动画板
+ *   画板工具：单击选择、拖动移动（多选时一起移动，按住 Alt 复制后拖动副本）、Delete 删除所选、⌘D 复制；
+ *   任何工具下拖画板名称都可以移动画板（同样支持 Alt 复制）
  */
 export function attachViewportInteraction(target, opts) {
   const {
@@ -41,6 +42,7 @@ export function attachViewportInteraction(target, opts) {
     // 画板与视图
     boardAt, activeBoard, activateBoard, boardRect, deleteSelectedBoards,
     selectedBoards, toggleBoardSelection, selectBoards, selectAllBoards, moveBoards, setMarquee,
+    duplicateBoards = () => {}, duplicateBoardsInPlace = () => null,
     panView, zoomViewAt, zoomViewBy, fitActive, fitAll, actualSize,
     // 当前画板内
     pick, getCamera, setCamera, allBoardIds, onContextMenu, labelAt, wheelMode,
@@ -67,15 +69,24 @@ export function attachViewportInteraction(target, opts) {
     if (lr) rs.push(lr);
     return rs.length ? unionRects(rs) : null;
   };
-  // 拖动开始时记录各画板位置和吸附目标
-  function boardDragState() {
+  // 拖动开始时记录各画板位置和吸附目标。按住 Alt（⌥）：先在原地复制所选画板，拖动的是副本（原画板不动，副本可以吸附到原画板）
+  function boardDragState(e) {
     const ids = selectedBoards();
     const others = allBoardIds().filter(id => !ids.includes(id)).map(boardLocalRect).filter(Boolean);
-    return {
+    const state = {
       starts: ids.map(id => ({ id, x: boardRect(id).x, y: boardRect(id).y })),
       startRect: unionRects(ids.map(boardLocalRect).filter(Boolean)),
       targets: others,
+      zoom: boardRect(activeBoard()).zoom,
     };
+    if (e?.altKey) {
+      const copies = duplicateBoardsInPlace(ids);
+      if (copies?.length === ids.length) {
+        state.targets = [...others, ...ids.map(boardLocalRect).filter(Boolean)];
+        state.starts = state.starts.map((st, i) => ({ ...st, id: copies[i] }));
+      }
+    }
+    return state;
   }
   // 吸附（按住 ⌘/Ctrl 临时关闭）
   function snapDelta(rect, targets, dx, dy, e) {
@@ -122,6 +133,8 @@ export function attachViewportInteraction(target, opts) {
       else selectAllBoards();
       return;
     }
+    // ⌘D / Ctrl+D：复制所选画板（选中图层时由上面的图层快捷键处理）
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateBoards(); return; }
     if (mod || e.altKey) return;
 
     if (e.code === 'Space') {
@@ -270,7 +283,7 @@ export function attachViewportInteraction(target, opts) {
         const keep = selectedBoards().includes(label);
         activateBoard(label, { fit: false, keepSelection: keep });
         mode = 'moveBoards';
-        Object.assign(extra, boardDragState());
+        Object.assign(extra, boardDragState(e));
       } else if (tool === 'zoom') {
         const [sx, sy] = local(e);
         zoomViewAt(sx, sy, e.altKey ? 1 / 1.6 : 1.6);
@@ -292,7 +305,7 @@ export function attachViewportInteraction(target, opts) {
           // 点在已选画板上：保留多选并一起拖动；否则只选这一个
           activateBoard(b, { fit: false, keepSelection: selectedBoards().includes(b) });
           mode = 'moveBoards';
-          Object.assign(extra, boardDragState());
+          Object.assign(extra, boardDragState(e));
         }
       } else if (!b) {
         // 画板外的空白处：框选画板；单击 = 取消选择
@@ -312,7 +325,7 @@ export function attachViewportInteraction(target, opts) {
         if (tool === 'orbit') {
           mode = is3D() && !e.shiftKey ? 'orbit' : 'contentPan';
         } else if (tool === 'swap') {
-          if (hit && canSwap()) { mode = 'swap'; Object.assign(extra, { src: hit.slideIndex, ghost: null, target: null }); }
+          if (hit && canSwap()) { mode = 'swap'; Object.assign(extra, { src: hit.slideIndex, srcHit: hit, ghost: null, target: null }); }
         } else if (tool === 'crop') {
           setSelection(hit ? [hit.order] : []);
           if (hit) {
@@ -339,7 +352,7 @@ export function attachViewportInteraction(target, opts) {
             layers?.clear();
             if (tool === 'select') {
               mode = 'moveBoards';
-              Object.assign(extra, boardDragState());
+              Object.assign(extra, boardDragState(e));
             }
           } else {
             // 按在已选的卡片上：一起操作；否则只选这一张
@@ -392,7 +405,7 @@ export function attachViewportInteraction(target, opts) {
         panView(e.clientX - drag.lx, e.clientY - drag.ly);
         break;
       case 'moveBoards': {
-        const z = boardRect(activeBoard()).zoom;
+        const z = drag.zoom || boardRect(activeBoard()).zoom; // Alt 复制出的新画板这一帧可能还没有布局信息
         const [mx, my] = snapDelta(drag.startRect, drag.targets, dx, dy, e); // 吸附到其他画板
         moveBoards(drag.starts.map(st => ({ id: st.id, x: st.x + mx / z, y: st.y + my / z })));
         break;
@@ -526,7 +539,7 @@ export function attachViewportInteraction(target, opts) {
       drag.ghost?.remove();
       setDragSource(null);
       setDropTarget(null);
-      if (drag.target) onSwap(drag.src, drag.target.slideIndex);
+      if (drag.target) onSwap(drag.srcHit, drag.target);
     }
     drag = null;
     updateCursor();

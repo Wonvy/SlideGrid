@@ -116,6 +116,31 @@ def t_inherit(page, errors):
     assert r['followed'], r
 
 
+def t_swap(page, errors):
+    # 交换两张卡片的图片：只有这两张变，幻灯片列表不变
+    r = page.evaluate('''() => {
+      const before = SlideGrid.itemRects().map(x => x.order);
+      const s = SlideGrid.store.get();
+      const list = s.slides;
+      SlideGrid.actions.swapCards(0, list[0].id, 1, list[1].id);
+      const adj = SlideGrid.store.get().adjust[SlideGrid.store.get().layoutId] || {};
+      const out = { pinned: Object.values(adj).filter(a => a.slide != null).length, listSame: SlideGrid.store.get().slides === list, cards: before.length };
+      SlideGrid.history.undo();
+      return out;
+    }''')
+    assert r['pinned'] == 2 and r['listSame'], r
+
+
+def t_board_dup(page, errors):
+    # ⌘D 复制所选画板（没有选中图层时）
+    n = page.evaluate('SlideGrid.store.get().artboards.length')
+    page.evaluate('SlideGrid.layers.clear()')
+    page.keyboard.press('Meta+d' if sys.platform == 'darwin' else 'Control+d')
+    page.wait_for_function(f'SlideGrid.store.get().artboards.length === {n + 1}', timeout=5000)
+    page.evaluate('SlideGrid.history.undo()')
+    assert page.evaluate('SlideGrid.store.get().artboards.length') == n
+
+
 def t_mockup(page, errors):
     page.click('.rp-rail [aria-label="样机"]')
     page.click('.mockup-device[aria-label="笔记本"]')
@@ -149,7 +174,7 @@ def t_persist(page, errors):
 
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
-         ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export), ('刷新后数据还在', t_persist)]
+         ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export), ('刷新后数据还在', t_persist)]
 
 
 def run(browser, label, url) -> bool:

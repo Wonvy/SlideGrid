@@ -80,7 +80,7 @@ export const styleSchema = [
   // 图片分配到卡片的顺序：按版式（从第一个位置开始循环）；或先填满画板里看得见的卡片（左上开始 / 中心开始），
   // 这样可见区域里尽量不出现重复的图片，画板外的卡片再接着用剩下的
   {
-    key: 'slideOrder', label: '图片顺序', type: 'select', default: 'layout',
+    key: 'slideOrder', label: '图片顺序', type: 'select', default: 'center',
     options: [{ value: 'layout', label: '按版式' }, { value: 'visible', label: '左上开始' }, { value: 'center', label: '中心开始' }],
   },
   { key: 'radius', label: '圆角', type: 'range', min: 0, max: 60, default: 10 },

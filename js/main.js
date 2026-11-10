@@ -35,6 +35,7 @@ import { setUsedFonts } from './ui/fontPicker.js';
 import { applyLayerProp, typeName } from './layers/model.js';
 import { createMockups } from './app/mockups.js';
 import { createMemoryGuard } from './app/memory.js';
+import { hasAdjust } from './render/scene.js';
 
 /**
  * 入口：创建各个模块并把它们连起来。
@@ -396,7 +397,9 @@ interaction = attachViewportInteraction(viewport, {
   canSwap: hasRealSlides,
   getSlide: i => store.get().slides[i],
   onTempHand: on => { ui.tempHand = on; refreshTools(); },
-  // 画板与视图
+  // 画板与视图（⌘D 复制所选画板；Alt 拖动画板 = 原地复制后拖动副本）
+  duplicateBoards: () => boards.duplicateSelected(),
+  duplicateBoardsInPlace: ids => boards.duplicateInPlace(ids),
   boardAt: ws.boardAt,
   activeBoard: () => store.get().activeBoard,
   activateBoard: boards.activateBoard,
@@ -426,9 +429,11 @@ interaction = attachViewportInteraction(viewport, {
   setHover: hit => setUi('hover', hit ? hit.order : null),
   setDragSource: i => setUi('dragSource', i),
   setDropTarget: hit => setUi('dropTarget', hit ? hit.order : null),
+  // 交换工具：只交换这两张卡片显示的图片
   onSwap: (a, b) => {
-    actions.swapSlides(a, b);
-    toast(`已交换第 ${a + 1} 张和第 ${b + 1} 张`);
+    if (a.order === b.order) return;
+    actions.swapCards(a.order, a.slide.id, b.order, b.slide.id);
+    toast(`已交换这两张卡片的图片（「${a.slide.name}」↔「${b.slide.name}」）`);
   },
   getAdjust,
   nextLift,
@@ -467,7 +472,7 @@ const TOOL_HINTS = {
   orbit: '构图：拖动调整画板内构图（3D 旋转 / Shift 平移）· 滚轮缩放构图',
   hand: '抓手：拖动平移视图',
   zoom: '放大镜：单击放大 · ⌥ 单击缩小',
-  artboard: '画板：点击切换 · Shift/⌘ 单击加选 · 空白处拖动框选 · 拖动一起移动 · ⌘A 全选 · Delete 删除所选',
+  artboard: '画板：点击切换 · Shift/⌘ 单击加选 · 空白处拖动框选 · 拖动一起移动 · ⌥ 拖动复制 · ⌘D 复制 · ⌘A 全选 · Delete 删除所选',
 };
 function updateHint() {
   const s = store.get();
@@ -483,7 +488,7 @@ function updateHint() {
 ws.hooks.afterRender = s => {
   resizeHandles.update();
   layerTools.syncEditor();
-  toolbar.update({ tool: ui.tool, tempHand: ui.tempHand, viewZoom: view.zoom, adjustCount: Object.keys(s.adjust[s.layoutId] || {}).length });
+  toolbar.update({ tool: ui.tool, tempHand: ui.tempHand, viewZoom: view.zoom, adjustCount: Object.values(s.adjust[s.layoutId] || {}).filter(hasAdjust).length });
   if (ui.listHover == null) {
     const order = ui.dropTarget ?? ui.hover;
     const item = order != null && hasRealSlides() ? ws.findItem(order) : null;

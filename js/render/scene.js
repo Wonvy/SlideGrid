@@ -93,6 +93,9 @@ export function cropUV(imgAspect, cellAspect, crop = null) {
   return [sx, sy, ox, oy];
 }
 
+// 卡片的手动调整里除了「固定显示哪张图」（slide）之外还有别的（位置、旋转、缩放、裁切）
+export const hasAdjust = a => !!a && Object.keys(a).some(k => k !== 'slide');
+
 /**
  * 每个位置用第几张幻灯片。
  *   'layout'（默认）：按版式给的序号循环（it.i % n）
@@ -146,7 +149,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   // 手动调整（移动 / 旋转工具）按位置序号叠加在版式结果上
   const raw = (result.items || []).filter(it => it.w > 0 && it.h > 0).map((it, order) => {
     const a = adjust?.[order];
-    if (!a) return it;
+    if (!a || !hasAdjust(a)) return it;
     const k = a.s > 0 ? a.s : 1; // 等比缩放
     return {
       ...it,
@@ -172,8 +175,11 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
     return [[0, 0], [0, -it.h / 2], [0, it.h / 2]].map(([x, y]) => m4.transformVec4(mvp, [x, y, 0, 1]));
   }, W / H);
 
+  // 交换图片：卡片的手动调整里记了 slide（幻灯片 id）时，这个位置固定显示那一张（只影响这张卡片）
+  const indexById = new Map(slides.map((x, i) => [x.id, i]));
   const items = raw.map((it, order) => {
-    const slideIndex = slideOf[order];
+    const pinned = adjust?.[order]?.slide;
+    const slideIndex = pinned != null && indexById.has(pinned) ? indexById.get(pinned) : slideOf[order];
     const slide = slides[slideIndex];
     const model = m4.multiply(groupM, m4.compose(
       it.x || 0, it.y || 0, it.z || 0, (it.rx || 0) * DEG, (it.ry || 0) * DEG, (it.rz || 0) * DEG, 1,

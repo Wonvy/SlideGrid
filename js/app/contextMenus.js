@@ -1,6 +1,7 @@
 import { store, actions, selectionOf } from '../state.js';
 import { showContextMenu } from '../ui/contextMenu.js';
 import { is3D } from './boards.js';
+import { hasAdjust } from '../render/scene.js';
 import { BOOLEAN_OPS } from '../layers/boolean.js';
 import { setSelection } from './uiState.js';
 
@@ -65,7 +66,8 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
       const slide = card.slide;
       const real = !slide.placeholder;
       const adj = (store.get().adjust[store.get().layoutId] || {})[card.order];
-      const adjusted = !!adj;
+      const adjusted = hasAdjust(adj);
+      const pinned = adj?.slide != null;
       const contain = adj?.fit === 'contain';
       const cropped = !contain && ((adj?.cropZ || 1) !== 1 || adj?.cropX || adj?.cropY);
       items.push(
@@ -77,6 +79,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         { label: contain ? '填满卡片（裁切）' : '完整显示图片', icon: 'scan', action: () => actions.setItemAdjust(card.order, { fit: contain ? 'cover' : 'contain' }) },
         cropped && { label: '复位裁切', icon: 'rotate-ccw', action: () => actions.resetCrop(card.order) },
         flat && adjusted && { label: '复位这张卡片', icon: 'undo-2', action: () => actions.resetItemAdjust(card.order) },
+        pinned && { label: '恢复这张卡片原来的图片', icon: 'rotate-ccw', action: () => actions.unpinCard(card.order) },
         real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); slidesPanel.highlight(card.slideIndex); } },
         real && { label: '从此画板移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id, 'board') },
         { sep: true },
@@ -88,7 +91,9 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
       !multi && { label: '适合窗口', icon: 'scan', shortcut: `${mod}0`, action: () => ws.fitBoard(board) },
       !multi && { label: '重命名…', icon: 'pencil', action: () => boards.renameBoard(board) },
       { label: '画板背景…', icon: 'images', action: () => bgPicker.open() },
-      { label: multi ? `复制所选的 ${sel.length} 个画板` : '复制画板', icon: 'copy', action: boards.duplicateSelected },
+      { label: multi ? `复制所选的 ${sel.length} 个画板` : '复制画板', icon: 'copy', shortcut: `${mod}D`, action: boards.duplicateSelected },
+      !multi && Object.values(store.get().adjust[store.get().layoutId] || {}).some(a => a.slide != null)
+        && { label: '恢复图片顺序（取消所有交换）', icon: 'rotate-ccw', action: () => actions.resetSwaps() },
       { label: multi ? `导出所选的 ${sel.length} 个画板（ZIP）` : '导出此画板', icon: 'download', action: () => exporting.doExport(sel) },
       { sep: true },
       s.artboards.length > 1 && { label: multi ? `删除所选的 ${sel.length} 个画板` : '删除画板', icon: 'trash-2', danger: true, action: () => boards.deleteBoards(sel) },
