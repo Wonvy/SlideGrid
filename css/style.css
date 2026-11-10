@@ -499,6 +499,20 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .layer-btn { width: 22px; height: 22px; opacity: 0; }
 .layer-row:hover .layer-btn, .layer-btn.on { opacity: 1; }
 .layer-btn.on { color: var(--accent); }
+.layer-meta { flex: none; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.layer-group { margin-top: 4px; color: var(--text); font-weight: 600; background: rgba(255, 255, 255, .03); }
+.layer-group + .layer-child, .layer-list > .layer-row:first-child.layer-group { margin-top: 0; }
+.layer-caret { display: inline-flex; color: var(--faint); transition: transform .15s; transform: rotate(-90deg); }
+.layer-caret.open { transform: none; }
+.layer-child { margin-left: 14px; padding-left: 8px; position: relative; }
+.layer-child::before { content: ''; position: absolute; left: -2px; top: -1px; bottom: -1px; width: 1px; background: var(--line); }
+.layer-thumb { width: 40px; height: 26px; flex: none; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08); }
+.layer-card .layer-name { color: var(--muted); }
+.layer-card.active .layer-name, .layer-card:hover .layer-name { color: var(--text); }
+.layer-mask .layer-type { color: var(--accent); }
+.layer-empty { cursor: default; color: var(--faint); }
+.layer-group + .layer-row:not(.layer-child), .layer-child + .layer-row:not(.layer-child) { margin-top: 4px; }
+.layer-row.under .layer-type { color: var(--faint); opacity: .8; }
 .num-input { width: 90px; }
 .text-input:focus, .num-input:focus { border-color: var(--accent); }
 .ctrl-unit { color: var(--faint); font-size: 12px; }
@@ -1486,3 +1500,81 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .slides-mode.browse { background: rgba(124, 140, 255, .12); color: #aab4ff; flex-wrap: wrap; row-gap: 6px; padding: 8px; }
 .slides-mode.browse .sm-text { flex: 1 0 100%; white-space: normal; }
 .slides-mode.browse .btn.small { flex: 1; justify-content: center; background: rgba(255, 255, 255, .06); }
+
+/* ===== 左栏图片列表（重新设计）=====
+ * 标题行：图集名 + 张数 + 网格 / 列表切换；网格是带圆角的小卡片（缩略图铺满、序号压在左下、文件名在下），
+ * 当前画板里看得见的图片右上角有一个小圆点；最后一格是「添加图片」；底栏只留添加 / 文件夹 / 清空。 */
+.slides-subhead {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  padding: 10px 12px 6px 16px; border-top: 1px solid var(--line);
+}
+.slides-subhead .sh-title { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.slides-subhead .sh-count { flex: none; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; cursor: help; }
+.slides-subhead .sh-count:empty { display: none; }
+.slides-subhead .bar-spacer { flex: 1; }
+.slides-subhead .view-toggle { padding: 2px; border-radius: 8px; }
+.slides-subhead .view-toggle .icon-btn.visible { width: 26px; height: 22px; border-radius: 6px; }
+.album-splitter + .slides-mode, .slides-mode + .slides-subhead { margin-top: 0; }
+.slides-mode:not([hidden]) + .slides-subhead { border-top: 0; padding-top: 4px; }
+.slides-mode { margin-top: 8px; }
+
+.slides-scroll { padding: 4px 12px 14px; }
+.dropzone.compact { display: none; }
+
+/* 网格：两列起，卡片之间留白，悬停轻微抬起 */
+.slide-list.grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px 8px; }
+.slide-list.grid .slide-item { padding: 0; gap: 6px; background: none; border-radius: 10px; }
+.slide-list.grid .slide-item:hover { background: none; }
+.slide-list.grid .slide-thumb {
+  border-radius: 8px; background: #0e1015;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .07), 0 1px 2px rgba(0, 0, 0, .35);
+  transition: box-shadow .15s, transform .15s;
+}
+.slide-list.grid .slide-item:hover .slide-thumb { box-shadow: 0 0 0 1px rgba(255, 255, 255, .18), 0 6px 16px rgba(0, 0, 0, .45); transform: translateY(-1px); }
+.slide-list.grid .slide-item.hl .slide-thumb { box-shadow: 0 0 0 2px var(--accent), 0 6px 16px rgba(0, 0, 0, .45); }
+.slide-list.grid .slide-item.hl { background: none; box-shadow: none; }
+.slide-list.grid .slide-thumb canvas { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; }
+.slide-list.grid .slide-info { padding: 0 2px; }
+.slide-list.grid .slide-name { color: var(--muted); }
+.slide-list.grid .slide-item:hover .slide-name, .slide-list.grid .slide-item.hl .slide-name { color: var(--text); }
+.slide-list.grid .remove { top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 6px; background: rgba(10, 12, 16, .72); backdrop-filter: blur(6px); }
+
+/* 序号：左下角的半透明小标签 */
+.slide-num {
+  left: 5px; top: auto; bottom: 5px; height: 18px; min-width: 20px; padding: 0 5px;
+  border-radius: 6px; background: rgba(10, 12, 16, .66); backdrop-filter: blur(6px);
+  font-size: 12px; line-height: 18px; font-weight: 600; color: rgba(255, 255, 255, .92);
+}
+/* 在当前画板里看得见：右上角小圆点（悬停显示删除按钮时让开） */
+.slide-used {
+  position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px rgba(10, 12, 16, .7); display: none;
+}
+.slide-item.used .slide-used { display: block; }
+.slide-item:hover .slide-used { display: none; }
+
+/* 最后一格：添加图片 */
+.slide-item.slide-add { cursor: pointer; }
+.slide-add .slide-thumb {
+  background: transparent !important; box-shadow: none !important; transform: none !important;
+  border: 1.5px dashed var(--line-2); color: var(--faint); transition: border-color .15s, color .15s, background .15s;
+}
+.slide-add:hover .slide-thumb { border-color: var(--accent); color: var(--text); background: rgba(124, 140, 255, .06) !important; }
+.slide-add .slide-name { color: var(--faint) !important; }
+.slide-add:hover .slide-name { color: var(--text) !important; }
+.file-drag .slide-add .slide-thumb { border-color: var(--accent); background: rgba(124, 140, 255, .08) !important; }
+
+/* 列表：一行一张，缩略图 + 文件名 / 尺寸 */
+.slide-list.list .slide-item { padding: 5px 6px; gap: 10px; border-radius: 8px; }
+.slide-list.list .slide-thumb { width: 64px; flex: none; border-radius: 5px; }
+.slide-list.list .slide-thumb canvas { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; }
+.slide-list.list .slide-num { left: 3px; bottom: 3px; height: 16px; min-width: 18px; line-height: 16px; border-radius: 5px; padding: 0 4px; }
+.slide-list.list .slide-used { top: 4px; right: 4px; width: 7px; height: 7px; }
+.slide-list.list .slide-item:hover .slide-used { display: block; }
+.slide-list.list .slide-add .slide-thumb { height: 36px; aspect-ratio: auto; }
+
+/* 底栏：添加图片（主按钮）+ 文件夹 + 清空 */
+.slides-bar { gap: 4px; padding: 8px 10px 10px; }
+.slides-bar .sb-add { height: 32px; padding: 0 12px; gap: 6px; border: 0; border-radius: 9px; background: var(--field); color: var(--text); font-size: 13px; }
+.slides-bar .sb-add:hover { background: var(--field-hover); }
+.slides-bar > .icon-btn.visible { width: 32px; height: 32px; border-radius: 9px; }

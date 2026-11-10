@@ -119,60 +119,66 @@ export async function renderToCanvas(input, { longSide, scale = null, fill = nul
     if (!preview && bgImage && bgImage !== input.background?.source && typeof bgImage.close === 'function') bgImage.close();
   }
 
-  // 预览共用一个渲染器（WebGL 上下文和预览纹理都留着复用）；正式导出每次新建，用完释放显存
-  const renderer = preview ? previewRenderer() : new Renderer(document.createElement('canvas'), { preserveDrawingBuffer: true });
-  const glCanvas = renderer.canvas;
+  // 图层的图片素材 / 样机屏幕（幻灯片下面、上面的图层共用）
+  const k = pxH / scene.H;
+  const hasLayers = !!input.layers?.length;
+  const images = hasLayers ? await layerImages(input, k, preview) : {};
+  const screens = hasLayers ? await deviceImages(input, k, preview) : new Map();
+  const paintLayers = under => {
+    if (!input.layers?.some(l => !!l.under === under && !l.hidden)) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, pxW, pxH);
+    ctx.clip();
+    ctx.setTransform(pxW / scene.W, 0, 0, k, 0, 0);
+    drawLayers(ctx, input.layers, { under, assets: images, slideImage: n => screens.get(n)?.img });
+    ctx.restore();
+  };
   try {
-    const slides = [...new Map(scene.items.map(it => [it.slide.id, it.slide])).values()];
-    if (preview) {
-      for (const slide of slides) renderer.setTexture(slide.id, slide.preview);
-      renderer.prune(new Set(slides.map(sl => sl.id)));
-    } else {
-      const needs = textureNeeds(scene, pxW, pxH);
-      const needed = slides.filter(sl => needs.has(sl.id));
-      let done = 0;
-      for (const slide of needed) {
-        const target = Math.max(256, Math.min(renderer.maxTextureSize, Math.ceil(needs.get(slide.id))));
-        const src = await loadExportSource(slide, target);
-        renderer.setTexture(slide.id, src);
-        if (src !== slide.source && typeof src.close === 'function') src.close();
-        onProgress?.((0.7 * ++done) / needed.length);
-      }
-    }
+    paintLayers(true); // 放在幻灯片下面的图层
 
-    const T = Math.min(MAX_TILE, renderer.maxViewport);
-    const cols = Math.ceil(pxW / T), rows = Math.ceil(pxH / T);
-    for (let ty = 0; ty < rows; ty++) {
-      for (let tx = 0; tx < cols; tx++) {
-        const x0 = tx * T, y0 = ty * T;
-        const tw = Math.min(T, pxW - x0), th = Math.min(T, pxH - y0);
-        renderer.setSize(tw, th);
-        renderer.render(scene, tileMatrix(x0, y0, tw, th, pxW, pxH));
-        ctx.drawImage(glCanvas, x0, y0);
-        onProgress?.(0.7 + (0.25 * (ty * cols + tx + 1)) / (rows * cols));
-        if (!preview) await nextFrame();
-      }
-    }
-  } finally {
-    if (!preview) renderer.dispose();
-  }
-  // 图层（文字、形状、路径、图片）画在最上面，按画板坐标缩放到输出尺寸
-  if (input.layers?.length) {
-    const k = pxH / scene.H;
-    const images = await layerImages(input, k, preview);
-    const screens = await deviceImages(input, k, preview);
+    // 预览共用一个渲染器（WebGL 上下文和预览纹理都留着复用）；正式导出每次新建，用完释放显存
+    const renderer = preview ? previewRenderer() : new Renderer(document.createElement('canvas'), { preserveDrawingBuffer: true });
+    const glCanvas = renderer.canvas;
     try {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, pxW, pxH);
-      ctx.clip();
-      ctx.setTransform(pxW / scene.W, 0, 0, k, 0, 0);
-      drawLayers(ctx, input.layers, { assets: images, slideImage: n => screens.get(n)?.img });
-      ctx.restore();
+      const slides = [...new Map(scene.items.map(it => [it.slide.id, it.slide])).values()];
+      if (preview) {
+        for (const slide of slides) renderer.setTexture(slide.id, slide.preview);
+        renderer.prune(new Set(slides.map(sl => sl.id)));
+      } else {
+        const needs = textureNeeds(scene, pxW, pxH);
+        const needed = slides.filter(sl => needs.has(sl.id));
+        let done = 0;
+        for (const slide of needed) {
+          const target = Math.max(256, Math.min(renderer.maxTextureSize, Math.ceil(needs.get(slide.id))));
+          const src = await loadExportSource(slide, target);
+          renderer.setTexture(slide.id, src);
+          if (src !== slide.source && typeof src.close === 'function') src.close();
+          onProgress?.((0.7 * ++done) / needed.length);
+        }
+      }
+
+      const T = Math.min(MAX_TILE, renderer.maxViewport);
+      const cols = Math.ceil(pxW / T), rows = Math.ceil(pxH / T);
+      for (let ty = 0; ty < rows; ty++) {
+        for (let tx = 0; tx < cols; tx++) {
+          const x0 = tx * T, y0 = ty * T;
+          const tw = Math.min(T, pxW - x0), th = Math.min(T, pxH - y0);
+          renderer.setSize(tw, th);
+          renderer.render(scene, tileMatrix(x0, y0, tw, th, pxW, pxH));
+          ctx.drawImage(glCanvas, x0, y0);
+          onProgress?.(0.7 + (0.25 * (ty * cols + tx + 1)) / (rows * cols));
+          if (!preview) await nextFrame();
+        }
+      }
     } finally {
-      for (const { preview: img, temp } of Object.values(images)) if (temp) img.close?.();
-      for (const { img, temp } of screens.values()) if (temp) img.close?.();
+      if (!preview) renderer.dispose();
     }
+    // 其他图层（文字、形状、路径、图片）画在幻灯片上面，按画板坐标缩放到输出尺寸
+    paintLayers(false);
+  } finally {
+    for (const { preview: img, temp } of Object.values(images)) if (temp) img.close?.();
+    for (const { img, temp } of screens.values()) if (temp) img.close?.();
   }
   return { canvas: out, width: pxW, height: pxH };
 }

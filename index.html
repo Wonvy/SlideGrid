@@ -43,6 +43,16 @@
       <div class="album-splitter" id="album-splitter" title="上下拖动调整图集区域的高度（双击恢复）"></div>
       <!-- 当前画板的图片来源：跟随图集 / 单独设置（js/main.js 更新） -->
       <div class="slides-mode" id="slides-mode" hidden></div>
+      <!-- 图片列表的标题行：正在显示哪个图集、张数、显示方式 -->
+      <div class="slides-subhead">
+        <span class="sh-title" id="slides-subtitle">图片</span>
+        <span class="sh-count" id="slides-foot"></span>
+        <span class="bar-spacer"></span>
+        <div class="view-toggle" role="group" aria-label="显示方式">
+          <button class="icon-btn visible" id="view-grid" data-icon="layout-grid" data-icon-size="14" title="网格视图"></button>
+          <button class="icon-btn visible" id="view-list" data-icon="list" data-icon-size="14" title="列表视图"></button>
+        </div>
+      </div>
 
       <div class="slides-scroll">
         <div class="dropzone" id="dropzone">
@@ -58,16 +68,11 @@
         <ol class="slide-list" id="slide-list"></ol>
       </div>
 
-      <div class="slides-foot" id="slides-foot"></div>
-      <!-- 底部固定的操作栏：显示方式、添加、清空 -->
+      <!-- 底部固定的操作栏：添加、清空 -->
       <div class="head-actions slides-bar">
-        <div class="view-toggle" role="group" aria-label="显示方式">
-          <button class="icon-btn visible" id="view-grid" data-icon="layout-grid" data-icon-size="15" title="网格视图"></button>
-          <button class="icon-btn visible" id="view-list" data-icon="list" data-icon-size="15" title="列表视图"></button>
-        </div>
+        <button class="btn sb-add" data-action="pick-files" data-icon="image-plus" data-icon-size="15" title="添加图片（也可以把图片 / 文件夹直接拖进来）">添加图片</button>
+        <button class="icon-btn visible" data-action="pick-folder" data-icon="folder-open" data-icon-size="16" title="添加文件夹（会新建一个图集）"></button>
         <span class="bar-spacer"></span>
-        <button class="icon-btn visible" data-action="pick-files" data-icon="image-plus" data-icon-size="16" title="添加图片"></button>
-        <button class="icon-btn visible" data-action="pick-folder" data-icon="folder-open" data-icon-size="16" title="添加文件夹"></button>
         <button class="icon-btn visible danger" id="clear-btn" data-icon="trash-2" data-icon-size="16" title="清空当前画板的全部图片（设置保留）"></button>
       </div>
       <input type="file" id="file-input" accept="image/*" multiple hidden>

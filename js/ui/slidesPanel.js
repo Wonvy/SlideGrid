@@ -4,11 +4,14 @@ import { icon } from './icons.js';
 const VIEW_KEY = 'slidegrid:slides-view';
 
 /**
- * 左侧幻灯片面板：网格 / 列表两种视图、拖动排序、移除，以及与预览区的悬停联动。
+ * 左侧图片列表：网格 / 列表两种视图、拖动排序、移除，以及与预览区的悬停联动。
+ * 网格里每张是一张小卡片（缩略图 + 序号 + 文件名），最后一格是「添加图片」；
+ * 当前画板里看得见的图片带一个小圆点（markUsed），方便看出哪些图还没用上。
  *
  *   onRemove(id) / onMove(from, to)
  *   onHover(index | null)   鼠标移到某张上 → 在预览区高亮对应卡片
  */
+const HINT = '拖动排序 · 悬停在画布中定位 · 拖到画布的卡片上只替换那一张 · 拖到上面的图集里移过去（按住 Alt 复制）';
 export function createSlidesPanel({ listEl, countEl, emptyEl, dropzone, footEl, viewButtons, onRemove, onMove, onHover = () => {}, onPick }) {
   let dragFrom = -1;
   let view = 'grid';
@@ -33,15 +36,17 @@ export function createSlidesPanel({ listEl, countEl, emptyEl, dropzone, footEl, 
   const clearMarks = () =>
     listEl.querySelectorAll('.drop-before, .drop-after').forEach(n => n.classList.remove('drop-before', 'drop-after'));
 
+  let items = new Map(); // slide id → li
+  let used = new Set();
   function render(slides) {
     listEl.innerHTML = '';
+    items = new Map();
     const images = slides.filter(s => !s.placeholder).length;
     countEl.textContent = slides.length ? String(images) : '';
     if (emptyEl) emptyEl.hidden = slides.length > 0;
     dropzone.classList.toggle('compact', slides.length > 0);
-    footEl.textContent = slides.length
-      ? `共 ${images} 张${slides.length > images ? `（另有 ${slides.length - images} 个空位）` : ''} · 拖动排序 · 悬停在预览中定位`
-      : '';
+    footEl.textContent = slides.length ? `${images} 张${slides.length > images ? ` · ${slides.length - images} 个空位` : ''}` : '';
+    footEl.title = slides.length ? HINT : '';
 
     slides.forEach((slide, i) => {
       const meta = slide.placeholder ? '空位' : slide.width && slide.height ? `${slide.width} × ${slide.height}` : '';
@@ -49,16 +54,19 @@ export function createSlidesPanel({ listEl, countEl, emptyEl, dropzone, footEl, 
       remove.addEventListener('click', e => { e.stopPropagation(); onRemove(slide.id); });
 
       const li = el('li', {
-        class: `slide-item${slide.placeholder ? ' placeholder' : ''}`,
+        class: `slide-item${slide.placeholder ? ' placeholder' : ''}${used.has(slide.id) ? ' used' : ''}`,
         draggable: 'true',
-        title: slide.placeholder ? '空位：把图片拖到预览区这张卡片上即可放入' : slide.path || slide.name,
+        title: slide.placeholder ? '空位：把图片拖到预览区这张卡片上即可放入' : `${slide.path || slide.name}${meta ? `\n${meta}` : ''}\n${HINT}`,
       },
-        el('div', { class: 'slide-thumb' }, slide.thumb, el('span', { class: 'slide-num' }, String(i + 1))),
+        el('div', { class: 'slide-thumb' }, slide.thumb,
+          el('span', { class: 'slide-num' }, String(i + 1)),
+          el('span', { class: 'slide-used', title: '当前画板里看得见这张图' })),
         el('div', { class: 'slide-info' },
           el('span', { class: 'slide-name' }, slide.placeholder ? `空位 · ${slide.name}` : slide.name),
           meta ? el('span', { class: 'slide-meta' }, meta) : null),
         remove,
       );
+      items.set(slide.id, li);
 
       li.addEventListener('mouseenter', () => { if (dragFrom < 0) onHover(i); });
       li.addEventListener('mouseleave', () => onHover(null));
@@ -100,17 +108,31 @@ export function createSlidesPanel({ listEl, countEl, emptyEl, dropzone, footEl, 
 
       listEl.append(li);
     });
+    // 最后一格：添加图片（空列表时显示大的拖放区）
+    if (slides.length) {
+      const add = el('li', { class: 'slide-item slide-add', title: '添加图片（也可以把图片 / 文件夹直接拖进来）' },
+        el('div', { class: 'slide-thumb' }, icon('plus', 18)),
+        el('div', { class: 'slide-info' }, el('span', { class: 'slide-name' }, '添加图片')));
+      add.addEventListener('click', () => onPick());
+      listEl.append(add);
+    }
+  }
+
+  // 当前画板里看得见的图片（slide id 集合）
+  function markUsed(ids) {
+    used = ids;
+    for (const [id, li] of items) li.classList.toggle('used', ids.has(id));
   }
 
   // 预览区悬停某张时，同步高亮列表里对应的那一项
   function highlight(index) {
     listEl.querySelectorAll('.slide-item.hl').forEach(n => n.classList.remove('hl'));
     if (index == null) return;
-    const li = listEl.children[index];
+    const li = listEl.querySelectorAll('.slide-item:not(.slide-add)')[index];
     if (!li) return;
     li.classList.add('hl');
     li.scrollIntoView({ block: 'nearest' });
   }
 
-  return { render, highlight };
+  return { render, highlight, markUsed };
 }

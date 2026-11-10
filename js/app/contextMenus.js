@@ -4,6 +4,8 @@ import { is3D } from './boards.js';
 import { hasAdjust } from '../render/scene.js';
 import { BOOLEAN_OPS } from '../layers/boolean.js';
 import { setSelection } from './uiState.js';
+import { stackCards, canStack } from './cardOrder.js';
+import { toast } from '../ui/toast.js';
 
 /**
  * 工作区右键菜单：
@@ -32,6 +34,9 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         { label: '下移一层', icon: 'arrow-down', shortcut: `${mod}[`, action: () => layerTools.reorder(-1) },
         { label: '置于顶层', shortcut: `⇧${mod}]`, action: () => layerTools.reorder(1, true) },
         { label: '置于底层', shortcut: `⇧${mod}[`, action: () => layerTools.reorder(-1, true) },
+        store.get().layers.filter(l => ids.includes(l.id)).some(l => !l.under)
+          ? { label: '移到幻灯片下面（卡片后面）', icon: 'images', action: () => layerTools.moveUnderSlides(true) }
+          : { label: '移到幻灯片上面', icon: 'images', action: () => layerTools.moveUnderSlides(false) },
         { sep: true },
         { label: '锁定', icon: 'lock', action: () => { actions.updateLayers(ids, { locked: true }); layerTools.clear(); } },
         { label: '隐藏', icon: 'eye-off', action: () => { actions.updateLayers(ids, { hidden: true }); layerTools.clear(); } },
@@ -80,6 +85,19 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         cropped && { label: '复位裁切', icon: 'rotate-ccw', action: () => actions.resetCrop(card.order) },
         flat && adjusted && { label: '复位这张卡片', icon: 'undo-2', action: () => actions.resetItemAdjust(card.order) },
         pinned && { label: '恢复这张卡片原来的图片', icon: 'rotate-ccw', action: () => actions.unpinCard(card.order) },
+        ...(canStack() ? (() => {
+          // 右键点到的卡片在选中的卡片里：一起调；否则只调这一张
+          const orders = ui.selection.includes(card.order) ? [...ui.selection] : [card.order];
+          const run = (dir, toEnd) => () => { if (!stackCards(orders, dir, toEnd)) toast(dir > 0 ? '已经在最上面了' : '已经在最下面了'); };
+          return [
+            { sep: true },
+            { label: '上移一层', icon: 'arrow-up', shortcut: `${mod}]`, action: run(1) },
+            { label: '下移一层', icon: 'arrow-down', shortcut: `${mod}[`, action: run(-1) },
+            { label: '置于顶层', icon: 'arrow-up-to-line', shortcut: `⇧${mod}]`, action: run(1, true) },
+            { label: '置于底层', icon: 'arrow-down-to-line', shortcut: `⇧${mod}[`, action: run(-1, true) },
+            { sep: true },
+          ];
+        })() : []),
         real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); slidesPanel.highlight(card.slideIndex); } },
         real && { label: '从此画板移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id, 'board') },
         { sep: true },

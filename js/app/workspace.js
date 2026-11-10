@@ -165,6 +165,17 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       } else {
         bgCtx.drawImage(boardBackground(b.id, b.settings.style, input.background, W, H, Math.max(px.w, px.h)), px.x, px.y, px.w, px.h);
       }
+      // 放在幻灯片下面的图层：画在背景上（按画板裁切），幻灯片再盖在上面
+      if (b.settings.layers?.some(l => l.under && !l.hidden)) {
+        bgCtx.save();
+        bgCtx.beginPath();
+        bgCtx.rect(px.x, px.y, px.w, px.h);
+        bgCtx.clip();
+        bgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, sx * d, sy * d);
+        const list = boardSlides(b.settings.slides);
+        drawLayers(bgCtx, b.settings.layers, { under: true, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
+        bgCtx.restore();
+      }
       // 选中的画板描边；当前画板描边更粗
       if (s.artboards.length > 1 && (active || selected.has(b.id))) {
         const w = (active ? 2 : 1.25) * d;
@@ -194,7 +205,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       fgCtx.save();
       fgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, sx * d, sy * d);
       const list = boardSlides(b.settings.slides);
-      drawLayers(fgCtx, b.settings.layers, { skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
+      drawLayers(fgCtx, b.settings.layers, { under: false, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
       fgCtx.restore();
     }
     // 当前画板的选框、手柄、锚点（不裁切，可以超出画板）
@@ -264,14 +275,18 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
   }
   // 屏幕坐标 → 某个画板里的卡片
   function pickIn(info, clientX, clientY) {
+    return pickInLocal(info, ...local(clientX, clientY));
+  }
+  // 工作区坐标（CSS 像素，相对视口左上角）下点中的卡片
+  function pickInLocal(info, lx, ly) {
     if (!info?.scene) return null;
-    const [lx, ly] = local(clientX, clientY);
     const x = lx - info.sx, y = ly - info.sy;
     if (x < 0 || y < 0 || x > info.sw || y > info.sh) return null;
     return pickItem(info.scene, (x / info.sw) * 2 - 1, 1 - (y / info.sh) * 2);
   }
   const pickAt = (clientX, clientY) => pickIn(activeInfo(), clientX, clientY);
   const pickOn = (id, clientX, clientY) => pickIn(boardInfo.get(id), clientX, clientY);
+  const pickLocal = (id, lx, ly) => pickInLocal(boardInfo.get(id), lx, ly);
   // 画板名称标签（拖动它移动画板）
   function labelAt(clientX, clientY) {
     const [x, y] = local(clientX, clientY);
@@ -337,7 +352,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
     // 视图
     fitBoard, fitAll, zoomAtScreen, zoomViewBy, actualSize, panBy,
     // 坐标
-    boardAt, pickIn, pickAt, pickOn, labelAt, ndcToClient, toLayoutDelta, itemCenterClient, itemCornersClient, findItem, allCards,
+    boardAt, pickIn, pickAt, pickOn, pickLocal, labelAt, ndcToClient, toLayoutDelta, itemCenterClient, itemCornersClient, findItem, allCards,
     itemRects, boardLocalRect,
   };
 }

@@ -21,7 +21,7 @@ export function createFadePicker(parent, { store, actions, onMore }) {
         const preview = el('span', { class: 'fade-preview' });
         preview.style.setProperty('--mask', p.id === 'none' ? 'none' : fadeCss(p.patch));
         const b = el('button', { class: 'fade-chip', title: p.label }, preview, el('span', {}, p.label));
-        b.addEventListener('click', () => actions.patchStyle(p.patch));
+        b.addEventListener('click', () => actions.patchStyle({ ...p.patch, fadeHidden: false })); // 图层列表里隐藏过的遮罩，重新选预设时显示
         return { b, p };
       });
       pop.append(

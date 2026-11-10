@@ -3,12 +3,17 @@ import { el, section } from './dom.js';
 import { icon } from './icons.js';
 import { schemaFor, cropSchema, cardSchema } from '../layers/schema.js';
 import { applyLayerProp, typeName } from '../layers/model.js';
+import { FADE_PRESETS } from '../style/schema.js';
 
 /**
  * 检查器（类似 Figma 右侧的设计面板），分两处：
  *   设计页（selectionSlot）：选中图层时显示图层属性；选中卡片时显示卡片的裁切和位置 / 旋转 / 缩放
  *   图层页（layersSlot）：新建文字 / 形状 / 路径，以及当前画板的图层列表（上面的在上层）——
- *     点击选中、显示 / 隐藏、锁定、上移 / 下移、双击改名、删除
+ *     点击选中、显示 / 隐藏、锁定、上移 / 下移、双击改名、删除。
+ *     幻灯片作为一组列在中间：组里是渐隐遮罩（开启时）和画板里看得见的每张卡片（上面的在前）；
+ *     图层可以上移 / 下移越过这一组（放到幻灯片下面）；平面版式里卡片也能上移 / 下移
+ *   cards：{ list() → 看得见的卡片（从上到下）, select(orders), stack(orders, dir, toEnd) → 是否有变化, canStack(), hover(order) }
+ *   onFade()：打开渐隐遮罩的设置
  * 返回 hasSelection()：设计页是否在显示选中对象（否则显示画板设置）
  */
 const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool', image: 'image', device: 'laptop' };
@@ -20,7 +25,7 @@ const ADD_TOOLS = [
   { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
 ];
 
-export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, onDeviceImage = () => {}, onDeviceQuad = () => {} }) {
+export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, reorder, clearAll, setTool, is3D, cards, onFade = () => {}, notify = () => {}, onDeviceImage = () => {}, onDeviceQuad = () => {} }) {
   /* ---------- 设计页：选中对象的标题栏 ---------- */
   const selTitle = el('span', { class: 'sel-title' });
   const selBar = el('div', { class: 'sel-bar' }, selTitle,
@@ -63,7 +68,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   const addRow = el('div', { class: 'layer-add' }, ADD_TOOLS.map(t =>
     el('button', { class: 'btn small', title: `${t.label}（${t.key}）`, onclick: () => setTool(t.tool) }, icon(t.icon, 13), t.label)));
   const list = el('div', { class: 'layer-list' });
-  const empty = el('p', { class: 'note' }, '还没有图层。用上面的按钮或左侧工具栏添加文字、形状，或用钢笔绘制路径；图层画在幻灯片上面，一起导出。');
+  const empty = el('p', { class: 'note' }, '用上面的按钮或左侧工具栏添加文字、形状，或用钢笔绘制路径。图层默认在幻灯片上面，下移越过「幻灯片」就放到卡片后面。');
   layersSlot.append(section('图层', el('div', {}, addRow, empty, list), null, 'section:layer-list'));
 
   // 修改选中的图层（文字会重新测量尺寸，路径作用在锚点上）
@@ -98,43 +103,133 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     updateCard({ ...v, dx: Math.round(v.dx), dy: Math.round(v.dy), rz: Math.round(v.rz * 10) / 10, single: cards.length === 1 });
   }
 
+  // 幻灯片一组：折叠状态记在本机
+  const GROUP_KEY = 'slidegrid:layers-slides-open';
+  let groupOpen = (() => { try { return localStorage.getItem(GROUP_KEY) !== '0'; } catch { return true; } })();
+  const setGroupOpen = v => { groupOpen = v; try { localStorage.setItem(GROUP_KEY, v ? '1' : '0'); } catch { /* 忽略 */ } listKey = ''; renderList(store.get()); };
+
+  const fadeName = st => {
+    const p = FADE_PRESETS.find(x => x.id !== 'none' && Object.entries(x.patch).every(([k, v]) => st[k] === v));
+    return p ? p.label : { solid: '单色', linear: '线性', mirror: '两端', radial: '径向' }[st.fadeType] || '自定义';
+  };
+  const btn = (ic, title, fn, on = false) => {
+    const b = el('button', { class: `icon-btn visible layer-btn${on ? ' on' : ''}`, title }, icon(ic, 13));
+    b.addEventListener('click', e => { e.stopPropagation(); fn(); });
+    return b;
+  };
+  const spacer = () => el('span', { class: 'layer-btn-space' });
+
+  // 卡片的小缩略图（左栏列表的缩略图缩小画上去）
+  const thumbOf = slide => {
+    const c = el('canvas', { class: 'layer-thumb' });
+    c.width = 40; c.height = 26;
+    const img = slide?.thumb || slide?.preview;
+    const g = c.getContext('2d');
+    if (img?.width) {
+      const k = Math.max(40 / img.width, 26 / img.height);
+      g.drawImage(img, (40 - img.width * k) / 2, (26 - img.height * k) / 2, img.width * k, img.height * k);
+    } else {
+      g.fillStyle = 'rgba(255,255,255,.08)';
+      g.fillRect(0, 0, 40, 26);
+    }
+    return c;
+  };
+
+  function layerRow(l) {
+    const active = ui.layerSel.includes(l.id);
+    const name = el('span', { class: 'layer-name', title: '双击重命名' }, l.name);
+    name.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const v = prompt('图层名称', l.name)?.trim();
+      if (v) actions.updateLayers([l.id], { name: v });
+    });
+    const row = el('div', { class: `layer-row${active ? ' active' : ''}${l.hidden ? ' is-hidden' : ''}${l.under ? ' under' : ''}` },
+      el('span', { class: 'layer-type' }, icon(TYPE_ICONS[l.type] || 'square', 13)),
+      name,
+      btn('arrow-up', '上移一层（⌘ ]）', () => { selectLayers([l.id]); reorder(1); }),
+      btn('arrow-down', '下移一层（⌘ [）· 越过「幻灯片」就放到卡片后面', () => { selectLayers([l.id]); reorder(-1); }),
+      btn(l.locked ? 'lock' : 'lock-open', l.locked ? '解锁' : '锁定（锁定后在画板上点不中）', () => actions.updateLayers([l.id], { locked: !l.locked }), l.locked),
+      btn(l.hidden ? 'eye-off' : 'eye', l.hidden ? '显示' : '隐藏', () => actions.updateLayers([l.id], { hidden: !l.hidden }), l.hidden),
+      btn('trash-2', '删除', () => { actions.setLayers(store.get().layers.filter(x => x.id !== l.id)); selectLayers(ui.layerSel.filter(x => x !== l.id)); }),
+    );
+    row.addEventListener('click', e => {
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      selectLayers(additive ? (active ? ui.layerSel.filter(x => x !== l.id) : [...ui.layerSel, l.id]) : [l.id]);
+    });
+    return row;
+  }
+
+  function slidesGroup(s, list) {
+    const st = s.style;
+    const fadeOn = st.fadeType && st.fadeType !== 'none';
+    const total = list.length;
+    const head = el('div', { class: 'layer-row layer-group' },
+      el('span', { class: `layer-caret${groupOpen ? ' open' : ''}` }, icon('chevron-down', 13)),
+      el('span', { class: 'layer-type' }, icon('images', 13)),
+      el('span', { class: 'layer-name' }, '幻灯片'),
+      el('span', { class: 'layer-meta' }, total ? `${total} 张卡片` : '没有图片'),
+    );
+    head.title = '画板里的所有卡片（WebGL 绘制）。上面的图层盖在卡片上，下面的图层在卡片后面';
+    head.addEventListener('click', () => setGroupOpen(!groupOpen));
+    const out = [head];
+    if (!groupOpen) return out;
+    if (fadeOn) {
+      const hidden = !!st.fadeHidden;
+      const row = el('div', { class: `layer-row layer-child layer-mask${hidden ? ' is-hidden' : ''}` },
+        el('span', { class: 'layer-type' }, icon('fade', 13)),
+        el('span', { class: 'layer-name' }, `渐隐遮罩 · ${fadeName(st)}`),
+        btn(hidden ? 'eye-off' : 'eye', hidden ? '显示遮罩' : '隐藏遮罩（设置保留）', () => actions.patchStyle({ fadeHidden: !hidden }), hidden),
+        btn('trash-2', '移除遮罩', () => actions.patchStyle({ fadeType: 'none', fadeHidden: false })),
+      );
+      row.title = '作用在所有卡片上的遮罩，点击调整方向、范围和不透明度';
+      row.addEventListener('click', () => onFade());
+      out.push(row);
+    }
+    const stackable = cards.canStack();
+    for (const it of list) {
+      const order = it.order;
+      const active = ui.selection.includes(order);
+      const real = !it.slide.placeholder;
+      const row = el('div', { class: `layer-row layer-child layer-card${active ? ' active' : ''}` },
+        thumbOf(real ? it.slide : null),
+        el('span', { class: 'layer-name' }, real ? it.slide.name : '空位'),
+        el('span', { class: 'layer-meta' }, `#${it.slideIndex + 1}`),
+        ...(stackable ? [
+          btn('arrow-up', '上移一层（盖住上面一张重叠的卡片）', () => { if (!cards.stack([order], 1)) notify('已经在最上面了'); }),
+          btn('arrow-down', '下移一层', () => { if (!cards.stack([order], -1)) notify('已经在最下面了'); }),
+        ] : []),
+      );
+      row.title = stackable ? `${real ? it.slide.name : '空位'} · 点击选中，上移 / 下移调整前后` : `${real ? it.slide.name : '空位'} · 3D 版式里卡片的前后由空间位置决定`;
+      row.addEventListener('click', e => {
+        const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+        cards.select(additive ? (active ? ui.selection.filter(x => x !== order) : [...ui.selection, order]) : [order]);
+      });
+      row.addEventListener('mouseenter', () => cards.hover(order));
+      row.addEventListener('mouseleave', () => cards.hover(null));
+      out.push(row);
+    }
+    if (!total) out.push(el('div', { class: 'layer-row layer-child layer-empty' }, el('span', { class: 'layer-name' }, '左侧导入图片后显示在这里')));
+    return out;
+  }
+
   let listKey = '';
+  let lastCards = null;
   function renderList(s) {
     const layers = s.layers || [];
     empty.hidden = layers.length > 0;
+    const cardList = cards.list();
     // 只在内容变化时重建列表
-    const key = JSON.stringify([layers.map(l => [l.id, l.name, l.type, l.hidden, l.locked]), ui.layerSel]);
-    if (key === listKey) return;
+    const key = JSON.stringify([
+      layers.map(l => [l.id, l.name, l.type, l.hidden, l.locked, !!l.under]), ui.layerSel, ui.selection,
+      s.style.fadeType, s.style.fadeHidden, s.style.fadeAngle, s.style.fadeStart, s.style.fadeEnd, s.style.fadeFrom, s.style.fadeTo,
+      groupOpen, cards.canStack(),
+    ]);
+    if (key === listKey && cardList === lastCards) return;
     listKey = key;
-    list.innerHTML = '';
-    for (const l of [...layers].reverse()) {
-      const active = ui.layerSel.includes(l.id);
-      const name = el('span', { class: 'layer-name', title: '双击重命名' }, l.name);
-      name.addEventListener('dblclick', e => {
-        e.stopPropagation();
-        const v = prompt('图层名称', l.name)?.trim();
-        if (v) actions.updateLayers([l.id], { name: v });
-      });
-      const btn = (ic, title, fn, on = false) => {
-        const b = el('button', { class: `icon-btn visible layer-btn${on ? ' on' : ''}`, title }, icon(ic, 13));
-        b.addEventListener('click', e => { e.stopPropagation(); fn(); });
-        return b;
-      };
-      const row = el('div', { class: `layer-row${active ? ' active' : ''}${l.hidden ? ' is-hidden' : ''}` },
-        el('span', { class: 'layer-type' }, icon(TYPE_ICONS[l.type] || 'square', 13)),
-        name,
-        btn('arrow-up', '上移一层（⌘ ]）', () => { selectLayers([l.id]); reorder(1); }),
-        btn('arrow-down', '下移一层（⌘ [）', () => { selectLayers([l.id]); reorder(-1); }),
-        btn(l.locked ? 'lock' : 'lock-open', l.locked ? '解锁' : '锁定（锁定后在画板上点不中）', () => actions.updateLayers([l.id], { locked: !l.locked }), l.locked),
-        btn(l.hidden ? 'eye-off' : 'eye', l.hidden ? '显示' : '隐藏', () => actions.updateLayers([l.id], { hidden: !l.hidden }), l.hidden),
-        btn('trash-2', '删除', () => { actions.setLayers(store.get().layers.filter(x => x.id !== l.id)); selectLayers(ui.layerSel.filter(x => x !== l.id)); }),
-      );
-      row.addEventListener('click', e => {
-        const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-        selectLayers(additive ? (active ? ui.layerSel.filter(x => x !== l.id) : [...ui.layerSel, l.id]) : [l.id]);
-      });
-      list.append(row);
-    }
+    lastCards = cardList;
+    const above = layers.filter(l => !l.under).reverse();
+    const below = layers.filter(l => l.under).reverse();
+    list.replaceChildren(...above.map(layerRow), ...slidesGroup(s, cardList), ...below.map(layerRow));
   }
 
   let has = false;

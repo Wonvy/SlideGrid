@@ -190,6 +190,37 @@ def t_pixels(page, errors):
     assert r == [1242, 1660, 2484, 3320], r
 
 
+def t_layers(page, errors):
+    # 新版式能渲染；图层可以放到幻灯片下面；平面版式里卡片可以调前后
+    r = page.evaluate('''async () => {
+      const S = SlideGrid, before = S.store.get().layoutId;
+      const sizes = [];
+      for (const id of ['floating', 'isoStage']) {
+        S.actions.setLayout(id);
+        const b = await S.renderToBlob({ longSide: 400, preview: true });
+        sizes.push(b.width);
+      }
+      S.actions.setLayout('scatter');
+      const top = () => S.cards.visible()[0]?.order;
+      const first = top();
+      const bottom = S.cards.visible().at(-1).order;
+      S.cards.stack([bottom], 1, true);
+      const raised = top() === bottom && top() !== first;
+      const rect = { id: 'l_test_rect', type: 'rect', name: '底板', x: 100, y: 100, w: 400, h: 300, rotation: 0, opacity: 1,
+        fillType: 'solid', fill: '#ffffff', fillAlpha: 1, strokeWidth: 0, radius: 0 };
+      S.actions.setLayers([...S.store.get().layers, rect]);
+      S.layers.select([rect.id]);
+      S.layers.moveUnderSlides(true);
+      const under = S.store.get().layers.find(l => l.id === rect.id)?.under === true;
+      const exp = await S.renderToBlob({ longSide: 400, preview: true });
+      S.actions.setLayers(S.store.get().layers.filter(l => l.id !== rect.id));
+      S.actions.setLayout(before);
+      return { sizes, raised, under, exp: exp.width };
+    }''')
+    assert r['sizes'] == [400, 400] and r['raised'] and r['under'] and r['exp'] == 400, r
+    assert not errors, errors
+
+
 def t_persist(page, errors):
     page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
     page.reload()
@@ -202,7 +233,7 @@ def t_persist(page, errors):
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
-         ('画板像素 × 倍率导出', t_pixels), ('刷新后数据还在', t_persist)]
+         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('刷新后数据还在', t_persist)]
 
 
 def run(browser, label, url) -> bool:

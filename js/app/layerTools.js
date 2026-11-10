@@ -59,11 +59,13 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     return list.map(l => m.get(l.id) || l);
   };
 
-  // 点中的最上层图层（锁定 / 隐藏的跳过）
-  function layerAt(p, list = layersOf(), t = tol()) {
-    for (let i = list.length - 1; i >= 0; i--) {
-      const l = list[i];
-      if (!l.locked && hitLayer(l, p, t)) return l;
+  // 点中的最上层图层（锁定 / 隐藏的跳过）。幻灯片下面的图层（under）在卡片后面：那里有卡片时点中的是卡片
+  function layerAt(p, list = layersOf(), t = tol(), cardHit = () => false) {
+    const ordered = [...list.filter(l => l.under), ...list.filter(l => !l.under)];
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      const l = ordered[i];
+      if (l.locked || !hitLayer(l, p, t)) continue;
+      return l.under && cardHit() ? null : l;
     }
     return null;
   }
@@ -77,7 +79,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       const bi = ws.boardInfo(id);
       if (!bi) continue;
       const list = id === s.activeBoard ? layersOf() : boards.find(b => b.id === id)?.settings.layers || [];
-      const hit = list.length ? layerAt(toBoard([lx, ly], bi), list, PICK_TOL / bi.zoom) : null;
+      const hit = list.length ? layerAt(toBoard([lx, ly], bi), list, PICK_TOL / bi.zoom, () => !!ws.pickLocal(id, lx, ly)) : null;
       if (hit) return { board: id, layer: hit };
     }
     return null;
@@ -517,13 +519,21 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     select(copies.map(c => c.id));
   }
 
-  // 上移 / 下移一层（toEnd：置顶 / 置底）
-  function reorder(dir, toEnd = false) {
-    let list = [...layersOf()];
-    const ids = new Set(ui.layerSel);
+  // 上移 / 下移一层（toEnd：置顶 / 置底）。幻灯片（所有卡片）也算一层：
+  // 图层列表是「幻灯片下面的图层（under）→ 幻灯片 → 上面的图层」，上移 / 下移可以越过幻灯片；
+  // 置顶 / 置底只在自己所在的一侧（要换到幻灯片另一侧用 moveUnderSlides）
+  const SLIDES = { id: '__slides__' };
+  function reorder(dir, toEnd = false, ids = new Set(ui.layerSel)) {
+    const layers = layersOf();
+    let list = [...layers.filter(l => l.under), SLIDES, ...layers.filter(l => !l.under)];
     if (toEnd) {
-      const sel = list.filter(l => ids.has(l.id)), rest = list.filter(l => !ids.has(l.id));
-      list = dir > 0 ? [...rest, ...sel] : [...sel, ...rest];
+      const at = list.indexOf(SLIDES);
+      const below = list.slice(0, at), above = list.slice(at + 1);
+      const move = side => {
+        const sel = side.filter(l => ids.has(l.id)), rest = side.filter(l => !ids.has(l.id));
+        return dir > 0 ? [...rest, ...sel] : [...sel, ...rest];
+      };
+      list = [...move(below), SLIDES, ...move(above)];
     } else {
       const idx = list.map((l, k) => (ids.has(l.id) ? k : -1)).filter(k => k >= 0);
       for (const k of dir > 0 ? idx.reverse() : idx) {
@@ -532,7 +542,20 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
         [list[k], list[j]] = [list[j], list[k]];
       }
     }
-    setLayers(list);
+    const at = list.indexOf(SLIDES);
+    setLayers(list.filter(l => l !== SLIDES).map(l => {
+      const under = list.indexOf(l) < at;
+      return !!l.under === under ? l : { ...l, under: under || undefined };
+    }));
+  }
+  // 把选中的图层移到幻灯片下面（under = true）/ 上面
+  function moveUnderSlides(under, ids = new Set(ui.layerSel)) {
+    const layers = layersOf();
+    const sel = layers.filter(l => ids.has(l.id)).map(l => ({ ...l, under: under || undefined }));
+    const rest = layers.filter(l => !ids.has(l.id));
+    // 移到下面：放在下面一组的最上方（紧贴幻灯片）；移到上面：放在上面一组的最下方
+    const below = rest.filter(l => l.under), above = rest.filter(l => !l.under);
+    setLayers([...below, ...sel, ...above]);
   }
 
   /* ---------------- 悬停 / 光标 ---------------- */
@@ -661,7 +684,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       return found && found.board === S().activeBoard ? found.layer : null;
     },
     remove: ids => { setLayers(layersOf().filter(l => !ids.includes(l.id))); select(ui.layerSel.filter(id => !ids.includes(id))); },
-    select, clear, prune, onToolChange, syncEditor, startEdit, duplicate, reorder,
+    select, clear, prune, onToolChange, syncEditor, startEdit, duplicate, reorder, moveUnderSlides,
     // 全选当前画板的图层，返回选中的数量
     selectAll: () => { const ids = layersOf().filter(l => !l.hidden && !l.locked).map(l => l.id); select(ids); return ids.length; },
     editingId: () => editing?.id || null,

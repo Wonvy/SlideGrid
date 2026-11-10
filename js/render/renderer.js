@@ -30,7 +30,7 @@ const FADE_TYPES = { linear: 1, mirror: 2, radial: 3, solid: 4 };
 
 // 渐隐遮罩参数（见 style/schema.js）；开始位置大于结束位置时对调，效果不变
 function setFade(gl, L, st, aspect) {
-  const type = FADE_TYPES[st.fadeType] || 0;
+  const type = st.fadeHidden ? 0 : FADE_TYPES[st.fadeType] || 0; // fadeHidden：图层列表里隐藏了遮罩（设置保留）
   gl.uniform1i(L.uFade, type);
   if (!type) return;
   const a = ((st.fadeAngle ?? 180) * Math.PI) / 180;

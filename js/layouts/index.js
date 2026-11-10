@@ -21,8 +21,10 @@ import corridor from './3d/corridor.js';
 import cylinder from './3d/cylinder.js';
 import cascade from './3d/cascade.js';
 import carousel from './3d/carousel.js';
+import floating from './3d/floating.js';
+import isoStage from './3d/isoStage.js';
 
-export const layouts = [grid, hero, staggered, tilted, scatter, fan, isoWall, corridor, cylinder, cascade, carousel];
+export const layouts = [grid, hero, staggered, tilted, scatter, fan, isoWall, corridor, cylinder, cascade, carousel, floating, isoStage];
 
 const byId = new Map(layouts.map(l => [l.id, l]));
 export const getLayout = id => byId.get(id);

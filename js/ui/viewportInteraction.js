@@ -2,6 +2,7 @@ import { clamp } from '../core/utils.js';
 import { zoomAround, panFactor } from '../render/scene.js';
 import { el } from './dom.js';
 import { iconCursor } from './icons.js';
+import { stackCards } from '../app/cardOrder.js';
 import { snapRect, moveRect, unionRects, intersects } from '../workspace/snap.js';
 
 const ROTATE_CURSOR = iconCursor('rotate-cw', 'crosshair');
@@ -136,6 +137,12 @@ export function attachViewportInteraction(target, opts) {
     }
     // ⌘D / Ctrl+D：复制所选画板（选中图层时由上面的图层快捷键处理）
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateBoards(); return; }
+    // ⌘] / ⌘[：选中的卡片上移 / 下移一层，加 Shift 置顶 / 置底（平面版式）
+    if (mod && (e.code === 'BracketRight' || e.code === 'BracketLeft') && getSelection().length) {
+      e.preventDefault();
+      stackCards(getSelection(), e.code === 'BracketRight' ? 1 : -1, e.shiftKey);
+      return;
+    }
     if (mod || e.altKey) return;
 
     if (e.code === 'Space') {

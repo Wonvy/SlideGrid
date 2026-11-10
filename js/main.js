@@ -23,6 +23,7 @@ import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
 import { placeholders, slidesOf, hasRealSlides, is3D, getAdjust, nextLift } from './app/boards.js';
 import { ui, setUi, setSelection, clearSelection, resetCardState, onUiChange } from './app/uiState.js';
+import { activeCardScene, visibleCards, stackCards, canStack } from './app/cardOrder.js';
 import { createWorkspace } from './app/workspace.js';
 import { createImporting } from './app/importing.js';
 import { createExporting } from './app/exporting.js';
@@ -225,6 +226,10 @@ const slidesMode = $('slides-mode');
 function renderSlidesMode(s) {
   const boards = boardsOf(s);
   const album = albumOf(s);
+  // 图片列表标题：正在显示哪个图集
+  const shown = browsedAlbum(s) || (!s.slidesOwn ? album : null);
+  $('slides-subtitle').textContent = shown ? shown.name : '此画板的图片';
+  $('slides-subtitle').title = shown ? `图集「${shown.name}」里的图片` : '这个画板单独设置的图片列表';
   const following = boards.filter(b => !b.settings.slidesOwn && albumOf(s, b.settings.albumId)?.id === album?.id).length;
   const browsing = browsedAlbum(s);
   if (browsing) {
@@ -404,6 +409,20 @@ const mockups = createMockups({
   getLayerTools: () => layerTools,
 });
 
+// 画板里看得见的卡片（按场景缓存）：图层列表的「幻灯片」一组、左栏图片的「在画板里」标记
+const cardListCache = new WeakMap();
+const visibleOf = scene => {
+  let v = cardListCache.get(scene);
+  if (!v) { v = visibleCards(scene); cardListCache.set(scene, v); }
+  return v;
+};
+let usedScene = null;
+function refreshUsed(s = store.get()) {
+  const scene = activeCardScene(s);
+  if (scene === usedScene) return;
+  usedScene = scene;
+  slidesPanel.markUsed(new Set(visibleOf(scene).filter(it => !it.slide.placeholder).map(it => it.slide.id)));
+}
 // 检查器：「设计」页里选中对象的属性、「图层」页的图层列表
 const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: settings.layersSlot }, {
   store, actions, ui, is3D, setTool,
@@ -413,6 +432,16 @@ const inspector = createInspector({ selectionSlot: settings.selectionSlot, layer
   getCards: () => ui.selection,
   reorder: dir => layerTools.reorder(dir),
   clearAll: () => { clearSelection(); layerTools.clear(); },
+  // 图层列表里的「幻灯片」一组：画板里看得见的卡片（按场景缓存）
+  cards: {
+    list: () => visibleOf(activeCardScene()),
+    select: orders => { layerTools.clear(); setSelection(orders); },
+    stack: (orders, dir, toEnd) => stackCards(orders, dir, toEnd),
+    canStack,
+    hover: order => setUi('hover', order),
+  },
+  onFade: () => settings.revealStyleGroup('渐隐遮罩'),
+  notify: msg => toast(msg),
 });
 // 顶部工具条的上下文属性
 const contextBar = createContextBar(toolbar.ctxSlot, {
@@ -627,6 +656,7 @@ store.subscribe(s => {
   if (projectChanged(s, prev)) controller.markDirty();
   settings.update(s);
   syncInspector(s);
+  refreshUsed(s);
   topbarMenus.update(s);
   bgPicker.update(s);
   fadePicker.update(s);
@@ -641,6 +671,7 @@ store.subscribe(s => {
 
 slidesPanel.render(listSlides(prev));
 renderSlidesMode(prev);
+refreshUsed(prev);
 topbarMenus.update(prev);
 refreshTools();
 ws.resize();
@@ -680,4 +711,5 @@ window.SlideGrid = {
   duplicateSelected: boards.duplicateSelected,
   deleteBoards: boards.deleteBoards,
   layers: layerTools,
+  cards: { visible: () => visibleOf(activeCardScene()), stack: stackCards },
 };
