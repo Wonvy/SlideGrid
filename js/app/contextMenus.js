@@ -1,4 +1,4 @@
-import { store, actions, selectionOf } from '../state.js';
+import { store, actions, selectionOf, albumOf } from '../state.js';
 import { showContextMenu } from '../ui/contextMenu.js';
 import { is3D } from './boards.js';
 import { hasAdjust } from '../render/scene.js';
@@ -91,6 +91,15 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
       !multi && { label: '适合窗口', icon: 'scan', shortcut: `${mod}0`, action: () => ws.fitBoard(board) },
       !multi && { label: '重命名…', icon: 'pencil', action: () => boards.renameBoard(board) },
       { label: '画板背景…', icon: 'images', action: () => bgPicker.open() },
+      // 换图集：当前画板（多选时所选画板）改为跟随另一个图集
+      ...(s.albums.length > 1 ? [
+        { title: multi ? '所选画板换图集' : '换图集' },
+        ...s.albums.map(a => ({
+          label: a.name, icon: a.id === albumOf(store.get())?.id && !store.get().slidesOwn ? 'check' : 'images',
+          action: () => actions.setBoardAlbum(a.id),
+        })),
+        { sep: true },
+      ] : []),
       { label: multi ? `复制所选的 ${sel.length} 个画板` : '复制画板', icon: 'copy', shortcut: `${mod}D`, action: boards.duplicateSelected },
       !multi && Object.values(store.get().adjust[store.get().layoutId] || {}).some(a => a.slide != null)
         && { label: '恢复图片顺序（取消所有交换）', icon: 'rotate-ccw', action: () => actions.resetSwaps() },

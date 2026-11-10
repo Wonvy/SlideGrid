@@ -1404,3 +1404,15 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: no
 .tb-swatch { width: 14px; height: 14px; margin: 0 2px 0 4px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); background-image: none; }
 .ctx-pop { padding: 8px 10px 10px; }
 .ctx-pop .ctx-controls { display: flex; align-items: center; gap: 6px; }
+/* 左栏：图集切换 */
+.album-bar { margin: 0 12px 8px; }
+.album-btn {
+  width: 100%; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px;
+  border: 0; border-radius: 10px; background: var(--field); color: var(--text); font-size: 13px; cursor: pointer; text-align: left;
+}
+.album-btn:hover { background: var(--field-hover); }
+.album-btn .icon:first-child { color: var(--muted); flex: none; }
+.album-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.album-count { color: var(--faint); font-size: 12px; flex: none; }
+.album-menu { min-width: 240px; }
+.album-menu .menu-item:disabled { opacity: .4; cursor: default; }

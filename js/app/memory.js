@@ -34,7 +34,7 @@ export function createMemoryGuard({ history }) {
     if (!heavy) warned = false; // 降下来以后，再次超过时重新提示
   };
   store.subscribe(s => {
-    if (s.library !== prev.library || s.slides !== prev.slides || s.assets !== prev.assets || s.project !== prev.project) check(s);
+    if (s.albums !== prev.albums || s.slides !== prev.slides || s.assets !== prev.assets || s.project !== prev.project) check(s);
     prev = s;
   });
   check(prev);

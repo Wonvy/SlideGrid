@@ -1,4 +1,5 @@
-import { store, actions, selectionOf, libraryOf, boardsOf, BOARD_KEYS } from './state.js';
+import { store, actions, selectionOf, libraryOf, boardsOf, albumOf, BOARD_KEYS } from './state.js';
+import { createAlbumBar } from './ui/albumBar.js';
 import { createSizePicker } from './ui/sizePicker.js';
 import { canvasOf } from './app/boards.js';
 import { createProjectController } from './project/controller.js';
@@ -157,29 +158,33 @@ $('clear-btn').addEventListener('click', () => {
   if (!hasRealSlides()) return;
   const msg = store.get().slidesOwn
     ? '移除当前画板的全部图片？（这个画板单独设置了图片，其他画板不受影响）'
-    : '清空共用的图片列表？（跟随它的画板都会清空；单独设置过图片的画板不受影响）';
+    : `清空图集「${albumOf(store.get())?.name}」的图片？（用这个图集的画板都会清空；单独设置过图片的画板不受影响）`;
   if (confirm(msg)) actions.clearSlides();
 });
 
-// 左栏顶部：当前画板的图片来源（跟随共用列表 / 单独设置）
+// 左栏顶部：图集切换
+const albumBar = createAlbumBar($('album-bar'), { store, actions, toast });
+
+// 左栏顶部：当前画板的图片来源（跟随图集 / 单独设置）
 const slidesMode = $('slides-mode');
 function renderSlidesMode(s) {
   const boards = boardsOf(s);
-  const following = boards.filter(b => !b.settings.slidesOwn).length;
+  const album = albumOf(s);
+  const following = boards.filter(b => !b.settings.slidesOwn && albumOf(s, b.settings.albumId)?.id === album?.id).length;
   if (s.slidesOwn) {
     slidesMode.hidden = false;
     slidesMode.className = 'slides-mode own';
     slidesMode.replaceChildren(
-      el('span', { class: 'sm-text', title: '在画布上单独交换 / 替换 / 移除过卡片，这个画板有自己的图片列表，共用列表的变化不影响它' },
+      el('span', { class: 'sm-text', title: '在画布上单独替换 / 移除过卡片，这个画板有自己的图片列表，图集的变化不影响它' },
         icon('frame', 14), '此画板单独设置了图片'),
-      el('button', { class: 'btn ghost small', title: '改回跟随共用列表（这个画板单独的顺序和替换会丢失）', onclick: () => { actions.followLibrary(); toast('已恢复跟随共用图片'); } }, '恢复跟随'),
-      el('button', { class: 'btn ghost small', title: '把这个画板的图片列表设为共用列表，跟随的画板一起更新', onclick: () => { actions.shareBoardSlides(); toast('已设为共用图片'); } }, '设为共用'),
+      el('button', { class: 'btn ghost small', title: `改回跟随图集「${album?.name}」（这个画板单独的顺序和替换会丢失）`, onclick: () => { actions.followLibrary(); toast('已恢复跟随图集'); } }, '恢复跟随'),
+      el('button', { class: 'btn ghost small', title: `把这个画板的图片列表存回图集「${album?.name}」，用这个图集的画板一起更新`, onclick: () => { actions.shareBoardSlides(); toast(`已更新图集「${album?.name}」`); } }, '存回图集'),
     );
   } else if (boards.length > 1) {
     slidesMode.hidden = false;
     slidesMode.className = 'slides-mode';
-    slidesMode.replaceChildren(el('span', { class: 'sm-text', title: '这里的修改会同步到所有跟随的画板；在画布上单独交换 / 替换 / 移除某张卡片时，只改那个画板' },
-      icon('images', 14), `共用图片 · ${following} 个画板跟随`));
+    slidesMode.replaceChildren(el('span', { class: 'sm-text', title: '这里的修改会同步到用这个图集的所有画板；在画布上单独替换 / 移除某张卡片时，只改那个画板' },
+      icon('images', 14), `${following} 个画板在用这个图集`));
   } else {
     slidesMode.hidden = true;
   }
@@ -509,14 +514,17 @@ onUiChange(key => {
   ws.scheduleRender();
 });
 
-const SAVED_KEYS = ['slides', 'library', 'assets', 'artboards', 'activeBoard', ...BOARD_KEYS];
+const SAVED_KEYS = ['slides', 'albums', 'assets', 'artboards', 'activeBoard', ...BOARD_KEYS];
 const projectChanged = (a, b) => SAVED_KEYS.some(k => a[k] !== b[k]);
 
 let prev = store.get();
 setWheelMode(prev.wheelMode);
 store.subscribe(s => {
   if (s.wheelMode !== prev.wheelMode) setWheelMode(s.wheelMode);
-  if (s.slidesOwn !== prev.slidesOwn || s.artboards !== prev.artboards || s.activeBoard !== prev.activeBoard) renderSlidesMode(s);
+  if (s.slidesOwn !== prev.slidesOwn || s.artboards !== prev.artboards || s.activeBoard !== prev.activeBoard || s.albums !== prev.albums || s.albumId !== prev.albumId) {
+    renderSlidesMode(s);
+    albumBar.update(s);
+  }
   mockups.update(s, prev);
   if (s.slides !== prev.slides) {
     slidesPanel.render(s.slides);

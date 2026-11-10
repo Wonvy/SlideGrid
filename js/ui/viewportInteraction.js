@@ -84,6 +84,7 @@ export function attachViewportInteraction(target, opts) {
       if (copies?.length === ids.length) {
         state.targets = [...others, ...ids.map(boardLocalRect).filter(Boolean)];
         state.starts = state.starts.map((st, i) => ({ ...st, id: copies[i] }));
+        target.style.cursor = 'copy'; // 拖动副本的过程中一直显示「复制」指针
       }
     }
     return state;
@@ -200,14 +201,15 @@ export function attachViewportInteraction(target, opts) {
     const tool = effectiveTool();
     if (tool === 'hand') return drag?.mode === 'pan' ? 'grabbing' : 'grab';
     if (tool === 'zoom') return altDown ? ZOOM_OUT_CURSOR : ZOOM_IN_CURSOR;
-    if (labelAt(e.clientX, e.clientY)) return 'move'; // 拖名称移动画板
+    // 拖名称移动画板；按住 Alt（⌥）时是复制画板，指针显示「复制」
+    if (labelAt(e.clientX, e.clientY)) return altDown ? 'copy' : 'move';
     const b = boardAt(e.clientX, e.clientY);
-    if (tool === 'artboard') return b ? 'move' : 'default';
+    if (tool === 'artboard') return b ? (altDown ? 'copy' : 'move') : 'default';
     if (!b) return 'default';
     if (b !== activeBoard()) return 'pointer'; // 点击切换到这个画板
     if (tool === 'orbit') return is3D() ? 'move' : 'grab';
     const hit = pick(e.clientX, e.clientY);
-    if (!hit) return cardTools.has(tool) && !is3D() ? 'crosshair' : tool === 'select' ? 'move' : 'default';
+    if (!hit) return cardTools.has(tool) && !is3D() ? 'crosshair' : tool === 'select' ? (altDown ? 'copy' : 'move') : 'default';
     if (tool === 'swap') return canSwap() ? 'grab' : 'default';
     if (tool === 'crop') return drag?.mode === 'crop' ? 'grabbing' : 'grab';
     if (!toolAvailable(tool)) return 'not-allowed';

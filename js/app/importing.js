@@ -1,4 +1,4 @@
-import { store, actions } from '../state.js';
+import { store, actions, albumOf, albumSlides } from '../state.js';
 import { createSlides, createAsset } from '../slides/slideFactory.js';
 import { collectFromDrop, collectFromInput } from '../slides/importer.js';
 import { isPresetsFile } from '../persist/presets.js';
@@ -41,6 +41,9 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
       toast('没有找到可用的图片', { error: true });
       return;
     }
+    // 拖入 / 选择的是文件夹：每个文件夹成为一个图集（名称就是文件夹名），见 importAlbums
+    const groups = replaceIndex == null ? groupByFolder(list) : null;
+    if (groups) { await importAlbums(groups, list.length); return; }
     toast(`正在导入 0 / ${list.length}`, { sticky: true });
     const slides = await createSlides(list, (done, total) => toast(`正在导入 ${done} / ${total}`, { sticky: true }));
     const failed = list.length - slides.length;
@@ -57,6 +60,51 @@ export function createImporting({ ws, fileInput, folderInput, overlay, dropLabel
       actions.fillSlots(slides);
       toast(`已导入 ${slides.length} 张${tail}`, { error: failed > 0 });
     }
+  }
+
+  // 按最外层文件夹分组：[{ name, items }]；散的图片 name 为 null。没有任何文件夹时返回 null（按普通图片导入）
+  function groupByFolder(list) {
+    const groups = new Map();
+    for (const it of list) {
+      const i = it.path.indexOf('/');
+      const name = i > 0 ? it.path.slice(0, i) : null;
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(it);
+    }
+    if (![...groups.keys()].some(k => k)) return null;
+    return [...groups].map(([name, items]) => ({ name, items }));
+  }
+
+  /**
+   * 导入文件夹：散的图片加到当前图集；每个文件夹新建一个图集，当前画板换成第一个新图集。
+   * 当前图集还没有图片（只有示例）时，第一个文件夹直接放进当前图集，并把图集改成文件夹名。
+   */
+  async function importAlbums(groups, total) {
+    let done = 0, failed = 0, created = 0, first = true;
+    const progress = () => toast(`正在导入 ${done} / ${total}`, { sticky: true });
+    progress();
+    for (const g of groups) {
+      const slides = await createSlides(g.items, () => { done++; progress(); });
+      failed += g.items.length - slides.length;
+      if (!slides.length) continue;
+      const s = store.get();
+      const album = albumOf(s);
+      const empty = !s.slidesOwn && !albumSlides(s).some(x => !x.placeholder);
+      if (!g.name) {
+        actions.fillSlots(slides);
+      } else if (first && empty) {
+        actions.fillSlots(slides);
+        actions.renameAlbum(album.id, g.name);
+        created++;
+        first = false;
+      } else {
+        actions.addAlbum(g.name, slides, { switchBoards: first });
+        created++;
+        first = false;
+      }
+    }
+    const tail = failed ? `，${failed} 张无法读取` : '';
+    toast(created > 1 ? `已导入 ${created} 个图集（共 ${total - failed} 张）${tail}，在左栏顶部切换图集` : `已导入图集「${albumOf(store.get()).name}」（${total - failed} 张）${tail}`, { error: failed > 0, duration: 4000 });
   }
 
   /* ---------------- 背景图 ---------------- */

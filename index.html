@@ -36,9 +36,11 @@
 
     <aside class="sidebar left" id="slides-panel">
       <div class="slides-head">
-        <h2 title="当前画板用到的图片。画板默认共用这份列表；在画布上单独交换 / 替换 / 移除某张卡片后，这个画板改为单独设置">幻灯片<span class="count" id="slide-count"></span></h2>
+        <h2 title="当前画板用到的图片（当前图集）。画板默认跟随图集；在画布上单独替换 / 移除某张卡片后，这个画板改为单独设置">幻灯片<span class="count" id="slide-count"></span></h2>
       </div>
-      <!-- 当前画板的图片来源：跟随共用列表 / 单独设置（js/main.js 更新） -->
+      <!-- 图集切换（ui/albumBar.js） -->
+      <div class="album-bar" id="album-bar"></div>
+      <!-- 当前画板的图片来源：跟随图集 / 单独设置（js/main.js 更新） -->
       <div class="slides-mode" id="slides-mode" hidden></div>
 
       <div class="slides-scroll">

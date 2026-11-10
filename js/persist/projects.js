@@ -162,7 +162,12 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
       Object.fromEntries(Object.entries(cards || {}).map(([k, c]) => [k, c?.slide != null && slideIds.has(c.slide) ? { ...c, slide: slideIds.get(c.slide) } : c]))]));
     settings = { ...settings, artboards: settings.artboards.map(b => (b.settings?.adjust ? { ...b, settings: { ...b.settings, adjust: remapAdjust(b.settings.adjust) } } : b)) };
   }
-  // 共用图片列表（sharedIds）同样换成新 id
+  // 图集里的图片（albums[].slideIds）同样换成新 id；找不到对应关系的去掉
+  if (Array.isArray(settings?.albums)) {
+    const known = x => slideIds.has(x) || slides.some(s => s.placeholder && s.id === x);
+    settings = { ...settings, albums: settings.albums.map(a => ({ ...a, slideIds: (a.slideIds || []).filter(known).map(x => slideIds.get(x) || x) })) };
+  }
+  // 旧数据的共用图片列表（sharedIds）同样换成新 id
   if (Array.isArray(settings?.sharedIds)) {
     const known = x => slideIds.has(x) || slides.some(s => s.placeholder && s.id === x);
     settings = settings.sharedIds.every(known)

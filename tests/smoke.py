@@ -99,14 +99,14 @@ def t_inherit(page, errors):
       const second = S().activeBoard;
       const out = { newFollows: !S().slidesOwn };
       SlideGrid.actions.swapSlides(0, 1);                       // 画布上交换：画板 2 单独设置
-      out.ownAfterSwap = S().slidesOwn; out.second = names(S().slides); out.library = names(S().library);
+      out.ownAfterSwap = S().slidesOwn; out.second = names(S().slides); out.library = names(S().albums[0].slides);
       SlideGrid.actions.setActiveBoard(first);
       SlideGrid.actions.moveSlide(0, 2);                        // 左栏排序：共用列表变，画板 2 不变
       out.firstAfterMove = names(S().slides);
       out.secondAfterMove = names(S().artboards.find(b => b.id === second).settings.slides);
       SlideGrid.actions.setActiveBoard(second);
       SlideGrid.actions.followLibrary();                        // 恢复跟随
-      out.followed = names(S().slides) === names(S().library);
+      out.followed = names(S().slides) === names(S().albums[0].slides);
       SlideGrid.actions.setActiveBoard(first);
       return out;
     }''')
@@ -114,6 +114,21 @@ def t_inherit(page, errors):
     assert r['ownAfterSwap'] and r['second'] == '213' and r['library'] == '123', r
     assert r['firstAfterMove'] == '231' and r['secondAfterMove'] == '213', r
     assert r['followed'], r
+
+
+def t_album(page, errors):
+    # 图集：新建一个图集并让当前画板换过去，再换回来；另一个图集不受影响
+    r = page.evaluate('''() => {
+      const S = () => SlideGrid.store.get();
+      const first = S().albumId, list = S().albums[0].slides;
+      const id = SlideGrid.actions.addAlbum('第二组', list.slice(0, 2));
+      const out = { switched: S().albumId === id && S().slides.length === 2, firstSame: S().albums[0].slides === list };
+      SlideGrid.actions.setBoardAlbum(first);
+      out.back = S().slides === list;
+      out.count = S().albums.length;
+      return out;
+    }''')
+    assert r['switched'] and r['firstSame'] and r['back'] and r['count'] == 2, r
 
 
 def t_swap(page, errors):
@@ -174,7 +189,7 @@ def t_persist(page, errors):
 
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
-         ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export), ('刷新后数据还在', t_persist)]
+         ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export), ('刷新后数据还在', t_persist)]
 
 
 def run(browser, label, url) -> bool:
