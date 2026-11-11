@@ -230,8 +230,7 @@ def t_layer_panel(page, errors):
         fillType: 'solid', fill: '#ffffff', fillAlpha: 1, strokeWidth: 0, radius: 0 });
       S.actions.setLayers([...S.store.get().layers, mk('l_pa', '甲', 100), mk('l_pb', '乙', 200), mk('l_pc', '丙', 300)]);
     }""")
-    # 图层在左栏下方单独一组：先拉高，所有行都在可见范围内
-    page.evaluate("() => { const d = document.getElementById('dock-layers'); d.classList.add('sized'); d.style.setProperty('--layers-h', '560px'); }")
+    page.click('.lp-top [data-tab="layers"]')  # 图层在左栏的「图层」页
     row = lambda i: page.locator(f'.layer-list .layer-row[data-kind="layer"][data-id="{i}"]')
     order = lambda: page.evaluate("SlideGrid.store.get().layers.filter(l => l.id.startsWith('l_p')).map(l => l.name + (l.under ? '↓' : '')).join('')")
 
@@ -296,18 +295,19 @@ def t_switches(page, errors):
       return out;
     }""")
     assert all(r[k] for k in ('shadowOff', 'shadowOn', 'fadeOn', 'fadeOff', 'fxOff', 'fxOn')) and r['render'] == 300, r
-    # 分隔条：把图层区域拉高 80px
-    dock = page.locator('#dock-layers')
-    page.locator('#layers-splitter').dblclick()  # 先恢复默认高度（上一步测试把它拉高了）
-    h0 = dock.bounding_box()['height']
-    sp = page.locator('#layers-splitter').bounding_box()
+    # 左栏「幻灯片」页的分隔条：把图集区域拉高 80px，双击恢复
+    page.click('.lp-top [data-tab="slides"]')
+    bar = page.locator('#album-bar')
+    page.locator('#album-splitter').dblclick()
+    h0 = bar.bounding_box()['height']
+    sp = page.locator('#album-splitter').bounding_box()
     page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] + sp['height'] / 2)
     page.mouse.down()
-    page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] - 80, steps=4)
+    page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] + sp['height'] / 2 + 80, steps=4)
     page.mouse.up()
-    h1 = dock.bounding_box()['height']
-    assert 60 < h1 - h0 < 100, (h0, h1)
-    page.locator('#layers-splitter').dblclick()
+    h1 = bar.bounding_box()['height']
+    assert 70 < h1 - h0 < 90, (h0, h1)
+    page.locator('#album-splitter').dblclick()
     assert not errors, errors
 
 

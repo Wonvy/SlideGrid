@@ -14,7 +14,7 @@ import { getLayout } from '../layouts/index.js';
  * 返回的函数上还带着 layerMenu(x, y, layer, { rename })、cardMenu(x, y, card)：图层列表里右键用同一套菜单。
  * 右键点到的画板不在选中集合里时只选它（与 Illustrator 一致）。
  */
-export function createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool, layerTools, ui }) {
+export function createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool, layerTools, ui, leftTabs }) {
   const mod = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
 
   // 图层菜单（画布上右键图层、图层列表里右键图层共用）。右键点到的图层不在选中的图层里时只选它。
@@ -103,7 +103,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
           { sep: true },
         ];
       })() : []),
-      real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); slidesPanel.highlight(card.slideIndex); } },
+      real && { label: '在左侧列表中定位', icon: 'locate', action: () => { panels.setHidden('left', false); leftTabs?.show('slides'); slidesPanel.highlight(card.slideIndex); } },
       real && { label: '从此画板移除这张图', icon: 'trash-2', danger: true, action: () => actions.removeSlide(slide.id, 'board') },
     ];
   }

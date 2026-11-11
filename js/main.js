@@ -18,7 +18,7 @@ import { createResizeHandles } from './ui/resizeHandles.js';
 import { createPresetsPanel } from './ui/presetsPanel.js';
 import { initResizers } from './ui/resizer.js';
 import { toast } from './ui/toast.js';
-import { el, isCollapsed, setCollapsed } from './ui/dom.js';
+import { el } from './ui/dom.js';
 import { setWheelMode } from './ui/wheel.js';
 import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
@@ -199,57 +199,61 @@ const albumBar = createAlbumBar($('album-bar'), {
   },
 });
 
-// 左栏从上到下三块：图集、图片列表、图层。两条分隔条上下拖动调整图集 / 图层区域的高度（记住；双击恢复默认），
-// 中间的图片列表占剩下的空间；拖动时至少给图片列表留 MIN_LIST 的高度。点「图层」标题收起 / 展开这一组
+// 左栏顶部的标签：「幻灯片」（图集 + 图片列表）/「图层」，各占整栏高度；记住上次在哪一页
+const leftTabs = (() => {
+  const KEY = 'slidegrid:left-tab';
+  const pages = { slides: $('page-slides'), layers: $('page-layers') };
+  const tabs = Object.fromEntries([...document.querySelectorAll('#slides-panel .lp-top .rp-tab')].map(b => [b.dataset.tab, b]));
+  function show(name) {
+    for (const k of Object.keys(pages)) {
+      pages[k].hidden = k !== name;
+      tabs[k].classList.toggle('active', k === name);
+      tabs[k].setAttribute('aria-selected', String(k === name));
+    }
+    try { localStorage.setItem(KEY, name); } catch { /* 忽略 */ }
+  }
+  for (const k of Object.keys(tabs)) tabs[k].addEventListener('click', () => show(k));
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch { /* 忽略 */ }
+  show(saved in pages ? saved : 'slides');
+  return { show, current: () => Object.keys(pages).find(k => !pages[k].hidden) };
+})();
+
+// 幻灯片页：图集和图片列表之间的分隔条，上下拖动调整图集区域的高度（记住；双击恢复默认）。
+// 往上往下都能拖；图片列表至少留 MIN_LIST 的高度
 {
   const MIN_LIST = 96;
+  const KEY = 'slidegrid:album-h';
+  const split = $('album-splitter'), bar = $('album-bar');
   const listEl = document.querySelector('#slides-panel .slides-scroll');
-  const saved = k => { try { return Number(localStorage.getItem(k)) || 0; } catch { return 0; } };
-  const save = (k, v) => { try { if (v) localStorage.setItem(k, String(Math.round(v))); else localStorage.removeItem(k); } catch { /* 忽略 */ } };
-  // grow：往下拖是变高（图集，在分隔条上面）还是变矮（图层，在分隔条下面）
-  function splitter(split, target, { key, cssVar, min, grow }) {
-    const setH = h => {
-      target.classList.toggle('sized', h > 0);
-      if (h > 0) target.style.setProperty(cssVar, `${h}px`); else target.style.removeProperty(cssVar);
-    };
-    setH(saved(key));
-    split.addEventListener('pointerdown', e => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      split.setPointerCapture(e.pointerId);
-      const y0 = e.clientY, h0 = target.getBoundingClientRect().height;
-      const max = h0 + Math.max(0, listEl.getBoundingClientRect().height - MIN_LIST); // 最多把图片列表压到 MIN_LIST
-      document.body.classList.add('resizing-v');
-      split.classList.add('active');
-      const move = ev => setH(Math.round(Math.max(min, Math.min(max, h0 + (ev.clientY - y0) * grow))));
-      const up = () => {
-        split.removeEventListener('pointermove', move);
-        split.removeEventListener('pointerup', up);
-        split.removeEventListener('pointercancel', up);
-        document.body.classList.remove('resizing-v');
-        split.classList.remove('active');
-        if (target.classList.contains('sized')) save(key, target.getBoundingClientRect().height);
-      };
-      split.addEventListener('pointermove', move);
-      split.addEventListener('pointerup', up);
-      split.addEventListener('pointercancel', up);
-    });
-    split.addEventListener('dblclick', () => { setH(0); save(key, 0); });
-  }
-  splitter($('album-splitter'), $('album-bar'), { key: 'slidegrid:album-h', cssVar: '--album-h', min: 64, grow: 1 });
-  const dock = $('dock-layers'), head = $('layers-head');
-  splitter($('layers-splitter'), dock, { key: 'slidegrid:layers-h', cssVar: '--layers-h', min: 96, grow: -1 });
-  const DOCK_KEY = 'dock:layers';
-  const applyDock = () => {
-    const c = isCollapsed(DOCK_KEY);
-    dock.classList.toggle('collapsed', c);
-    head.setAttribute('aria-expanded', String(!c));
-    $('layers-splitter').hidden = c;
+  const setH = h => {
+    bar.classList.toggle('sized', h > 0);
+    if (h > 0) bar.style.setProperty('--album-h', `${h}px`); else bar.style.removeProperty('--album-h');
   };
-  const toggleDock = () => { setCollapsed(DOCK_KEY, !isCollapsed(DOCK_KEY)); applyDock(); };
-  head.addEventListener('click', toggleDock);
-  head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDock(); } });
-  applyDock();
+  const save = v => { try { if (v) localStorage.setItem(KEY, String(Math.round(v))); else localStorage.removeItem(KEY); } catch { /* 忽略 */ } };
+  try { setH(Number(localStorage.getItem(KEY)) || 0); } catch { /* 忽略 */ }
+  split.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    split.setPointerCapture(e.pointerId);
+    const y0 = e.clientY, h0 = bar.getBoundingClientRect().height;
+    const max = h0 + Math.max(0, listEl.getBoundingClientRect().height - MIN_LIST); // 最多把图片列表压到 MIN_LIST
+    document.body.classList.add('resizing-v');
+    split.classList.add('active');
+    const move = ev => setH(Math.round(Math.max(64, Math.min(max, h0 + ev.clientY - y0))));
+    const up = () => {
+      split.removeEventListener('pointermove', move);
+      split.removeEventListener('pointerup', up);
+      split.removeEventListener('pointercancel', up);
+      document.body.classList.remove('resizing-v');
+      split.classList.remove('active');
+      if (bar.classList.contains('sized')) save(bar.getBoundingClientRect().height);
+    };
+    split.addEventListener('pointermove', move);
+    split.addEventListener('pointerup', up);
+    split.addEventListener('pointercancel', up);
+  });
+  split.addEventListener('dblclick', () => { setH(0); save(0); });
 }
 
 // 左栏顶部：当前画板的图片来源（跟随图集 / 单独设置）
@@ -297,7 +301,7 @@ function renderSlidesMode(s) {
 /* ---------------- 面板 ---------------- */
 
 const panels = initResizers($('app'));
-document.querySelector('.slides-head').append(panels.collapseButton('left'));
+document.querySelector('#slides-panel .lp-top').append(panels.collapseButton('left'));
 
 const slidesPanel = createSlidesPanel({
   listEl: $('slide-list'),
@@ -535,7 +539,7 @@ const resizeHandles = createResizeHandles(viewport, {
   nextLift,
 });
 
-const onContextMenu = createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool, layerTools, ui });
+const onContextMenu = createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool, layerTools, ui, leftTabs });
 
 // 立方体视图（3D 版式时在画布右上角）：拖动旋转视角、点面切换正视 / 俯视…、透视 / 正交
 createViewCube($('stage'), { store, actions });

@@ -35,9 +35,14 @@
     </header>
 
     <aside class="sidebar left" id="slides-panel">
-      <div class="slides-head">
-        <h2 title="当前画板用到的图片（当前图集）。画板默认跟随图集；在画布上单独替换 / 移除某张卡片后，这个画板改为单独设置">幻灯片<span class="count" id="slide-count"></span></h2>
+      <!-- 左栏顶部：标签切换「幻灯片 / 图层」（各占整栏高度），右边是收起按钮（main.js 追加） -->
+      <div class="rp-top lp-top">
+        <div class="rp-tabs" role="tablist">
+          <button class="rp-tab" role="tab" data-tab="slides" title="当前画板用到的图片（当前图集）。画板默认跟随图集；在画布上单独替换 / 移除某张卡片后，这个画板改为单独设置">幻灯片<span class="tab-count" id="slide-count"></span></button>
+          <button class="rp-tab" role="tab" data-tab="layers" title="当前画板的图层：上面的在前。拖动调整前后，右键更多操作，双击改名">图层<span class="tab-count" id="layer-count"></span></button>
+        </div>
       </div>
+      <div class="lp-page" id="page-slides" role="tabpanel">
       <!-- 图集切换（ui/albumBar.js） -->
       <div class="album-bar" id="album-bar"></div>
       <div class="v-split album-splitter" id="album-splitter" title="上下拖动调整图集区域的高度（双击恢复）"></div>
@@ -75,16 +80,11 @@
         <span class="bar-spacer"></span>
         <button class="icon-btn visible danger" id="clear-btn" data-icon="trash-2" data-icon-size="16" title="清空当前画板的全部图片（设置保留）"></button>
       </div>
-      <!-- 图层：单独一组，在左栏下方（列表由 ui/inspector.js 填充）。上边的分隔条调整高度，点标题收起 / 展开 -->
-      <div class="v-split" id="layers-splitter" title="上下拖动调整图层区域的高度（双击恢复）"></div>
-      <section class="dock dock-layers" id="dock-layers" aria-label="图层">
-        <div class="dock-head" id="layers-head" role="button" tabindex="0" title="当前画板的图层：上面的在前。拖动调整前后，右键更多操作，双击改名。点击收起 / 展开">
-          <h2>图层<span class="count" id="layer-count"></span></h2>
-          <span class="bar-spacer"></span>
-          <span class="dock-chevron" data-icon="chevron-down" data-icon-size="16"></span>
-        </div>
+      </div>
+      <!-- 图层页：当前画板的图层列表（ui/inspector.js 填充） -->
+      <div class="lp-page" id="page-layers" role="tabpanel" hidden>
         <div class="dock-body" id="layers-slot"></div>
-      </section>
+      </div>
       <input type="file" id="file-input" accept="image/*" multiple hidden>
       <input type="file" id="folder-input" webkitdirectory multiple hidden>
     </aside>

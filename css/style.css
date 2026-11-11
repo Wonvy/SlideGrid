@@ -1627,16 +1627,12 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .ctrl-group.off > .icon { visibility: hidden; }
 .ctrl-group[hidden] { display: none; }
 
-/* 左栏：分组标题 */
-.slides-head { padding: 10px 8px 6px 16px; }
-.slides-head h2, .dock-head h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.slides-head h2 .count, .dock-head h2 .count { font-size: 12px; font-weight: 500; }
-.slides-head .panel-collapse { width: 28px; height: 28px; border-radius: 8px; }
-.dock-head { flex: none; display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px 0 16px; cursor: pointer; user-select: none; -webkit-user-select: none; }
-.dock-head:hover { background: rgba(255, 255, 255, .03); }
-.dock-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.dock-chevron { display: inline-flex; width: 28px; justify-content: center; color: var(--muted); transition: transform .15s; transform: rotate(180deg); }
-.dock.collapsed .dock-chevron { transform: none; }
+/* 左栏顶部：和右栏一样的一排标签（幻灯片 / 图层），每页占整栏高度 */
+.lp-page { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.lp-page[hidden] { display: none; }
+.rp-top .rp-tab .tab-count { margin-left: 5px; font-weight: 500; color: var(--faint); font-variant-numeric: tabular-nums; }
+.rp-top .rp-tab .tab-count:empty { display: none; }
+#page-slides > .album-bar { margin-top: 8px; }
 
 /* 左栏：上下分隔条（图集 | 图片列表 | 图层）。一条细线，中间一个小把手，悬停 / 拖动时变色 */
 .v-split { flex: none; height: 9px; position: relative; cursor: row-resize; }
@@ -1644,18 +1640,13 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .v-split::after { content: ''; position: absolute; left: 50%; top: 3px; width: 32px; height: 3px; margin-left: -16px; border-radius: 2px; background: var(--line-2); }
 .v-split:hover::after, .v-split.active::after { background: var(--accent); }
 .v-split:hover::before, .v-split.active::before { background: var(--accent); opacity: .5; }
-.v-split[hidden] { display: block; pointer-events: none; }
-.v-split[hidden]::after { display: none; }
 
-/* 左栏三块的高度：图集、图层是定高（拖分隔条调整，窗口太矮时一起压缩），图片列表占剩下的 */
+/* 幻灯片页：图集是定高（拖分隔条调整，窗口太矮时压缩），图片列表占剩下的 */
 .album-bar { flex: 0 1 auto; min-height: 64px; max-height: var(--album-h, 236px); }
 .album-bar.sized { flex: 0 1 var(--album-h); height: var(--album-h); max-height: none; }
 .sidebar.left .slides-subhead { border-top: 0; padding-top: 4px; }
 .sidebar.left .slides-scroll { flex: 1 1 0; min-height: 96px; }
-.dock-layers { flex: 0 1 var(--layers-h, 248px); min-height: 38px; display: flex; flex-direction: column; overflow: hidden; }
-.dock-layers.collapsed { flex: none; }
-.dock-layers.collapsed .dock-body { display: none; }
-.dock-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 10px; }
+.dock-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 8px 12px; }
 
 /* 图层列表（左栏）：行高一致，类型图标 / 缩略图 + 名称，右侧是锁定、显示（悬停或已锁定 / 已隐藏时出现） */
 .dock-body .layer-row { min-height: 28px; padding: 2px 4px 2px 8px; }
@@ -1663,9 +1654,8 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .dock-body .layer-group:hover { background: rgba(255, 255, 255, .04); }
 .dock-body .layer-thumb { width: 34px; height: 22px; }
 .dock-body .layer-btn-space { display: none; }
-.layer-empty-note { margin: 0 8px 8px; line-height: 1.5; }
+.layer-empty-note { margin: 2px 8px 10px; line-height: 1.5; }
 .layer-row .layer-btn { opacity: 0; }
 .layer-row:hover .layer-btn, .layer-row .layer-btn.on, .layer-row .layer-btn:focus-visible { opacity: 1; }
 .layer-list.is-dragging .layer-row:hover .layer-btn:not(.on) { opacity: 0; }
 .layout-btn[hidden] { display: none; }
-.dock-head .bar-spacer { flex: 1; }
