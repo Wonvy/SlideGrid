@@ -4,6 +4,7 @@ import { styleSchema, FADE_PRESETS } from '../style/schema.js';
 import { buildControls } from './controls.js';
 import { wheelModeSchema } from './wheel.js';
 import { THEMES, themePref, setThemePref, onThemeChange } from './theme.js';
+import { languages, languagePref, setLanguage, importLanguage, removeLanguage, languageFileText } from '../i18n/i18n.js';
 import { el, section, isCollapsed, setCollapsed } from './dom.js';
 import { icon } from './icons.js';
 
@@ -24,7 +25,7 @@ const store_ = {
  *   偏好：滚轮等操作习惯
  * 图层列表不在这里：在左栏下方单独一组（见 main.js、ui/inspector.js）。
  */
-export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null, layoutPreview = null }) {
+export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null, layoutPreview = null, beforeReload = null }) {
   root.innerHTML = '';
   root.classList.add('right-panel');
 
@@ -247,6 +248,50 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   panes.prefs.append(section('界面', themeBox, null, 'section:prefs-theme'));
   const updateTheme = buildControls(themeBox, [{ key: 'theme', label: '主题', type: 'select', default: 'auto', options: THEMES }], { theme: themePref() }, (_, v) => setThemePref(v));
   onThemeChange(() => updateTheme({ theme: themePref() }));
+  // 界面语言：跟随系统 / 简体中文 / 语言文件里的语言（lang/*.xml）/ 自己导入的。换了以后刷新页面
+  const langBox = el('div');
+  themeBox.append(langBox);
+  const langOptions = [{ value: 'auto', label: '跟随系统' }, ...languages().map(l => ({ value: l.code, label: l.custom ? `${l.name}（导入的）` : l.name }))];
+  const pref = languagePref();
+  buildControls(langBox, [{ key: 'lang', label: '语言', type: 'select', segmented: false, default: 'auto', options: langOptions }],
+    { lang: langOptions.some(o => o.value === pref) ? pref : 'auto' }, (_, v) => setLanguage(v, { beforeReload }));
+  // 导入语言文件（XML）：存在这台电脑上，马上换过去；下载英文语言文件：翻译新语言时照着改
+  const langInput = el('input', { type: 'file', accept: '.xml,text/xml,application/xml', hidden: true });
+  langInput.addEventListener('change', async () => {
+    const file = langInput.files[0];
+    langInput.value = '';
+    if (!file) return;
+    try {
+      const { code } = importLanguage(await file.text());
+      await setLanguage(code, { beforeReload });
+    } catch (err) {
+      notify(`导入失败：${err.message || err}`);
+    }
+  });
+  const langFileBtn = el('button', { class: 'btn small', type: 'button', title: '导入一个 XML 语言文件（存在这台电脑上），界面马上换成这种语言' }, icon('upload', 13), '导入语言文件…');
+  langFileBtn.addEventListener('click', () => langInput.click());
+  const langTemplateBtn = el('button', { class: 'btn small', type: 'button', title: '下载英文的语言文件：翻译新语言时复制一份，改 code、name 和每条译文' }, icon('download', 13), '下载语言文件模板');
+  langTemplateBtn.addEventListener('click', async () => {
+    try {
+      const blob = new Blob([await languageFileText('en.xml')], { type: 'application/xml' });
+      const a = el('a', { href: URL.createObjectURL(blob), download: 'en.xml' });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (err) {
+      notify(`下载失败：${err.message || err}`);
+    }
+  });
+  // 导入过的语言：每个一个「移除」按钮（正在用的那个移除后回到跟随系统）
+  const langRemoveBtns = languages().filter(l => l.custom).map(l => {
+    const btn = el('button', { class: 'btn small lang-remove', type: 'button', 'data-code': l.code, title: '从这台电脑上移除这个导入的语言文件' }, icon('trash-2', 13), `移除「${l.name}」`);
+    btn.addEventListener('click', () => {
+      removeLanguage(l.code);
+      setLanguage(pref === l.code ? 'auto' : pref, { beforeReload });
+    });
+    return btn;
+  });
+  themeBox.append(el('div', { class: 'lang-actions' }, langFileBtn, langTemplateBtn, ...langRemoveBtns, langInput),
+    el('p', { class: 'note' }, '界面语言来自 XML 语言文件：每条是「中文原文 → 译文」。换语言后页面会刷新一次（项目会先保存）。'));
 
   const saved = store_.get(MAIN_TAB_KEY);
   showMain(saved in panes ? saved : 'params');

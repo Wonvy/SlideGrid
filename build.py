@@ -10,7 +10,7 @@
 
 做法：每个 JS 模块转成 data: URL，用 import map 把模块路径映射过去；
 模块内部的相对导入改写成同一套模块名。源码不需要任何改动，模块之间的关系原样保留。
-CSS 直接内联。只用 Python 标准库。
+CSS 直接内联；语言文件（lang/*.xml）也内嵌进去。只用 Python 标准库。
 """
 import argparse
 import base64
@@ -76,11 +76,19 @@ def render() -> tuple:
         if tag not in html:
             raise SystemExit(f'index.html 里找不到：{tag}')
 
+    # 语言文件（lang/*.xml）：内嵌成 <script type="application/xml" data-lang-file="文件名">，js/i18n/i18n.js 优先从这里读
+    langs = ''
+    for path in sorted((ROOT / 'lang').glob('*.xml')):
+        text = path.read_text(encoding='utf-8')
+        if '</script' in text.lower():
+            raise SystemExit(f'{path.name} 里不能出现 </script')
+        langs += f'<script type="application/xml" data-lang-file="{path.name}">{text}</script>\n  '
+
     license_text = (ROOT / 'licenses/lucide-LICENSE.txt').read_text(encoding='utf-8').replace('--', '- -')
-    stamp = hashlib.sha256((html + css + importmap).encode('utf-8')).hexdigest()[:12]
+    stamp = hashlib.sha256((html + css + importmap + langs).encode('utf-8')).hexdigest()[:12]
     html = html.replace(link, f'<style>\n{css}\n</style>')
     html = html.replace(script,
-        f'<script type="importmap">{importmap}</script>\n'
+        f'{langs}<script type="importmap">{importmap}</script>\n'
         f'  <script type="module">import {json.dumps(module_name(entry))};</script>')
     charset = '<meta charset="utf-8">'  # 必须在文件前 1024 字节内，注释放在它后面
     html = html.replace(charset, f'{charset}\n  <!-- SlideGrid 单文件版 · 源码 {stamp} · 由 build.py 生成，请勿直接修改 -->\n'

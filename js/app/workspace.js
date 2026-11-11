@@ -12,6 +12,7 @@ import { drawLayers } from '../layers/draw.js';
 import { slidesOf, boardSlides, boardInput, boardWorldRect } from './boards.js';
 import { ui } from './uiState.js';
 import { themeColor, onThemeChange } from '../ui/theme.js';
+import { tr } from '../i18n/i18n.js';
 
 /**
  * 工作区：所有画板画在同一张画布上（2D 画布画画板背景 / 名称，WebGL 画幻灯片）。
@@ -176,7 +177,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       bgCtx.font = `${(active ? 600 : 400)} ${12 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
       bgCtx.fillStyle = active ? colors().labelActive : selected.has(b.id) ? '#8b96d9' : colors().label;
       bgCtx.textBaseline = 'bottom';
-      const labelText = `${b.name}  ·  ${aspectLabel(b.settings.aspect)}`;
+      const labelText = tr(`${b.name}  ·  ${aspectLabel(b.settings.aspect)}`); // 默认的画板名（「画板 1」）跟着界面语言显示
       bgCtx.fillText(labelText, sx * d, (sy - 6) * d);
       // 名称标签的可点区域（CSS 像素）：拖动它可以移动画板
       info.label = { x: sx - 2, y: sy - 22, w: bgCtx.measureText(labelText).width / d + 6, h: 18 };

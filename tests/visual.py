@@ -152,7 +152,7 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            page = browser.new_context(viewport={'width': 1440, 'height': 900}, device_scale_factor=1).new_page()
+            page = browser.new_context(viewport={'width': 1440, 'height': 900}, locale='zh-CN', device_scale_factor=1).new_page()
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.goto(url)

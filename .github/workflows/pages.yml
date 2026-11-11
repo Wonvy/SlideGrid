@@ -34,6 +34,8 @@ jobs:
           timeout 200 python -m playwright install chromium || (sleep 15 && timeout 200 python -m playwright install chromium)
       - name: 单文件版是最新的
         run: python build.py --check
+      - name: 界面文字都有英文译文
+        run: python tools/i18n_extract.py --check
       - name: 冒烟测试（开发版 + 单文件版）
         run: python tests/smoke.py
       - name: 版式截图对比
@@ -59,7 +61,7 @@ jobs:
       - name: 组装站点
         run: |
           mkdir -p _site
-          cp -r index.html css js licenses _site/
+          cp -r index.html css js lang licenses _site/
           python build.py -o _site/SlideGrid.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -1,7 +1,7 @@
 #!/bin/sh
-# 提交前：源码（js / css / index.html / build.py）有改动时，重新构建根目录的单文件版 SlideGrid.html 并一起提交。
+# 提交前：源码（js / css / lang / index.html / build.py）有改动时，重新构建根目录的单文件版 SlideGrid.html 并一起提交。
 # 启用：git config core.hooksPath .githooks
-if git diff --cached --name-only | grep -qE '^(js/|css/|index\.html$|build\.py$)'; then
+if git diff --cached --name-only | grep -qE '^(js/|css/|lang/|index\.html$|build\.py$)'; then
   python3 build.py -o SlideGrid.html >/dev/null || { echo "构建单文件版失败，已取消提交"; exit 1; }
   git add SlideGrid.html
 fi

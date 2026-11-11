@@ -10,6 +10,7 @@ import { toast } from '../ui/toast.js';
 import { iconCursor, iconPaths } from '../ui/icons.js';
 import { withAngle } from '../layers/devices.js';
 import { PULL_BACK } from '../render/scene.js';
+import { tr } from '../i18n/i18n.js';
 import { ui, setUi } from './uiState.js';
 
 /**
@@ -738,7 +739,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     for (const p of ORBIT_ICON) g.stroke(p);
     g.restore();
     if (!orbiting) return;
-    const l = ob.layer, text = `左右 ${Math.round(l.yaw || 0)}°　俯仰 ${Math.round(l.pitch || 0)}°`;
+    const l = ob.layer, text = tr(`左右 ${Math.round(l.yaw || 0)}°　俯仰 ${Math.round(l.pitch || 0)}°`);
     g.save();
     g.font = `${12 * d}px system-ui, -apple-system, "PingFang SC", sans-serif`;
     const w = g.measureText(text).width + 16 * d, h = 24 * d, lx = x + r + 8 * d, ly = y - h / 2;

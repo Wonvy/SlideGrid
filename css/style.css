@@ -1897,3 +1897,9 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 }
 .backup-btn:hover { background: rgba(240, 179, 90, .28); }
 .project-nobackup { margin-left: 6px; padding: 0 5px; border-radius: 5px; background: rgba(240, 179, 90, .16); color: var(--warn); font-size: 12px; white-space: nowrap; }
+
+/* ---------- 偏好：语言 ---------- */
+.lang-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.lang-actions .btn.small { height: 30px; padding: 0 10px; }
+/* 非中文界面：词更长，分段按钮按文字多少分宽度，不再平均分 */
+:root:not(:lang(zh)) .seg-btn { flex: 1 1 auto; padding: 0 5px; }

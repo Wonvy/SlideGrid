@@ -33,7 +33,7 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            page = browser.new_page(viewport={'width': 1440, 'height': 900}, device_scale_factor=2, color_scheme='dark')  # README 的截图用深色主题
+            page = browser.new_page(viewport={'width': 1440, 'height': 900}, locale='zh-CN', device_scale_factor=2, color_scheme='dark')  # README 的截图用深色主题
             page.goto(url)
             wait_app(page)
             page.wait_for_timeout(600)

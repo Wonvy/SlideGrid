@@ -1,4 +1,5 @@
 import { createLayer, contoursOf, withContours, updateContour, insertAnchor, nearestOnPath } from '../layers/model.js';
+import { tr } from '../i18n/i18n.js';
 
 /**
  * 钢笔（P）与直接选择（A），操作方式参照 Illustrator。
@@ -415,7 +416,7 @@ export function createPathTools(api) {
     }
     // 光标旁的提示（闭合 / 转为直角 / 添加锚点…）
     if (cursor?.hint) {
-      const text = HINTS[cursor.hint];
+      const text = tr(HINTS[cursor.hint]);
       g.save();
       g.font = `${12 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
       const w = g.measureText(text).width + 12 * d, h = 20 * d;

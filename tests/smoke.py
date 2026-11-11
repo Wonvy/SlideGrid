@@ -541,6 +541,73 @@ def t_theme(page, errors):
     assert not errors, errors
 
 
+LANG_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<language code="xx" name="Test">
+  <s k="导出">Exportieren</s>
+</language>
+"""
+# 界面上（顶栏、两边栏的页签、右栏、底部提示）还剩下的中文
+LEFT_CJK = r"""() => {
+  const out = [], CJK = /[㐀-鿿]/;
+  for (const root of document.querySelectorAll('.topbar, .lp-top, .rp-top, .sidebar.right, .toolstrip, .toolbar, .viewbar, .stage-hint')) {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (n.nodeType === 3) { if (CJK.test(n.nodeValue)) out.push(n.nodeValue.trim()); }
+      else for (const a of ['title', 'placeholder', 'aria-label']) { const v = n.getAttribute(a); if (v && CJK.test(v)) out.push(a + '=' + v); }
+    }
+  }
+  return out;
+}"""
+
+
+def t_language(page, errors):
+    # 界面语言：「偏好」里换成 English（页面刷新一次，项目还在），界面上不剩中文；导入一个 XML 语言文件，没翻到的还是中文；移除后回到中文
+    import tempfile
+    lang = lambda: page.evaluate("document.documentElement.lang")
+    export = lambda: page.locator('#export-btn').inner_text().strip()
+    ready = lambda code: (page.wait_for_function(f"document.documentElement.lang === '{code}' && window.SlideGrid && document.querySelector('.rp-top')", timeout=15000),
+                          page.wait_for_function('SlideGrid.store.get().slides.length === 3', timeout=15000), page.wait_for_timeout(300))
+    section = '.panel-section:has(.lang-actions)'
+    assert lang() == 'zh-CN' and export() == '导出', (lang(), export())
+    page.click('.rp-top [data-tab="prefs"]')
+    page.click(f'{section} .select-btn')
+    page.click('.select-menu .menu-item:has-text("English")')
+    ready('en')
+    assert page.evaluate("localStorage.getItem('slidegrid:lang')") == 'en'
+    assert export() == 'Export', export()
+    assert page.locator('.rp-top [data-tab="params"]').inner_text().strip() == 'Design'
+    assert page.locator('#project-btn').inner_text().strip() == 'Untitled project', page.locator('#project-btn').inner_text()
+    page.click('.rp-top [data-tab="params"]')
+    page.wait_for_timeout(200)
+    left = page.evaluate(LEFT_CJK)
+    assert not left, f'英文界面还剩中文：{left[:8]}'
+    page.click('.rp-top [data-tab="prefs"]')
+    left = page.evaluate(LEFT_CJK)
+    assert left == ['简体中文'] or not left, f'英文界面还剩中文：{left[:8]}'
+    # 导入语言文件：马上换过去；没有译文的条目显示中文原文
+    with tempfile.NamedTemporaryFile('w', suffix='.xml', delete=False, encoding='utf-8') as f:
+        f.write(LANG_XML)
+    page.set_input_files('.lang-actions input[type="file"]', f.name)
+    ready('xx')
+    assert export() == 'Exportieren', export()
+    assert page.locator('.rp-top [data-tab="params"]').inner_text().strip() == '设计'
+    page.click('.rp-top [data-tab="prefs"]')
+    assert 'Test' in page.locator(f'{section} .select-btn').inner_text()
+    # 坏文件：提示导入失败，语言不变
+    with tempfile.NamedTemporaryFile('w', suffix='.xml', delete=False, encoding='utf-8') as bad:
+        bad.write('<nope/>')
+    page.set_input_files('.lang-actions input[type="file"]', bad.name)
+    page.wait_for_function("document.getElementById('toast').textContent.includes('导入失败')", timeout=5000)
+    assert lang() == 'xx'
+    page.click('.lang-remove[data-code="xx"]')
+    ready('zh-CN')
+    assert export() == '导出', export()
+    assert page.evaluate("[localStorage.getItem('slidegrid:lang'), localStorage.getItem('slidegrid:lang-custom')]") == [None, '{}']
+    assert page.locator('.lang-remove').count() == 0
+    page.click('.rp-top [data-tab="params"]')
+    assert not errors, errors
+
+
 # 找出文字和底色对比度不够的地方（看得见的文字；渐变 / 图片底色、禁用的控件不算）。返回 [{ text, path, ratio }]
 CONTRAST = r"""(limit) => {
   const parse = c => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return [0, 0, 0, 0]; const p = m[1].split(/[,/ ]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; };
@@ -718,13 +785,13 @@ def t_persist(page, errors):
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('画板右键菜单 / Delete 删除画板', t_board_menu), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
          ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
-         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('深色 / 浅色主题', t_theme), ('两套主题的文字对比度', t_contrast), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
+         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('深色 / 浅色主题', t_theme), ('界面语言（英文 / 导入语言文件）', t_language), ('两套主题的文字对比度', t_contrast), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
 
 
 def run(browser, label, url) -> bool:
     print(f'\n== {label}：{url}')
-    ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
+    ctx = browser.new_context(viewport={'width': 1440, 'height': 900}, locale='zh-CN')
     page = ctx.new_page()
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))

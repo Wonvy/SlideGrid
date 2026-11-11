@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  可以选择的界面语言（简体中文是内置的，不用列）。新增语言：把语言文件放进这个文件夹，在这里加一行。
+-->
+<languages>
+  <language code="en" name="English" file="en.xml"/>
+</languages>

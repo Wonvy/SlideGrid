@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>SlideGrid</title>
+  <!-- 界面语言不是中文时：先不显示页面，等语言文件读好、文字换完再显示（最多等 3 秒），避免先闪一下中文。见 js/i18n/i18n.js -->
+  <script>try { var l = localStorage.getItem('slidegrid:lang'); if (l ? l !== 'zh-CN' : !/^zh\b/i.test(navigator.language || 'zh')) { document.documentElement.classList.add('i18n-wait'); setTimeout(function () { document.documentElement.classList.remove('i18n-wait'); }, 3000); } } catch (e) {}</script>
+  <style>html.i18n-wait body { visibility: hidden; }</style>
   <!-- 先把主题定下来（深色 / 浅色，见 js/ui/theme.js），页面一出来就是对的颜色 -->
   <script>try { var t = localStorage.getItem('slidegrid:theme'); if (t !== 'dark' && t !== 'light') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="stylesheet" href="css/style.css">

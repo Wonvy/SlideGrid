@@ -14,6 +14,7 @@ import { VERSION, RELEASED } from './version.js';
 import { askConfirm } from './ui/dialogs.js';
 import { currentTheme, toggleTheme, onThemeChange } from './ui/theme.js';
 import { tipOnce } from './ui/tips.js';
+import { initI18n, tr } from './i18n/i18n.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -55,6 +56,8 @@ import { createViewCube } from './ui/viewCube.js';
  *   app/contextMenus  右键菜单
  *   app/uiState       悬停 / 选中等交互状态（不进 store）
  */
+// 界面语言：先读语言文件（不是中文时），再搭界面；之后页面上出现的中文会自动换成译文
+await initI18n();
 applyIcons();
 
 const $ = id => document.getElementById(id);
@@ -378,6 +381,7 @@ const settings = createSettingsPanel($('settings-panel'), {
     dropTarget: 'background',
   },
   // 从工具条「更多背景 / 遮罩设置」跳过来时，先取消选择，回到画板设置
+  beforeReload: () => controller.flush(),
   onBoardRequest: () => { clearSelection(); layerTools?.clear(); },
   layoutPreview: exporting.layoutPreview,
 });
@@ -701,12 +705,14 @@ let hintTool = '';
 function updateHint() {
   const s = store.get();
   const tool = ui.tempHand ? 'hand' : ui.tool;
-  const [name, rest = ''] = TOOL_HINTS[tool].split('：');
+  // 先整句翻译，再拆成「工具名：操作 · 操作 · …」（译文里冒号可以是半角的）
+  const full = tr(TOOL_HINTS[tool]), colon = full.search(/[：:]/);
+  const name = colon < 0 ? full : full.slice(0, colon), rest = colon < 0 ? '' : full.slice(colon + 1);
   const tips = rest.split(' · ').map(x => x.trim()).filter(Boolean);
-  const general = [s.wheelNav === 'scroll' ? '滚轮滚动 · ⌘ + 滚轮缩放' : '滚轮缩放', '空格 / 中键平移', '拖画板名称移动画板', 'Tab 隐藏面板'];
+  const general = [s.wheelNav === 'scroll' ? '滚轮滚动 · ⌘ + 滚轮缩放' : '滚轮缩放', '空格 / 中键平移', '拖画板名称移动画板', 'Tab 隐藏面板'].map(tr);
   const short = tips.slice(0, 3);
-  if (!s.slides.length) short.push('拖入图片替换示例图');
-  hintText.textContent = `${name}：${short.join(' · ')}`;
+  if (!s.slides.length) short.push(tr('拖入图片替换示例图'));
+  hintText.textContent = `${name}${full === TOOL_HINTS[tool] ? '：' : ': '}${short.join(' · ')}`;
   hintMore.hidden = tips.length <= 3 && false; // 通用操作也在「更多」里，所以一直显示
   hintAll.replaceChildren(...[...tips.slice(3), ...general].map(t => el('span', { class: 'hint-item' }, t)));
   if (tool !== hintTool) { hintTool = tool; hintAll.hidden = true; hintMore.textContent = '更多'; }
