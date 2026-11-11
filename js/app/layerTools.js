@@ -25,6 +25,7 @@ import { ui, setUi } from './uiState.js';
 const HANDLE = 5;        // 选框手柄半径（屏幕像素）
 const ROTATE_ZONE = 18;  // 角外侧多大范围内拖动 = 旋转
 const PICK_TOL = 4;      // 点选容差（屏幕像素）
+export const SLIDES_ID = '__slides__'; // 图层顺序里代表「幻灯片（所有卡片）」的那一层
 export const LAYER_TOOLS = ['rect', 'ellipse', 'line', 'text', 'pen', 'direct'];
 const ACCENT = '#7c8cff';
 
@@ -522,10 +523,22 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   // 上移 / 下移一层（toEnd：置顶 / 置底）。幻灯片（所有卡片）也算一层：
   // 图层列表是「幻灯片下面的图层（under）→ 幻灯片 → 上面的图层」，上移 / 下移可以越过幻灯片；
   // 置顶 / 置底只在自己所在的一侧（要换到幻灯片另一侧用 moveUnderSlides）
-  const SLIDES = { id: '__slides__' };
+  const SLIDES = { id: SLIDES_ID };
+  const stackList = (layers = layersOf()) => [...layers.filter(l => l.under), SLIDES, ...layers.filter(l => !l.under)]; // 从下到上
+  // 按新的顺序（含「幻灯片」）写回：在幻灯片前面的图层标记为 under
+  function commitOrder(list) {
+    const at = list.indexOf(SLIDES);
+    const next = list.filter(l => l !== SLIDES).map(l => {
+      const under = list.indexOf(l) < at;
+      return !!l.under === under ? l : { ...l, under: under || undefined };
+    });
+    const cur = layersOf();
+    if (next.length === cur.length && next.every((l, k) => l === cur[k])) return false;
+    setLayers(next);
+    return true;
+  }
   function reorder(dir, toEnd = false, ids = new Set(ui.layerSel)) {
-    const layers = layersOf();
-    let list = [...layers.filter(l => l.under), SLIDES, ...layers.filter(l => !l.under)];
+    let list = stackList();
     if (toEnd) {
       const at = list.indexOf(SLIDES);
       const below = list.slice(0, at), above = list.slice(at + 1);
@@ -542,11 +555,18 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
         [list[k], list[j]] = [list[j], list[k]];
       }
     }
-    const at = list.indexOf(SLIDES);
-    setLayers(list.filter(l => l !== SLIDES).map(l => {
-      const under = list.indexOf(l) < at;
-      return !!l.under === under ? l : { ...l, under: under || undefined };
-    }));
+    return commitOrder(list);
+  }
+  // 把图层放到 target（图层 id，或 SLIDES_ID = 幻灯片）的上面 / 下面（图层列表里拖动）。place：'above' | 'below'
+  function placeAt(ids, target, place) {
+    const sel = new Set(ids);
+    if (sel.has(target)) return false;
+    const list = stackList();
+    const next = list.filter(l => !sel.has(l.id));
+    const at = next.findIndex(l => l.id === target);
+    if (at < 0) return false;
+    next.splice(place === 'above' ? at + 1 : at, 0, ...list.filter(l => sel.has(l.id)));
+    return commitOrder(next);
   }
   // 把选中的图层移到幻灯片下面（under = true）/ 上面
   function moveUnderSlides(under, ids = new Set(ui.layerSel)) {
@@ -684,7 +704,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       return found && found.board === S().activeBoard ? found.layer : null;
     },
     remove: ids => { setLayers(layersOf().filter(l => !ids.includes(l.id))); select(ui.layerSel.filter(id => !ids.includes(id))); },
-    select, clear, prune, onToolChange, syncEditor, startEdit, duplicate, reorder, moveUnderSlides,
+    select, clear, prune, onToolChange, syncEditor, startEdit, duplicate, reorder, placeAt, moveUnderSlides,
     // 全选当前画板的图层，返回选中的数量
     selectAll: () => { const ids = layersOf().filter(l => !l.hidden && !l.locked).map(l => l.id); select(ids); return ids.length; },
     editingId: () => editing?.id || null,

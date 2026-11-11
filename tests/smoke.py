@@ -221,6 +221,51 @@ def t_layers(page, errors):
     assert not errors, errors
 
 
+def t_layer_panel(page, errors):
+    # 图层列表：拖动调整前后（图层、卡片）、右键菜单（置于顶层 / 底层）
+    page.evaluate("""() => {
+      const S = SlideGrid;
+      S.actions.setLayout('scatter');
+      const mk = (id, name, x) => ({ id, type: 'rect', name, x, y: 100, w: 300, h: 200, rotation: 0, opacity: 1,
+        fillType: 'solid', fill: '#ffffff', fillAlpha: 1, strokeWidth: 0, radius: 0 });
+      S.actions.setLayers([...S.store.get().layers, mk('l_pa', '甲', 100), mk('l_pb', '乙', 200), mk('l_pc', '丙', 300)]);
+    }""")
+    page.click('.rp-tab[aria-label^="图层"]')
+    row = lambda i: page.locator(f'.layer-list .layer-row[data-kind="layer"][data-id="{i}"]')
+    order = lambda: page.evaluate("SlideGrid.store.get().layers.filter(l => l.id.startsWith('l_p')).map(l => l.name + (l.under ? '↓' : '')).join('')")
+
+    def drag(src, dst, where):  # where：放在 dst 这一行的上半 / 下半
+        a, b = src.bounding_box(), dst.bounding_box()
+        page.mouse.move(a['x'] + 60, a['y'] + a['height'] / 2)
+        page.mouse.down()
+        page.mouse.move(a['x'] + 60, a['y'] + a['height'] / 2 + 8, steps=2)
+        page.mouse.move(b['x'] + 60, b['y'] + (3 if where == 'above' else b['height'] - 3), steps=4)
+        page.mouse.up()
+
+    assert order() == '甲乙丙', order()  # 列表里从上到下是 丙 乙 甲
+    drag(row('l_pa'), row('l_pc'), 'above')
+    assert order() == '乙丙甲', order()
+    # 拖到「幻灯片」一组的下面：放到卡片后面
+    cards = page.locator('.layer-list .layer-row[data-kind="card"]')
+    drag(row('l_pa'), cards.last, 'below')
+    assert order() == '甲↓乙丙', order()
+    # 右键菜单：置于顶层（只在幻灯片上面这一侧）、置于底层
+    row('l_pb').click(button='right')
+    page.click('.ctx-menu .menu-item:has-text("置于顶层")')
+    assert order() == '甲↓丙乙', order()
+    # 卡片：把最下面一张拖到最上面；右键置于底层
+    names = lambda: page.evaluate("[...document.querySelectorAll('.layer-list .layer-row[data-kind=card]')].map(r => r.dataset.id)")
+    before = names()
+    drag(cards.last, cards.first, 'above')
+    after = names()
+    assert after[0] == before[-1] and after[1:] == before[:-1], (before, after)
+    cards.first.click(button='right')
+    page.click('.ctx-menu .menu-item:has-text("置于底层")')
+    assert names() == before, (before, names())
+    page.evaluate("""() => { const S = SlideGrid; S.actions.setLayers(S.store.get().layers.filter(l => !l.id.startsWith('l_p'))); S.layers.clear(); }""")
+    assert not errors, errors
+
+
 def t_persist(page, errors):
     page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
     page.reload()
@@ -233,7 +278,8 @@ def t_persist(page, errors):
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
-         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('刷新后数据还在', t_persist)]
+         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel),
+         ('刷新后数据还在', t_persist)]
 
 
 def run(browser, label, url) -> bool:

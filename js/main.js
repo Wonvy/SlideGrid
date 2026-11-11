@@ -24,14 +24,14 @@ import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
 import { placeholders, slidesOf, hasRealSlides, is3D, isPerspective, getAdjust, nextLift } from './app/boards.js';
 import { ui, setUi, setSelection, clearSelection, resetCardState, onUiChange } from './app/uiState.js';
-import { activeCardScene, visibleCards, stackCards, canStack } from './app/cardOrder.js';
+import { activeCardScene, visibleCards, stackCards, canStack, canPlaceCards, placeCards, resetStack, stackChanged } from './app/cardOrder.js';
 import { createWorkspace } from './app/workspace.js';
 import { createImporting } from './app/importing.js';
 import { createExporting } from './app/exporting.js';
 import { createBoardOps } from './app/boardOps.js';
 import { createAlignment } from './app/alignment.js';
 import { createContextMenus } from './app/contextMenus.js';
-import { createLayerTools } from './app/layerTools.js';
+import { createLayerTools, SLIDES_ID } from './app/layerTools.js';
 import { createInspector } from './ui/inspector.js';
 import { createContextBar } from './ui/contextBar.js';
 import { setUsedFonts } from './ui/fontPicker.js';
@@ -432,16 +432,24 @@ const inspector = createInspector({ selectionSlot: settings.selectionSlot, layer
   cardParams: () => getLayout(store.get().layoutId).cardParams || null,
   onDeviceImage: l => mockups.pickImage(l),
   onDeviceQuad: l => mockups.adjustQuad(l),
-  selectLayers: ids => layerTools.select(ids),
+  selectLayers: ids => { if (ids.length) setSelection([]); layerTools.select(ids); },
   getCards: () => ui.selection,
-  reorder: dir => layerTools.reorder(dir),
+  placeLayers: (ids, target, place) => layerTools.placeAt(ids, target, place),
+  slidesId: SLIDES_ID,
+  menus: {
+    layer: (x, y, layer, opts) => onContextMenu.layerMenu(x, y, layer, opts),
+    card: (x, y, card) => onContextMenu.cardMenu(x, y, card),
+  },
   clearAll: () => { clearSelection(); layerTools.clear(); },
   // 图层列表里的「幻灯片」一组：画板里看得见的卡片（按场景缓存）
   cards: {
     list: () => visibleOf(activeCardScene()),
     select: orders => { layerTools.clear(); setSelection(orders); },
-    stack: (orders, dir, toEnd) => stackCards(orders, dir, toEnd),
     canStack,
+    canDrag: canPlaceCards,
+    place: placeCards,
+    resetStack,
+    stackChanged,
     hover: order => setUi('hover', order),
   },
   onFade: () => settings.revealStyleGroup('渐隐遮罩'),

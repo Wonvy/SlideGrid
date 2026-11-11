@@ -495,7 +495,16 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .layer-add .btn { justify-content: center; padding-left: 0; padding-right: 0; }
 
 .inspector-count { font-size: 12px; color: var(--faint); }
-.layer-list { display: flex; flex-direction: column; gap: 2px; }
+.layer-list { display: flex; flex-direction: column; gap: 2px; position: relative; user-select: none; -webkit-user-select: none; }
+/* 拖动调整前后：被拖的行变淡，蓝线是放下的位置 */
+.layer-row.dragging { opacity: .4; }
+.layer-list.is-dragging .layer-row:hover { background: none; }
+.layer-list.is-dragging .layer-row.active { background: rgba(124, 140, 255, .14); }
+.layer-drop { position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 1; }
+.layer-drop::before { content: ''; position: absolute; left: -1px; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+body.layer-dragging, body.layer-dragging * { cursor: grabbing !important; }
+.layer-rename { flex: 1; min-width: 0; width: auto; padding: 2px 6px; height: 22px; user-select: text; -webkit-user-select: text; }
+.layer-hint { margin: 8px 0 0; }
 .layer-row {
   display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 6px; border-radius: 6px;
   cursor: pointer; color: var(--muted); font-size: 12px;

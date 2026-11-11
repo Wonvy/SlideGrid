@@ -80,7 +80,38 @@ export function stackCards(orders, dir, toEnd = false) {
       next.splice(dir > 0 ? j : j, 0, o); // 删除后 j 前移了一位：往上插在它后面、往下插在它前面，都是 j
     }
   }
+  return writeRanks(list, next);
+}
+
+// 按新的顺序（从下到上）写回每张卡片的 lift；没有变化时返回 false
+function writeRanks(list, next) {
   if (next.every((o, k) => o === list[k])) return false;
   actions.setItemAdjusts(next.map((order, rank) => ({ order, patch: { lift: (rank + 1) * LIFT_STEP } })));
+  return true;
+}
+
+/** 图层列表里能不能拖动卡片调整前后（平面版式，卡片不太多） */
+export const canPlaceCards = () => canStack() && activeCardScene().items.length <= MANY;
+
+/**
+ * 把卡片放到 target 这张卡片的上面 / 下面（图层列表里拖动）。place：'above'（盖住它）| 'below'。返回是否有变化。
+ */
+export function placeCards(orders, target, place) {
+  if (!canPlaceCards() || !orders.length) return false;
+  const list = activeCardScene().items.map(it => it.order); // 从下到上
+  const sel = new Set(orders);
+  if (sel.has(target)) return false;
+  const next = list.filter(o => !sel.has(o));
+  const at = next.indexOf(target);
+  if (at < 0) return false;
+  next.splice(place === 'above' ? at + 1 : at, 0, ...list.filter(o => sel.has(o)));
+  return writeRanks(list, next);
+}
+
+/** 有没有调过卡片的前后 / 恢复版式默认的前后 */
+export const stackChanged = (s = store.get()) => Object.values(s.adjust[s.layoutId] || {}).some(a => a.lift);
+export function resetStack() {
+  if (!stackChanged()) return false;
+  actions.clearAdjustKey('lift');
   return true;
 }

@@ -549,6 +549,17 @@ export const actions = {
       return { adjust: { ...s.adjust, [s.layoutId]: cur } };
     });
   },
+  // 去掉所有卡片手动调整里的某一项（例如 lift：恢复版式默认的前后），其他调整保留
+  clearAdjustKey(key) {
+    store.set(s => {
+      const cur = {};
+      for (const [order, a] of Object.entries(s.adjust[s.layoutId] || {})) {
+        const { [key]: _drop, ...rest } = a;
+        if (Object.keys(rest).length) cur[order] = rest;
+      }
+      return { adjust: { ...s.adjust, [s.layoutId]: cur } };
+    });
+  },
   // 复位卡片的位置 / 旋转 / 缩放 / 裁切；交换过的图片（slide）保留
   resetItemAdjust(order) {
     store.set(s => {
