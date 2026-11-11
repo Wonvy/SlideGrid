@@ -47,7 +47,7 @@ export function createLayer(type, props = {}, existing = []) {
   if (type === 'image') return { ...base, radius: 0, assetId: null, ...props };
   if (type === 'device') {
     const device = props.device || 'laptop';
-    return { ...base, device, slide: 1, imageId: null, fit: 'cover', screenZoom: 1, screenX: 0, screenY: 0, frame: 'dark', shadow: true, reflection: false, yaw: 0, pitch: 0, ...deviceSize(device, props.w || 1000, props), ...props };
+    return { ...base, device, slide: 1, imageId: null, fit: 'cover', screenZoom: 1, screenX: 0, screenY: 0, frame: 'dark', look: 'simple', shadow: true, reflection: false, yaw: 0, pitch: 0, ...deviceSize(device, props.w || 1000, props), ...props };
   }
   if (type === 'path') {
     const { anchors, closed, ...rest } = props; // 也接受单一路径的写法

@@ -12,6 +12,7 @@ import { createTopbarMenus } from './ui/topbarMenus.js';
 import { createProjectDialog } from './ui/projectDialog.js';
 import { VERSION, RELEASED } from './version.js';
 import { askConfirm } from './ui/dialogs.js';
+import { currentTheme, toggleTheme, onThemeChange } from './ui/theme.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -89,6 +90,15 @@ projectDialog = createProjectDialog({
   anchor: $('project-btn'), store, controller, download: exporting.download, toast,
   setAspect: id => actions.setAspect(id), clearHistory: () => history.clear(),
 });
+// 主题：顶栏的按钮在深色 / 浅色之间切换（「偏好」里还可以选跟随系统）
+const themeBtn = $('theme-btn');
+function syncThemeBtn(t = currentTheme()) {
+  themeBtn.replaceChildren(icon(t === 'light' ? 'moon' : 'sun', 16));
+  themeBtn.title = t === 'light' ? '切换到深色界面' : '切换到浅色界面';
+}
+themeBtn.addEventListener('click', toggleTheme);
+onThemeChange(t => { syncThemeBtn(t); ws?.scheduleRender(); });
+syncThemeBtn();
 // 版本号（logo 右边）
 $('app-version').textContent = `v${VERSION}`;
 $('app-version').title = `版本 ${VERSION}（${RELEASED}）`;

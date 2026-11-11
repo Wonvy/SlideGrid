@@ -29,6 +29,7 @@ export const layerSchema = [
   { key: 'screenX', label: '水平位置', type: 'range', min: -1, max: 1, step: 0.01, default: 0, half: true, types: ['device'], show: v => (v.screenZoom || 1) > 1 || v.fit !== 'contain' },
   { key: 'screenY', label: '垂直位置', type: 'range', min: -1, max: 1, step: 0.01, default: 0, half: true, types: ['device'], show: v => (v.screenZoom || 1) > 1 || v.fit !== 'contain' },
   { key: 'frame', label: '外观', type: 'select', types: ['device'], show: v => v.device !== 'custom', options: Object.entries(FRAMES).map(([value, f]) => ({ value, label: f.label })) },
+  { key: 'look', label: '风格', type: 'select', default: 'simple', types: ['device'], show: v => v.device !== 'custom', options: [{ value: 'simple', label: '简洁' }, { value: 'real', label: '写实' }] },
   { key: 'shadow', label: '投影', type: 'toggle', types: ['device'] },
   { key: 'reflection', label: '倒影', type: 'toggle', types: ['device'] },
 

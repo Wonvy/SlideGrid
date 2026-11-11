@@ -11,6 +11,7 @@ import { clamp } from '../core/utils.js';
 import { drawLayers } from '../layers/draw.js';
 import { slidesOf, boardSlides, boardInput, boardWorldRect } from './boards.js';
 import { ui } from './uiState.js';
+import { themeColor, onThemeChange } from '../ui/theme.js';
 
 /**
  * 工作区：所有画板画在同一张画布上（2D 画布画画板背景 / 名称，WebGL 画幻灯片）。
@@ -21,7 +22,15 @@ import { ui } from './uiState.js';
  *   - 视野外的画板、画板里视野外的卡片都不画（renderer.visibleItems）
  *   - 画板背景缓存成小图，只在样式或显示尺寸档位变化时重画
  */
-const PASTEBOARD = '#0b0d11';
+// 画布外的底色、画板名称、透明格子的颜色跟着界面主题走（CSS 变量），主题变了重新读
+let themeColors = null;
+const colors = () => (themeColors ||= {
+  pasteboard: themeColor('--pasteboard') || '#0b0d11',
+  label: themeColor('--faint') || '#6b7385',
+  labelActive: themeColor('--accent-text') || '#a3afff',
+  checkA: themeColor('--n-2a2e37') || '#2a2e37',
+  checkB: themeColor('--n-3a3f4b') || '#3a3f4b',
+});
 const ACCENT = [124 / 255, 140 / 255, 1];
 const HL = {
   hover: { color: ACCENT, fill: 0.08, ring: 2 },
@@ -87,13 +96,14 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
   }
 
   let checkerPattern = null;
+  onThemeChange(() => { themeColors = null; checkerPattern = null; scheduleRender(); });
   function checker() {
     if (checkerPattern) return checkerPattern;
     const c = document.createElement('canvas');
     c.width = c.height = 16;
     const g = c.getContext('2d');
-    g.fillStyle = '#2a2e37'; g.fillRect(0, 0, 16, 16);
-    g.fillStyle = '#3a3f4b'; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8);
+    g.fillStyle = colors().checkA; g.fillRect(0, 0, 16, 16);
+    g.fillStyle = colors().checkB; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8);
     checkerPattern = bgCtx.createPattern(c, 'repeat');
     return checkerPattern;
   }
@@ -143,7 +153,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
     const CW = bgCanvas.width, CH = bgCanvas.height;
 
     bgCtx.setTransform(1, 0, 0, 1, 0, 0);
-    bgCtx.fillStyle = PASTEBOARD;
+    bgCtx.fillStyle = colors().pasteboard;
     bgCtx.fillRect(0, 0, CW, CH);
     renderer.clear();
     fgCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -164,7 +174,7 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
 
       // 画板名称（左上角上方）
       bgCtx.font = `${(active ? 600 : 400)} ${12 * d}px -apple-system, "PingFang SC", system-ui, sans-serif`;
-      bgCtx.fillStyle = active ? '#a3afff' : selected.has(b.id) ? '#8b96d9' : '#6b7385';
+      bgCtx.fillStyle = active ? colors().labelActive : selected.has(b.id) ? '#8b96d9' : colors().label;
       bgCtx.textBaseline = 'bottom';
       const labelText = `${b.name}  ·  ${aspectLabel(b.settings.aspect)}`;
       bgCtx.fillText(labelText, sx * d, (sy - 6) * d);

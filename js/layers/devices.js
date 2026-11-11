@@ -4,6 +4,7 @@
  *
  * 内置设备的外形在 deviceModels.js 里（设备坐标：宽 1000 左右，w / h 为正面图的整体尺寸，screen 为屏幕区域 [x, y, w, h]）。
  * 角度：yaw（左右，正值 = 从右侧看，±180 是背面）、pitch（俯仰，正值 = 从上往下看）；都是 0 时画正面图。
+ * 风格：look = 'real' 写实（拉丝金属、倒角和侧边的高光、玻璃反光、两层影子），否则是简洁的平涂。
  * 绘制时按图层的框等比缩放、居中（图层框的比例与设备当前角度的外接框一致，见 deviceSize / withAngle）。
  * 自定义样机：frameAssetId 为 PNG 素材，frameW / frameH 为原图尺寸；
  *   quad：屏幕的四个角（占图片的比例，左上、右上、右下、左下），上传时由用户对准，图片按透视填充进去（layers/warp.js）
@@ -283,12 +284,12 @@ const LIGHT = (v => v.map(x => x / Math.hypot(...v)))([-0.4, -0.75, -0.55]);
 const FACING = -LIGHT[2]; // 正对镜头的面的受光量（贴图按这个亮度画，其他朝向在这个基础上变亮 / 变暗）
 
 // 圆角矩形的外形采样点（顺时针，从左上角开始）。r：数字或 [左上, 右上, 右下, 左下]
-function outline2d(w, h, r) {
+function outline2d(w, h, r, fine = 1) {
   const rs = (Array.isArray(r) ? r : [r, r, r, r]).map(v => Math.max(0, Math.min(v || 0, w / 2, h / 2)));
   const pts = [];
   const corner = (cx, cy, cr, a0) => {
     if (cr < 0.01) { pts.push([cx, cy]); return; }
-    const n = cr > 60 ? 10 : cr > 14 ? 7 : 4;
+    const n = (cr > 60 ? 10 : cr > 14 ? 7 : 4) * fine; // 写实风格的圆角分得更细（高光过渡更顺）
     for (let i = 0; i <= n; i++) {
       const a = a0 + (Math.PI / 2) * (i / n);
       pts.push([cx + Math.cos(a) * cr, cy + Math.sin(a) * cr]);
@@ -317,7 +318,7 @@ function ordered(node, cam, out) {
 }
 
 // 投影后的模型：按先后顺序排好的面（poly 纯色四边形 / face 贴图或纯色的面 / line 线）和外接框
-function buildScene(id, frameId, yaw, pitch) {
+function buildScene(id, frameId, yaw, pitch, real = false) {
   const d = deviceOf(id), f = FRAMES[frameId] || FRAMES.dark;
   const flat = Math.abs(yaw) <= 0.01 && Math.abs(pitch) <= 0.01;
   const model = (MODELS[id] || MODELS.laptop)(f, flat);
@@ -343,7 +344,7 @@ function buildScene(id, frameId, yaw, pitch) {
       continue;
     }
     const N = cross3(s.V, s.U); // 正面的朝向 = -(U × V)
-    const o2 = outline2d(s.w, s.h, s.r);
+    const o2 = outline2d(s.w, s.h, s.r, real ? 2 : 1);
     const front3 = o2.map(([x, y]) => add(add(s.O, s.U, x), s.V, y));
     const fq = front3.map(P), bq = front3.map(p => P(add(p, N, -s.t)));
     all.push(...fq, ...bq);
@@ -354,7 +355,17 @@ function buildScene(id, frameId, yaw, pitch) {
       if (winding(quad) <= 1e-9) continue;
       const dx = o2[j][0] - o2[i][0], dy = o2[j][1] - o2[i][1], len = Math.hypot(dx, dy) || 1;
       const light = dot3(turn(add([s.U[0] * dy / len, s.U[1] * dy / len, s.U[2] * dy / len], s.V, -dx / len)), LIGHT);
-      items.push({ poly: quad, color: tone(side, 0.72 + 0.38 * Math.max(-0.6, light)) });
+      if (!real) { items.push({ poly: quad, color: tone(side, 0.72 + 0.38 * Math.max(-0.6, light)) }); continue; }
+      // 写实：侧边沿厚度方向分成三条——靠正面的倒角（亮）、中间（带一道高光）、靠背面的倒角（暗），看起来边是圆的、有金属光泽
+      const base = 0.66 + 0.36 * Math.max(-0.6, light), spec = Math.max(0, light) ** 10 * 0.55;
+      const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      const strip = (t0, t1, k) => items.push({
+        poly: [mix(fq[j], bq[j], t0), mix(fq[i], bq[i], t0), mix(fq[i], bq[i], t1), mix(fq[j], bq[j], t1)], color: tone(side, k),
+      });
+      strip(0, 0.16, base * 1.22 + spec * 0.5);
+      strip(0.16, 0.5, base + spec);
+      strip(0.5, 0.84, base * 0.94 + spec * 0.35);
+      strip(0.84, 1, base * 0.7);
     }
     const c3 = [s.O, add(s.O, s.U, s.w), add(add(s.O, s.U, s.w), s.V, s.h), add(s.O, s.V, s.h)];
     const face = (def, key, q, shape, normal, r) => ({
@@ -374,16 +385,16 @@ function buildScene(id, frameId, yaw, pitch) {
     const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
     box = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
   }
-  return { items, box, flat, frame: f, ground: !flat && model.ground ? model.ground.map(P) : null, standing: !!model.ground };
+  return { items, box, flat, real, frame: f, ground: !flat && model.ground ? model.ground.map(P) : null, standing: !!model.ground };
 }
 
 // 最近用到的投影结果（工作区每帧重画，同一角度不用重算）
 const sceneCache = new Map();
-function sceneOf(id, frameId, yaw, pitch) {
-  const key = `${id}|${frameId}|${yaw}|${pitch}`;
+function sceneOf(id, frameId, yaw, pitch, real = false) {
+  const key = `${id}|${frameId}|${yaw}|${pitch}|${real ? 'r' : ''}`;
   let sc = sceneCache.get(key);
   if (!sc) {
-    sc = buildScene(id, frameId, yaw, pitch);
+    sc = buildScene(id, frameId, yaw, pitch, real);
     sceneCache.set(key, sc);
     if (sceneCache.size > 48) sceneCache.delete(sceneCache.keys().next().value);
   }
@@ -426,7 +437,8 @@ function polyPath(ctx, pts) {
 }
 
 function drawModel(ctx, l, img) {
-  const { items, box, flat, frame: f, ground, standing } = sceneOf(DEVICES[l.device] ? l.device : 'laptop', l.frame in FRAMES ? l.frame : 'dark', l.yaw || 0, l.pitch || 0);
+  const real = l.look === 'real'; // 风格：写实（材质、高光更细）/ 简洁
+  const { items, box, flat, frame: f, ground, standing } = sceneOf(DEVICES[l.device] ? l.device : 'laptop', l.frame in FRAMES ? l.frame : 'dark', l.yaw || 0, l.pitch || 0, real);
   const s = Math.min(l.w / box.w, l.h / box.h);
   const ox = l.x + (l.w - box.w * s) / 2 - box.x * s, oy = l.y + (l.h - box.h * s) / 2 - box.y * s;
   const to = p => [ox + p[0] * s, oy + p[1] * s];
@@ -459,6 +471,13 @@ function drawModel(ctx, l, img) {
     }
     ctx.fillStyle = '#000';
     ctx.fill();
+    // 写实：再叠一层贴近设备的深影子（远处的大影子 + 近处的小影子，更像真的光）
+    if (real) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 12 * px;
+      ctx.shadowOffsetY = m.b * D + 6 * px;
+      ctx.fill();
+    }
     ctx.restore();
   }
   const view = screenView(l);
@@ -497,7 +516,7 @@ function drawModel(ctx, l, img) {
       continue;
     }
     const q = it.q.map(to);
-    const o = { f, img, view, id: l.device, w: it.w, h: it.h, r: it.r };
+    const o = { f, img, view, id: l.device, w: it.w, h: it.h, r: it.r, real };
     const upright = flat && Math.abs(q[0][1] - q[1][1]) < 1e-6 && Math.abs(q[0][0] - q[3][0]) < 1e-6 && q[1][0] > q[0][0] && q[3][1] > q[0][1];
     if (upright) {
       // 正面图里朝前的面：直接画矢量
@@ -510,7 +529,7 @@ function drawModel(ctx, l, img) {
     }
     const span = Math.max(Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]), Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]), Math.hypot(q[2][0] - q[1][0], q[2][1] - q[1][1]), Math.hypot(q[2][0] - q[3][0], q[2][1] - q[3][1]));
     const scale = (span * unitPx(ctx, 1) * 1.15) / Math.max(it.w, it.h);
-    drawWarped(ctx, faceTexture(`${l.device}|${l.frame}|${it.key}`, img, it, o, scale), q, { fit: 'fill' });
+    drawWarped(ctx, faceTexture(`${l.device}|${l.frame}|${real ? 'r' : ''}|${it.key}`, img, it, o, scale), q, { fit: 'fill' });
     if (it.face.lit && Math.abs(glow) > 0.01) {
       ctx.beginPath();
       polyPath(ctx, shape);
@@ -520,8 +539,8 @@ function drawModel(ctx, l, img) {
     if (it.edge) {
       ctx.beginPath();
       polyPath(ctx, shape);
-      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-      ctx.lineWidth = Math.max(hair, 1.4 * s);
+      ctx.strokeStyle = real ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = Math.max(hair, (real ? 1.1 : 1.4) * s);
       ctx.stroke();
     }
   }

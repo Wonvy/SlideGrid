@@ -205,6 +205,25 @@ def t_mockup(page, errors):
     page.locator('.mockup-card:not([hidden])').nth(1).click()   # 笔记本 · 左侧
     layer = page.evaluate('SlideGrid.store.get().layers.at(-1)')
     assert layer['type'] == 'device' and layer['device'] == 'laptop' and layer['yaw'] != 0, layer
+    # 风格：样机页选「写实」后新加的样机是写实的；画出来和简洁的不一样；在属性里可以改回去
+    assert layer.get('look') == 'simple', layer
+    diff = page.evaluate('''async () => {
+      const D = await import('./js/layers/devices.js');
+      const shot = look => { const c = new OffscreenCanvas(300, 220), g = c.getContext('2d');
+        D.drawDevice(g, { device: 'laptop', yaw: -30, pitch: 14, frame: 'silver', look, fit: 'cover', shadow: false, x: 20, y: 20, w: 260, h: 260 * D.deviceAspect('laptop', { yaw: -30, pitch: 14 }) }, null);
+        return g.getImageData(0, 0, 300, 220).data; };
+      const a = shot('simple'), b = shot('real');
+      let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n++;
+      return n; }''') if page.url.startswith('http') else 999
+    assert diff > 300, diff
+    page.locator('.page-body .ctrl:has(.ctrl-label:text-is("风格")) .seg-btn:text-is("写实")').click()
+    page.locator('.mockup-card:not([hidden])').nth(2).click()   # 笔记本 · 右侧
+    real = page.evaluate('SlideGrid.store.get().layers.at(-1)')
+    assert real['look'] == 'real' and real['id'] != layer['id'], real
+    page.evaluate("SlideGrid.renderToBlob({ longSide: 300, preview: true })")
+    page.locator('.page-body .ctrl:has(.ctrl-label:text-is("风格")) .seg-btn:text-is("简洁")').click()
+    page.evaluate("(() => { const S = SlideGrid; S.layers.remove([S.store.get().layers.at(-1).id]); S.layers.select([S.store.get().layers.at(-1).id]); })()")
+    page.wait_for_timeout(900)
     # 在画板上直接调角度：拖选框下方的圆形手柄（右拖 = 设备正面向右转，下拖 = 俯视），设备大小不变；双击手柄回到正面
     dev = 'SlideGrid.store.get().layers.at(-1)'
     page.evaluate('SlideGrid.fitBoard(); SlideGrid.render()')
@@ -493,6 +512,29 @@ def t_thickness(page, errors):
     assert not errors, errors
 
 
+def t_theme(page, errors):
+    # 主题：顶栏按钮在深色 / 浅色之间切换，界面颜色跟着变；「偏好」里可以改回跟随系统；刷新后还记得
+    theme = lambda: page.evaluate("document.documentElement.dataset.theme")
+    bg = lambda: page.evaluate("getComputedStyle(document.querySelector('.topbar')).backgroundColor")
+    first, color0 = theme(), bg()
+    page.click('#theme-btn')
+    assert theme() != first and bg() != color0, (first, theme(), color0, bg())
+    assert page.evaluate("localStorage.getItem('slidegrid:theme')") == theme()
+    page.click('#theme-btn')
+    assert theme() == first and bg() == color0
+    page.click('.rp-top [data-tab="prefs"]')
+    page.click('.panel-section:has(h3:text-is("界面")) .seg-btn:text-is("浅色")')
+    assert theme() == 'light'
+    light_panel = page.evaluate("getComputedStyle(document.querySelector('.sidebar.right')).backgroundColor")
+    assert light_panel == 'rgb(255, 255, 255)', light_panel
+    page.click('.panel-section:has(h3:text-is("界面")) .seg-btn:text-is("深色")')
+    assert theme() == 'dark' and page.evaluate("getComputedStyle(document.querySelector('.sidebar.right')).backgroundColor") == 'rgb(21, 24, 30)'
+    page.click('.panel-section:has(h3:text-is("界面")) .seg-btn:text-is("跟随系统")')
+    assert page.evaluate("localStorage.getItem('slidegrid:theme')") is None
+    page.click('.rp-top [data-tab="params"]')
+    assert not errors, errors
+
+
 def t_project_ui(page, errors):
     # 版本号；项目菜单 → 新建项目（名称 + 竖屏画板）；全部项目里搜索、点卡片切回原来的项目
     version = page.inner_text('#app-version')
@@ -567,7 +609,7 @@ def t_persist(page, errors):
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('画板右键菜单 / Delete 删除画板', t_board_menu), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
          ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
-         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
+         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('深色 / 浅色主题', t_theme), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
 
 

@@ -39,9 +39,9 @@ export function createMockups({ ws, viewport, settingsSlot, importing, getLayerT
 
   const panel = createMockupPanel(settingsSlot, {
     getSlide: () => slidesOf(store.get())[0]?.preview,
-    onAdd(p, frame, at = null) {
+    onAdd(p, frame, at = null, look = 'simple') {
       const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === p.device).length + 1;
-      addDeviceLayer({ device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, name: `${deviceOf(p.device).label} ${n}` }, `「${p.label}」`, null, at);
+      addDeviceLayer({ device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, look, name: `${deviceOf(p.device).label} ${n}` }, `「${p.label}」`, null, at);
     },
     // 上传 PNG 样机：先自动识别透明的屏幕区域作为初始位置，再弹窗让用户拖四个角对准屏幕（支持透视）
     async onUpload(file) {

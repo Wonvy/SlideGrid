@@ -3,6 +3,7 @@ import { selectionOf } from '../state.js';
 import { styleSchema, FADE_PRESETS } from '../style/schema.js';
 import { buildControls } from './controls.js';
 import { wheelModeSchema } from './wheel.js';
+import { THEMES, themePref, setThemePref, onThemeChange } from './theme.js';
 import { el, section, isCollapsed, setCollapsed } from './dom.js';
 import { icon } from './icons.js';
 
@@ -241,6 +242,11 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   // 偏好页
   const prefsBox = el('div');
   panes.prefs.append(section('操作习惯', prefsBox, null, 'section:prefs'));
+  // 界面主题：跟随系统 / 深色 / 浅色（存在本机，不属于项目）
+  const themeBox = el('div');
+  panes.prefs.append(section('界面', themeBox, null, 'section:prefs-theme'));
+  const updateTheme = buildControls(themeBox, [{ key: 'theme', label: '主题', type: 'select', default: 'auto', options: THEMES }], { theme: themePref() }, (_, v) => setThemePref(v));
+  onThemeChange(() => updateTheme({ theme: themePref() }));
 
   const saved = store_.get(MAIN_TAB_KEY);
   showMain(saved in panes ? saved : 'params');

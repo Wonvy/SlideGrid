@@ -10,6 +10,7 @@
  *     edge：正面外沿加一圈很淡的高光
  *   线：{ line: true, a, b, width, color }（投影幕的三脚架）
  *   ground：落在桌面上的设备的「脚印」（桌面上的一圈点），用来画桌面上的影子
+ *   风格（o.real）：false = 简洁（平涂、干净）；true = 写实（拉丝金属、倒角高光、玻璃反光、镜头和键帽的细节）
  *   先后顺序（tree）：板的数组（按顺序画），或 { plane: [点, 法线], front, back }——
  *     镜头在平面的正面一侧时先画 back 再画 front，反之相反（两组分别在平面两侧，谁离镜头近谁后画）
  */
@@ -79,11 +80,73 @@ export function drawScreen(g, rect, radius, img, view, gloss) {
     g.fillStyle = '#1b1d22';
     g.fillRect(x, y, w, h);
   }
-  if (gloss) {
+  if (gloss === 'real') {
+    // 写实：玻璃上一道斜着的反光（边缘清楚），屏幕四周一圈很窄的暗边（屏幕陷在玻璃下面）
+    g.beginPath();
+    g.moveTo(x, y); g.lineTo(x + w * 0.58, y); g.lineTo(x + w * 0.22, y + h); g.lineTo(x, y + h);
+    g.closePath();
+    g.fillStyle = grad(g, x, y, x + w * 0.45, y + h * 0.7, [[0, 'rgba(255,255,255,0.17)'], [0.6, 'rgba(255,255,255,0.05)'], [1, 'rgba(255,255,255,0.02)']]);
+    g.fill();
+    rr(g, x, y, w, h, radius || 0);
+    g.lineWidth = Math.max(3, Math.min(w, h) * 0.008);
+    g.strokeStyle = 'rgba(0,0,0,0.5)';
+    g.stroke();
+  } else if (gloss) {
     g.fillStyle = grad(g, x, y, x + w * 0.6, y + h, [[0, 'rgba(255,255,255,0.08)'], [0.5, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,0)']]);
     g.fillRect(x, y, w, h);
   }
   g.restore();
+}
+const glossOf = o => (o.real ? 'real' : true);
+
+/* ---------------- 写实风格的材质 ---------------- */
+
+// 拉丝纹：一条条很淡的横线（固定的伪随机，每次画出来都一样）
+let brushed = null;
+function brushPattern(g) {
+  if (!brushed) {
+    brushed = new OffscreenCanvas(64, 256);
+    const x = brushed.getContext('2d');
+    let seed = 20240611;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    for (let y = 0; y < 256; y++) {
+      const v = rnd() - 0.5;
+      x.fillStyle = `rgba(${v > 0 ? '255,255,255' : '0,0,0'},${(Math.abs(v) * 0.1).toFixed(3)})`;
+      x.fillRect(0, y, 64, 1);
+    }
+  }
+  return g.createPattern(brushed, 'repeat');
+}
+// 金属面：斜向的明暗过渡 + 拉丝纹 + 一圈倒角高光（左上亮、右下暗）
+function metalReal(g, w, h, r, color, k = 1) {
+  rr(g, 0, 0, w, h, r);
+  g.fillStyle = grad(g, 0, 0, w, h, [[0, tone(color, k * 1.14)], [0.3, tone(color, k)], [0.68, tone(color, k * 0.9)], [1, tone(color, k * 1.03)]]);
+  g.fill();
+  g.save();
+  g.clip();
+  g.fillStyle = brushPattern(g);
+  g.fillRect(0, 0, w, h);
+  g.restore();
+  bevel(g, 0, 0, w, h, r);
+}
+// 倒角：外形内侧描一圈渐变的细线
+function bevel(g, x, y, w, h, r, width = 2.4) {
+  const inset = width / 2;
+  const rs = (Array.isArray(r) ? r : [r, r, r, r]).map(v => Math.max(0, (v || 0) - inset));
+  rr(g, x + inset, y + inset, w - width, h - width, rs);
+  g.lineWidth = width;
+  g.strokeStyle = grad(g, x, y, x + w, y + h, [[0, 'rgba(255,255,255,0.5)'], [0.5, 'rgba(255,255,255,0.08)'], [1, 'rgba(0,0,0,0.28)']]);
+  g.stroke();
+}
+// 玻璃边框（黑 / 白）：很淡的上下过渡，贴着机身的一圈细亮线
+function glassReal(g, x, y, w, h, r, color) {
+  rr(g, x, y, w, h, r);
+  const dark = color === BLACK;
+  g.fillStyle = grad(g, x, y, x, y + h, dark ? ['#16171a', '#050506', '#0c0d0f'] : [tone(color, 1.02), tone(color, 0.97)]);
+  g.fill();
+  g.lineWidth = 1.5;
+  g.strokeStyle = dark ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.1)';
+  g.stroke();
 }
 
 // 金属面上一层很淡的斜向光泽
@@ -93,20 +156,40 @@ function sheen(g, w, h, r) {
   g.fill();
 }
 // 纯色的金属面（背面、底座的上面等）
-const metal = (k = 1) => (g, { f, w, h, r }) => {
+const metal = (k = 1) => (g, { f, w, h, r, real }) => {
+  if (real) { metalReal(g, w, h, r, f.body, k); return; }
   rr(g, 0, 0, w, h, r);
   g.fillStyle = tone(f.body, k);
   g.fill();
   sheen(g, w, h, r);
 };
 // 圆管 / 圆杆：上亮下暗
-const tube = (g, { f, w, h, r }) => {
+const tube = (g, { f, w, h, r, real }) => {
   rr(g, 0, 0, w, h, r);
-  g.fillStyle = grad(g, 0, 0, 0, h, [[0, f.hi], [0.35, f.body], [1, f.lo]]);
+  // 写实：圆柱的高光带更窄更亮，下缘有一点反光
+  g.fillStyle = real ? grad(g, 0, 0, 0, h, [[0, f.body], [0.18, tone(f.hi, 1.2)], [0.42, f.body], [0.82, f.lo], [1, tone(f.lo, 1.25)]])
+    : grad(g, 0, 0, 0, h, [[0, f.hi], [0.35, f.body], [1, f.lo]]);
   g.fill();
 };
 // 摄像头镜头
-function lens(g, x, y, r, f) {
+function lens(g, x, y, r, f, real = false) {
+  if (real) {
+    // 写实：金属圈（上亮下暗）→ 黑色镜筒 → 几圈镀膜的反光 → 两个高光点
+    g.beginPath(); g.arc(x, y, r + 6, 0, Math.PI * 2);
+    g.fillStyle = grad(g, x, y - r - 6, x, y + r + 6, [tone(f.body, 1.25), tone(f.body, 0.62)]);
+    g.fill();
+    dot(g, x, y, r + 1.5, '#050506');
+    const glass = g.createRadialGradient(x - r * 0.25, y - r * 0.3, r * 0.05, x, y, r);
+    glass.addColorStop(0, '#3b4a78'); glass.addColorStop(0.35, '#131a30'); glass.addColorStop(0.7, '#07080c'); glass.addColorStop(1, '#1a1c22');
+    dot(g, x, y, r, glass);
+    g.lineWidth = 1.2;
+    for (const [k, c] of [[0.78, 'rgba(120,150,255,0.28)'], [0.56, 'rgba(180,120,255,0.22)'], [0.34, 'rgba(90,200,255,0.25)']]) {
+      g.beginPath(); g.arc(x, y, r * k, 0, Math.PI * 2); g.strokeStyle = c; g.stroke();
+    }
+    dot(g, x - r * 0.3, y - r * 0.32, r * 0.13, 'rgba(255,255,255,0.75)');
+    dot(g, x + r * 0.26, y + r * 0.3, r * 0.06, 'rgba(255,255,255,0.35)');
+    return;
+  }
   dot(g, x, y, r + 5, tone(f.body, 0.8));
   dot(g, x, y, r, '#0b0c0f');
   dot(g, x, y, r * 0.55, '#171a20');
@@ -116,23 +199,33 @@ function lens(g, x, y, r, f) {
 /* ---------------- 各个面的贴图 ---------------- */
 
 // 笔记本屏幕盖（840 × 540）
-function paintLid(g, { f, img, view }) {
-  rr(g, 0, 0, 840, 540, [22, 22, 8, 8]);
-  g.fillStyle = f.body;
-  g.fill();
-  rr(g, 3, 3, 834, 534, [19.5, 19.5, 6, 6]);
-  g.fillStyle = BLACK;
-  g.fill();
-  drawScreen(g, [26, 26, 788, 474], DEVICES.laptop.radius, img, view, true);
+function paintLid(g, o) {
+  const { f, img, view, real } = o;
+  if (real) {
+    metalReal(g, 840, 540, [22, 22, 8, 8], f.body);
+    glassReal(g, 3, 3, 834, 534, [19.5, 19.5, 6, 6], BLACK);
+  } else {
+    rr(g, 0, 0, 840, 540, [22, 22, 8, 8]);
+    g.fillStyle = f.body;
+    g.fill();
+    rr(g, 3, 3, 834, 534, [19.5, 19.5, 6, 6]);
+    g.fillStyle = BLACK;
+    g.fill();
+  }
+  drawScreen(g, [26, 26, 788, 474], DEVICES.laptop.radius, img, view, glossOf(o));
   dot(g, 420, 14, 3.4, '#16181c');
   dot(g, 420, 14, 1.3, '#2a3454');
+  if (real) dot(g, 419.4, 13.4, 0.5, 'rgba(255,255,255,0.7)');
 }
 
 // 笔记本键盘面（840 × 560，上边是转轴一侧）
-function paintDeck(g, { f, w: W, h: D, r }) {
-  rr(g, 0, 0, W, D, r);
-  g.fillStyle = grad(g, 0, 0, 0, D, [tone(f.body, 0.95), tone(f.body, 1.05)]);
-  g.fill();
+function paintDeck(g, { f, w: W, h: D, r, real }) {
+  if (real) metalReal(g, W, D, r, f.body);
+  else {
+    rr(g, 0, 0, W, D, r);
+    g.fillStyle = grad(g, 0, 0, 0, D, [tone(f.body, 0.95), tone(f.body, 1.05)]);
+    g.fill();
+  }
   // 转轴
   rr(g, 64, 0, W - 128, 12, [0, 0, 6, 6]);
   g.fillStyle = f.lo;
@@ -144,6 +237,13 @@ function paintDeck(g, { f, w: W, h: D, r }) {
   rr(g, x0, y0, kbW, wellH, 10);
   g.fillStyle = f.well;
   g.fill();
+  if (real) {
+    // 凹槽的边：上沿暗、下沿亮（陷下去）
+    rr(g, x0, y0, kbW, wellH, 10);
+    g.lineWidth = 2;
+    g.strokeStyle = grad(g, 0, y0, 0, y0 + wellH, ['rgba(0,0,0,0.45)', 'rgba(255,255,255,0.18)']);
+    g.stroke();
+  }
   g.fillStyle = f.keys;
   const ones = n => Array(n).fill(1);
   const rows = [ones(14), [...ones(12), 2], [1.5, ...ones(11), 1.5], [1.75, ...ones(10), 2.25], [2.25, ...ones(10), 1.75], [1, 1, 1, 1.25, 5.5, 1.25, 1, 1, 1]];
@@ -154,6 +254,19 @@ function paintDeck(g, { f, w: W, h: D, r }) {
       const kwid = u * kw + (u - 1) * gap;
       rr(g, x, y, kwid, h, 5);
       g.fill();
+      if (real) {
+        // 键帽：顶上一道亮边、底下一道暗边，中间一个小小的字符（远看像印了字）
+        g.fillStyle = 'rgba(255,255,255,0.13)';
+        g.fillRect(x + 3, y + 0.8, kwid - 6, 1.4);
+        g.fillStyle = 'rgba(0,0,0,0.35)';
+        g.fillRect(x + 3, y + h - 1.6, kwid - 6, 1.2);
+        if (i && u < 5) {
+          g.fillStyle = f.keys === '#ffffff' ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.5)';
+          rr(g, x + kwid / 2 - 3.2, y + h / 2 - 4, 6.4, 8, 1.6);
+          g.fill();
+        }
+        g.fillStyle = f.keys;
+      }
       x += kwid + gap;
     }
   });
@@ -170,6 +283,14 @@ function paintDeck(g, { f, w: W, h: D, r }) {
   g.strokeStyle = 'rgba(0,0,0,0.16)';
   g.lineWidth = 1.6;
   g.stroke();
+  if (real) {
+    // 触控板是玻璃的：一道很淡的斜反光
+    g.save();
+    g.clip();
+    g.fillStyle = grad(g, (W - tw) / 2, ty, (W - tw) / 2 + tw * 0.7, ty + th, [[0, 'rgba(255,255,255,0.14)'], [0.5, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,0)']]);
+    g.fillRect((W - tw) / 2, ty, tw, th);
+    g.restore();
+  }
   // 开盖凹槽
   rr(g, W / 2 - 70, D - 9, 140, 9, [8, 8, 0, 0]);
   g.fillStyle = 'rgba(0,0,0,0.16)';
@@ -184,9 +305,10 @@ function paintLaptopBottom(g, o) {
 }
 
 // 笔记本正面图里的底座（1000 × 24）
-function paintBaseBar(g, { f, w, h, r }) {
+function paintBaseBar(g, { f, w, h, r, real }) {
   rr(g, 0, 0, w, h, r);
-  g.fillStyle = grad(g, 0, 0, 0, h, [[0, f.hi], [0.3, f.body], [1, f.lo]]);
+  g.fillStyle = real ? grad(g, 0, 0, 0, h, [[0, tone(f.hi, 1.25)], [0.12, f.hi], [0.4, f.body], [0.85, f.lo], [1, tone(f.lo, 1.3)]])
+    : grad(g, 0, 0, 0, h, [[0, f.hi], [0.3, f.body], [1, f.lo]]);
   g.fill();
   rr(g, w / 2 - 72, 0, 144, 9, [0, 0, 8, 8]);
   g.fillStyle = 'rgba(0,0,0,0.2)';
@@ -194,14 +316,20 @@ function paintBaseBar(g, { f, w, h, r }) {
 }
 
 // 显示器面板（1000 × 578）
-function paintPanel(g, { f, img, view }) {
-  rr(g, 0, 0, 1000, 578, 18);
-  g.fillStyle = f.body;
-  g.fill();
-  rr(g, 2.5, 2.5, 995, 573, 16);
-  g.fillStyle = f.bezel;
-  g.fill();
-  drawScreen(g, DEVICES.monitor.screen, DEVICES.monitor.radius, img, view, true);
+function paintPanel(g, o) {
+  const { f, img, view, real } = o;
+  if (real) {
+    metalReal(g, 1000, 578, 18, f.body);
+    glassReal(g, 2.5, 2.5, 995, 573, 16, f.bezel);
+  } else {
+    rr(g, 0, 0, 1000, 578, 18);
+    g.fillStyle = f.body;
+    g.fill();
+    rr(g, 2.5, 2.5, 995, 573, 16);
+    g.fillStyle = f.bezel;
+    g.fill();
+  }
+  drawScreen(g, DEVICES.monitor.screen, DEVICES.monitor.radius, img, view, glossOf(o));
 }
 
 // 显示器支架：面板下面有一段面板的影子
@@ -213,53 +341,100 @@ function paintNeck(g, o) {
 }
 
 // 平板（1000 × 716）
-function paintTablet(g, { f, img, view }) {
-  rr(g, 0, 0, 1000, 716, 56);
-  g.fillStyle = f.body;
-  g.fill();
-  rr(g, 4, 4, 992, 708, 52);
-  g.fillStyle = f.bezel;
-  g.fill();
-  drawScreen(g, DEVICES.tablet.screen, DEVICES.tablet.radius, img, view, true);
+function paintTablet(g, o) {
+  const { f, img, view, real } = o;
+  if (real) {
+    metalReal(g, 1000, 716, 56, f.body);
+    glassReal(g, 4, 4, 992, 708, 52, f.bezel);
+  } else {
+    rr(g, 0, 0, 1000, 716, 56);
+    g.fillStyle = f.body;
+    g.fill();
+    rr(g, 4, 4, 992, 708, 52);
+    g.fillStyle = f.bezel;
+    g.fill();
+  }
+  drawScreen(g, DEVICES.tablet.screen, DEVICES.tablet.radius, img, view, glossOf(o));
   dot(g, 500, 18, 3.6, f.bezel === BLACK ? '#1c1e23' : '#c8ccd2');
+  if (real) dot(g, 499.2, 17.2, 0.7, 'rgba(255,255,255,0.6)');
 }
 
 // 平板 / 手机背面的摄像头模组
-const camPlate = lenses => (g, { f, w, h, r }) => {
+const camPlate = lenses => (g, { f, w, h, r, real }) => {
   rr(g, 0, 0, w, h, r);
-  g.fillStyle = tone(f.body, 0.93);
-  g.fill();
-  g.strokeStyle = 'rgba(255,255,255,0.14)';
-  g.lineWidth = 2;
-  g.stroke();
-  for (const [x, y, rad] of lenses) lens(g, x * w, y * h, rad, f);
+  if (real) {
+    // 写实：磨砂玻璃的模组，四周一圈倒角
+    g.fillStyle = grad(g, 0, 0, w, h, [tone(f.body, 1.04), tone(f.body, 0.86)]);
+    g.fill();
+    bevel(g, 0, 0, w, h, r, 3);
+  } else {
+    g.fillStyle = tone(f.body, 0.93);
+    g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.14)';
+    g.lineWidth = 2;
+    g.stroke();
+  }
+  for (const [x, y, rad] of lenses) lens(g, x * w, y * h, rad, f, real);
   dot(g, w * 0.72, h * 0.22, w * 0.05, '#ebe6d2');
+  if (real) {
+    g.beginPath(); g.arc(w * 0.72, h * 0.22, w * 0.05, 0, Math.PI * 2);
+    g.lineWidth = 1.5; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.stroke();
+    dot(g, w * 0.72, h * 0.22, w * 0.022, '#fff7d6');
+  }
 };
 
 // 手机（竖 / 横）：机身边框 + 玻璃 + 屏幕 + 灵动岛
-function paintPhone(g, { f, img, view, id, w, h }) {
+function paintPhone(g, { f, img, view, id, w, h, real }) {
   const d = DEVICES[id];
   rr(g, 0, 0, w, h, 78);
   g.fillStyle = grad(g, 0, 0, w, h, [f.hi, f.body, f.lo, f.body]);
   g.fill();
-  rr(g, 4.5, 4.5, w - 9, h - 9, 73.5);
-  g.fillStyle = BLACK;
-  g.fill();
-  drawScreen(g, d.screen, d.radius, img, view, true);
-  if (id === 'phoneLand') rr(g, 38, h / 2 - 60, 34, 120, 17); else rr(g, w / 2 - 60, 38, 120, 34, 17);
+  if (real) {
+    // 写实：抛光的金属中框（几道明暗交替的反光）+ 黑色玻璃
+    rr(g, 0, 0, w, h, 78);
+    g.fillStyle = grad(g, 0, 0, w, h, [[0, tone(f.hi, 1.25)], [0.18, f.lo], [0.38, f.hi], [0.6, f.body], [0.8, tone(f.lo, 0.85)], [1, f.hi]]);
+    g.fill();
+    glassReal(g, 4.5, 4.5, w - 9, h - 9, 73.5, BLACK);
+  } else {
+    rr(g, 4.5, 4.5, w - 9, h - 9, 73.5);
+    g.fillStyle = BLACK;
+    g.fill();
+  }
+  drawScreen(g, d.screen, d.radius, img, view, real ? 'real' : true);
+  const land = id === 'phoneLand';
+  if (land) rr(g, 38, h / 2 - 60, 34, 120, 17); else rr(g, w / 2 - 60, 38, 120, 34, 17);
   g.fillStyle = '#000';
   g.fill();
+  if (real) {
+    // 灵动岛里的前置镜头
+    const [lx, ly] = land ? [55, h / 2 + 38] : [w / 2 + 38, 55];
+    dot(g, lx, ly, 7, '#0b0d14');
+    dot(g, lx, ly, 3.4, '#1b2440');
+    dot(g, lx - 1.6, ly - 1.6, 1.1, 'rgba(255,255,255,0.6)');
+  }
 }
 
 // 手表表壳（360 × 400）
-function paintWatch(g, { f, img, view }) {
+function paintWatch(g, { f, img, view, real }) {
   rr(g, 0, 0, 360, 400, 96);
-  g.fillStyle = grad(g, 0, 0, 360, 400, [f.hi, f.body, f.lo]);
+  g.fillStyle = real ? grad(g, 0, 0, 360, 400, [[0, tone(f.hi, 1.25)], [0.2, f.body], [0.45, f.hi], [0.7, f.lo], [1, f.body]])
+    : grad(g, 0, 0, 360, 400, [f.hi, f.body, f.lo]);
   g.fill();
-  rr(g, 7, 7, 346, 386, 89);
-  g.fillStyle = BLACK;
-  g.fill();
-  drawScreen(g, [34, 34, 292, 332], DEVICES.watch.radius, img, view, true);
+  if (real) glassReal(g, 7, 7, 346, 386, 89, BLACK);
+  else {
+    rr(g, 7, 7, 346, 386, 89);
+    g.fillStyle = BLACK;
+    g.fill();
+  }
+  drawScreen(g, [34, 34, 292, 332], DEVICES.watch.radius, img, view, real ? 'real' : true);
+  if (real) {
+    // 弧面玻璃：左上角一片柔和的高光
+    const glow = g.createRadialGradient(90, 70, 10, 90, 70, 230);
+    glow.addColorStop(0, 'rgba(255,255,255,0.2)'); glow.addColorStop(1, 'rgba(255,255,255,0)');
+    rr(g, 7, 7, 346, 386, 89);
+    g.fillStyle = glow;
+    g.fill();
+  }
 }
 
 // 手表背面：传感器
@@ -271,7 +446,7 @@ function paintWatchBack(g, o) {
 }
 
 // 表带：两侧稍暗（弧面），靠近表壳的一端有表壳的影子（near：'top' | 'bottom'；'in' = 插在表壳里的一段，整段在影子里）
-const band = near => (g, { f, w, h, r }) => {
+const band = near => (g, { f, w, h, r, real }) => {
   rr(g, 0, 0, w, h, r);
   g.fillStyle = f.band;
   g.fill();
@@ -279,12 +454,29 @@ const band = near => (g, { f, w, h, r }) => {
   g.fill();
   g.fillStyle = near === 'in' ? 'rgba(0,0,0,0.3)' : near === 'bottom' ? grad(g, 0, h - 90, 0, h, ['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)']) : grad(g, 0, 0, 0, 90, ['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)']);
   g.fill();
+  if (real && near !== 'in') {
+    // 写实：氟橡胶表带——中间一道柔和的高光，两边各一条细细的压线
+    g.fillStyle = grad(g, 0, 0, w, 0, [[0.3, 'rgba(255,255,255,0)'], [0.5, 'rgba(255,255,255,0.12)'], [0.7, 'rgba(255,255,255,0)']]);
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(0,0,0,0.16)';
+    g.lineWidth = 1.5;
+    for (const x of [14, w - 14]) { g.beginPath(); g.moveTo(x, near === 'bottom' ? 30 : 0); g.lineTo(x, near === 'bottom' ? h : h - 30); g.stroke(); }
+  }
 };
 
 // 投影幕的幕布（940 × 556）：白边 + 画面
-function paintSheet(g, { img, view, w, h }) {
+function paintSheet(g, { img, view, w, h, real }) {
   g.fillStyle = '#f6f6f3';
   g.fillRect(0, 0, w, h);
+  if (real) {
+    // 写实：幕布有一点布纹，四周略暗
+    g.fillStyle = brushPattern(g);
+    g.fillRect(0, 0, w, h);
+    const vig = g.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, w * 0.62);
+    vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.1)');
+    g.fillStyle = vig;
+    g.fillRect(0, 0, w, h);
+  }
   g.fillStyle = grad(g, 0, 0, 0, 46, ['rgba(0,0,0,0.14)', 'rgba(0,0,0,0)']);
   g.fillRect(0, 0, w, 46);
   drawScreen(g, [24, 30, 892, 502], 0, img, view, false);

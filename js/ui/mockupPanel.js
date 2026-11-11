@@ -4,14 +4,16 @@ import { DEVICES, FRAMES, DEVICE_PRESETS, deviceAspect, drawDevice, autoFit } fr
 
 const FRAME_KEY = 'slidegrid:mockup-frame';
 const DEVICE_KEY = 'slidegrid:mockup-device';
+const LOOK_KEY = 'slidegrid:mockup-look';
+const LOOKS = [['simple', '简洁', '平涂、干净'], ['real', '写实', '拉丝金属、高光、玻璃反光']];
 export const MOCKUP_DRAG_TYPE = 'application/x-slidegrid-mockup';
 
 /**
  * 右栏「样机」页：先选设备（一排图标），再从这种设备的角度（正面 / 左侧 / 右侧 / 俯视 / 背面）里点一个加到当前画板中间；
- * 外观（深空灰 / 银色 / 白色）作用于新添加的样机。
+ * 外观（深空灰 / 银色 / 白色）、风格（简洁 / 写实）作用于新添加的样机。
  * 也可以上传 PNG 样机（屏幕区域透明），本项目用过的 PNG 样机列在下面，点击再次添加。
  * 缩略图用当前画板的第一张幻灯片绘制，和实际效果一致。
- *   onAdd(preset, frame, at?)：preset 为 DEVICE_PRESETS 里的一项（设备 + 角度）；onUpload(file)；onAddCustom(template, at?)
+ *   onAdd(preset, frame, at?, look?)：preset 为 DEVICE_PRESETS 里的一项（设备 + 角度）；onUpload(file)；onAddCustom(template, at?)
  *   卡片可以拖到画板上：拖动数据类型为 DRAG_TYPE，放下时由 main.js 调用 drop(data, at) 加到放下的位置
  *   getSlide() → 缩略图屏幕里显示的图片；getCustom() → [{ frameAssetId, frameW, frameH, screen, name, frameImg }]
  */
@@ -28,6 +30,21 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
       refresh();
     });
     frameBtns.set(id, b);
+    return b;
+  }));
+
+  // 风格：简洁 / 写实
+  let look = 'simple';
+  try { if (LOOKS.some(x => x[0] === localStorage.getItem(LOOK_KEY))) look = localStorage.getItem(LOOK_KEY); } catch { /* 忽略 */ }
+  const lookBtns = new Map();
+  const lookSeg = el('div', { class: 'seg' }, LOOKS.map(([id, label, tip]) => {
+    const b = el('button', { type: 'button', class: 'seg-btn', title: `${label}：${tip}` }, label);
+    b.addEventListener('click', () => {
+      look = id;
+      try { localStorage.setItem(LOOK_KEY, id); } catch { /* 忽略 */ }
+      refresh();
+    });
+    lookBtns.set(id, b);
     return b;
   }));
 
@@ -49,8 +66,8 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   const cards = DEVICE_PRESETS.map(p => {
     const canvas = el('canvas', { class: 'mockup-thumb' });
     const b = el('button', { class: 'mockup-card', draggable: 'true', title: `点击添加「${p.label}」到当前画板中间，或拖到画板上` }, canvas, el('span', { class: 'mockup-name' }, p.label));
-    b.addEventListener('click', () => onAdd(p, frame));
-    dragSource(b, () => ({ preset: DEVICE_PRESETS.indexOf(p), frame }));
+    b.addEventListener('click', () => onAdd(p, frame, null, look));
+    dragSource(b, () => ({ preset: DEVICE_PRESETS.indexOf(p), frame, look }));
     return { p, canvas, card: b };
   });
   function showDevice() {
@@ -69,7 +86,8 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   container.append(
     el('div', { class: 'ctrls' },
       el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '设备'), devicePicker),
-      el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '外观'), seg)),
+      el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '外观'), seg),
+      el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '风格'), lookSeg)),
     el('div', { class: 'mockup-grid' }, cards.map(c => c.card)),
     uploadBtn, fileInput,
     el('p', { class: 'note pane-hint' }, 'PNG 样机：屏幕区域要是透明的（被外框包围），上传后自动识别屏幕。'),
@@ -90,7 +108,7 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   function drop(raw, at) {
     let data;
     try { data = JSON.parse(raw); } catch { return; }
-    if (Number.isInteger(data.preset) && DEVICE_PRESETS[data.preset]) onAdd(DEVICE_PRESETS[data.preset], data.frame in FRAMES ? data.frame : frame, at);
+    if (Number.isInteger(data.preset) && DEVICE_PRESETS[data.preset]) onAdd(DEVICE_PRESETS[data.preset], data.frame in FRAMES ? data.frame : frame, at, data.look === 'real' ? 'real' : data.look === 'simple' ? 'simple' : look);
     else if (data.custom) { const t = getCustom().find(x => x.frameAssetId === data.custom); if (t) onAddCustom(t, at); }
   }
 
@@ -132,11 +150,12 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     ctx.clearRect(0, 0, W, H);
     const ar = deviceAspect(p.device, p);
     const pad = 10, w = Math.min(W - pad * 2, (H - pad * 2) / ar), h = w * ar;
-    drawDevice(ctx, { device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, fit: autoFit(p.device, getSlide()), shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide());
+    drawDevice(ctx, { device: p.device, yaw: p.yaw || 0, pitch: p.pitch || 0, frame, look, fit: autoFit(p.device, getSlide()), shadow: false, x: (W - w) / 2, y: (H - h) / 2, w, h }, getSlide());
   }
 
   function refresh() {
     frameBtns.forEach((b, id) => b.classList.toggle('active', id === frame));
+    lookBtns.forEach((b, id) => b.classList.toggle('active', id === look));
     cards.forEach(draw);
     renderCustom();
     showDevice();
