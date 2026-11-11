@@ -346,6 +346,59 @@ def t_switches(page, errors):
     assert not errors, errors
 
 
+def t_card_aspect(page, errors):
+    # 卡片比例：默认跟随图片（示例图是 16:9）；固定成竖版、自定义比例后，网格里的卡片就是那个比例
+    r = page.evaluate("""async () => {
+      const S = SlideGrid, frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      S.actions.setLayout('grid');
+      const ratio = async () => { await frame(); const it = S.itemRects()[0].rect; return (it.r - it.l) / (it.b - it.t); };
+      const out = { auto: await ratio(), image: S.store.get().slides[0].aspect };
+      S.actions.setStyle('cardAspect', '3:4');
+      out.portrait = await ratio();
+      S.actions.patchStyle({ cardAspect: 'custom', cardAspectW: 2, cardAspectH: 1 });
+      document.querySelector('.rp-top [data-tab="params"]').click();
+      await frame();
+      out.inputs = [...document.querySelectorAll('.design-body .ctrl')].filter(x => x.offsetParent !== null && ['宽', '高'].includes(x.querySelector('.ctrl-label')?.textContent)).length;
+      out.custom = await ratio();
+      out.exported = (await S.renderToBlob({ longSide: 300, preview: true })).width;
+      S.actions.setStyle('cardAspect', 'auto');
+      out.back = await ratio();
+      return out;
+    }""")
+    assert abs(r['auto'] - r['image']) < 0.02 and abs(r['back'] - r['image']) < 0.02, r
+    assert abs(r['portrait'] - 0.75) < 0.02 and abs(r['custom'] - 2) < 0.03 and r['inputs'] == 2 and r['exported'] == 300, r
+    assert not errors, errors
+
+
+def t_project_ui(page, errors):
+    # 版本号；项目菜单 → 新建项目（名称 + 竖屏画板）；全部项目里搜索、点卡片切回原来的项目
+    version = page.inner_text('#app-version')
+    assert version.startswith('v') and version.count('.') == 2, version
+    page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
+    orig = page.evaluate('SlideGrid.store.get().project.id')
+    page.click('#project-btn')
+    page.click('.project-menu .menu-item:has-text("新建项目")')
+    page.fill('.project-name-input', '竖版项目')
+    page.click('.size-card:has-text("竖屏 9:16")')
+    page.click('.pm-actions .btn.primary')
+    page.wait_for_function("SlideGrid.store.get().project?.name === '竖版项目' && SlideGrid.store.get().aspect === '1080x1920'", timeout=10000)
+    assert not page.evaluate('SlideGrid.history.canUndo()'), '新项目的撤销记录应该是空的'
+    page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
+    page.click('#project-btn')
+    page.wait_for_selector('.project-menu .pm-recent-item')  # 「最近的项目」里有原来那个
+    page.click('.project-menu .menu-item:has-text("全部项目")')
+    page.wait_for_selector('.projects-modal[open] .project-card.current')
+    cards = page.locator('.projects-modal .project-card:not(.project-add)')
+    assert cards.count() == 2, cards.count()
+    page.fill('.project-search', '竖版')
+    assert cards.count() == 1
+    page.fill('.project-search', '')
+    page.click('.projects-modal .project-card:not(.project-add):not(.current)')
+    page.wait_for_function(f"SlideGrid.store.get().project?.id === '{orig}' && !document.querySelector('.projects-modal[open]')", timeout=15000)
+    page.evaluate("""async () => { const c = SlideGrid.controller; const t = (await c.list()).find(p => p.name === '竖版项目'); if (t) await c.remove(t.id); }""")
+    assert not errors, errors
+
+
 def t_persist(page, errors):
     page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
     page.reload()
@@ -359,6 +412,7 @@ def t_persist(page, errors):
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
          ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
+         ('卡片比例', t_card_aspect), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
 
 

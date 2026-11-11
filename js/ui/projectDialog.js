@@ -1,5 +1,7 @@
 import { el } from './dom.js';
 import { icon } from './icons.js';
+import { createMenu } from './menu.js';
+import { aspectValue, isLongAspect } from '../config.js';
 
 function relativeTime(ts) {
   const diff = (Date.now() - ts) / 1000;
@@ -11,28 +13,38 @@ function relativeTime(ts) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// 新建项目时可选的画板尺寸（之后可以随时在顶栏修改）
+const NEW_SIZES = [
+  { id: '1920x1080', label: '横版 16:9', note: '1920 × 1080' },
+  { id: '1600x1200', label: '横版 4:3', note: '1600 × 1200' },
+  { id: '1080x1080', label: '方形 1:1', note: '1080 × 1080' },
+  { id: '1080x1350', label: '竖版 4:5', note: '1080 × 1350' },
+  { id: '1242x1660', label: '竖版 3:4', note: '1242 × 1660' },
+  { id: '1080x1920', label: '竖屏 9:16', note: '1080 × 1920' },
+  { id: 'long', label: '长图', note: '高度随内容' },
+];
+const DEFAULT_SIZE = '1920x1080';
+
+// 按比例画一个小矩形，表示画板的形状
+function sizeShape(id, max = 34) {
+  const a = isLongAspect(id) ? 0.45 : aspectValue(id);
+  const w = a >= 1 ? max : max * a, h = a >= 1 ? max / a : max;
+  return el('span', { class: `ratio-shape${isLongAspect(id) ? ' long' : ''}`, style: `width:${w.toFixed(1)}px;height:${h.toFixed(1)}px` });
+}
+
 /**
- * 项目面板：列出所有项目，支持新建、打开、重命名、复制、导出、删除、导入。
- * controller：project/controller.js；download(blob, name)；toast(msg, opts)
+ * 项目：顶栏的项目菜单 + 项目窗口（新建项目 / 全部项目两页）。
+ *   菜单（点项目名）：重命名、复制、导出当前项目；新建、导入、全部项目；最近的几个项目（点击打开）
+ *   窗口：左边一列切换「新建项目」「全部项目」，下面是「导入项目文件」
+ *     新建项目：名称 + 画板尺寸（横版 / 竖版 / 方形 / 长图）
+ *     全部项目：搜索、排序，卡片上悬停出现重命名 / 复制 / 导出 / 删除
+ * controller：project/controller.js；download(blob, name)；toast(msg, opts)；setAspect(id)：设置新项目的画板尺寸
  */
-export function createProjectDialog({ store, controller, download, toast }) {
-  const grid = el('div', { class: 'project-grid' });
+export function createProjectDialog({ anchor, store, controller, download, toast, setAspect, clearHistory }) {
   const fileInput = el('input', { type: 'file', accept: '.slidegrid,application/zip', hidden: true });
   const busyNote = el('div', { class: 'dialog-status' });
 
-  const dialog = el('dialog', { class: 'modal projects-modal' },
-    el('div', { class: 'modal-head' },
-      el('h2', {}, '项目'),
-      el('button', { class: 'icon-btn visible', title: '关闭', onclick: () => dialog.close() }, icon('x', 16))),
-    el('div', { class: 'project-toolbar' },
-      el('button', { class: 'btn primary', onclick: () => act(async () => { await controller.createNew(); dialog.close(); toast('已新建项目'); }) }, icon('plus'), '新建项目'),
-      el('button', { class: 'btn', title: '导入 .slidegrid 项目文件（也可以直接拖进窗口）', onclick: () => fileInput.click() }, icon('upload'), '导入项目…'),
-      busyNote,
-      fileInput),
-    grid,
-  );
-  document.body.append(dialog);
-  dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
+  /* ---------------- 共用的操作 ---------------- */
 
   let busy = false;
   async function act(task, label = '') {
@@ -46,6 +58,7 @@ export function createProjectDialog({ store, controller, download, toast }) {
       console.error(err);
       busyNote.textContent = err.message || String(err);
       busyNote.classList.add('error');
+      if (!dialog.open) toast(err.message || String(err), { error: true });
       return;
     } finally {
       busy = false;
@@ -53,7 +66,33 @@ export function createProjectDialog({ store, controller, download, toast }) {
     busyNote.textContent = '';
     if (dialog.open) refresh();
   }
-
+  const current = () => store.get().project;
+  const renameProject = p => {
+    const name = prompt('项目名称', p.name);
+    if (name && name.trim() && name.trim() !== p.name) act(() => controller.rename(p.id, name));
+  };
+  const duplicateProject = p => act(async () => {
+    const copy = await controller.duplicate(p.id);
+    toast(`已复制为「${copy.name}」`);
+  }, '正在复制…');
+  const exportProject = p => act(async () => {
+    const { blob, filename } = await controller.exportFile(p.id);
+    download(blob, filename);
+    toast(`已导出「${filename}」`);
+  }, '正在打包…');
+  const removeProject = p => {
+    if (confirm(`删除项目「${p.name}」？此操作无法撤销，建议先导出备份。`)) {
+      act(async () => { await controller.remove(p.id); toast(`已删除「${p.name}」`); });
+    }
+  };
+  const openProject = p => {
+    if (p.id === current()?.id) { dialog.close(); return; }
+    act(async () => {
+      const { failed } = await controller.open(p.id);
+      dialog.close();
+      toast(failed ? `已打开「${p.name}」，${failed} 张图片无法读取` : `已打开「${p.name}」`, { error: failed > 0 });
+    }, '正在打开…');
+  };
   fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
     fileInput.value = '';
@@ -65,72 +104,210 @@ export function createProjectDialog({ store, controller, download, toast }) {
     }, '正在导入…');
   });
 
+  // 缩略图（Blob → URL，用完释放）
+  function thumbOf(p, urls) {
+    const thumb = el('div', { class: 'project-thumb' });
+    if (p.thumb instanceof Blob) {
+      const url = URL.createObjectURL(p.thumb);
+      urls.push(url);
+      thumb.append(el('img', { src: url, alt: '' }));
+    } else {
+      thumb.append(el('span', {}, p.slideCount ? '暂无预览' : '空项目'));
+    }
+    return thumb;
+  }
+
+  /* ---------------- 新建项目 ---------------- */
+
+  let newSize = DEFAULT_SIZE;
+  const nameInput = el('input', { type: 'text', class: 'text-input project-name-input', placeholder: '未命名项目', maxlength: 60, spellcheck: 'false', 'aria-label': '项目名称' });
+  const sizeCards = NEW_SIZES.map(sz => {
+    const b = el('button', { type: 'button', class: 'size-card', title: `${sz.label}（${sz.note}）` },
+      el('span', { class: 'size-card-shape' }, sizeShape(sz.id)),
+      el('span', { class: 'size-card-label' }, sz.label),
+      el('span', { class: 'size-card-note' }, sz.note));
+    b.addEventListener('click', () => { newSize = sz.id; syncSizes(); });
+    b.addEventListener('dblclick', create);
+    return { id: sz.id, b };
+  });
+  const syncSizes = () => sizeCards.forEach(c => c.b.classList.toggle('active', c.id === newSize));
+  function create() {
+    act(async () => {
+      const rec = await controller.createNew(nameInput.value.trim() || '未命名项目');
+      if (newSize !== DEFAULT_SIZE) setAspect(newSize);
+      clearHistory?.(); // 新项目从干净的撤销记录开始
+      dialog.close();
+      toast(`已新建项目「${rec.name}」`);
+    }, '正在新建…');
+  }
+  nameInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') create(); });
+  const newPage = el('div', { class: 'pm-page pm-new' },
+    el('h3', { class: 'pm-title' }, '新建项目'),
+    el('label', { class: 'pm-field' }, el('span', { class: 'pm-label' }, '名称'), nameInput),
+    el('div', { class: 'pm-field' },
+      el('span', { class: 'pm-label' }, '画板尺寸'),
+      el('div', { class: 'size-cards' }, sizeCards.map(c => c.b))),
+    el('p', { class: 'note pm-note' }, '画板尺寸之后可以随时在顶栏修改，一个项目里可以有多个不同尺寸的画板。卡片的比例默认跟随图片（竖版、4:3 的图片不用另外设置），也可以在「设计 → 卡片」里固定。'),
+    el('div', { class: 'pm-actions' },
+      el('button', { class: 'btn primary', type: 'button', onclick: create }, icon('plus'), '创建项目')),
+  );
+
+  /* ---------------- 全部项目 ---------------- */
+
+  let query = '', sort = 'recent', projects = [];
+  const search = el('input', { type: 'search', class: 'text-input project-search', placeholder: '搜索项目', spellcheck: 'false', 'aria-label': '搜索项目' });
+  search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); renderGrid(); });
+  search.addEventListener('keydown', e => { if (e.key !== 'Escape') e.stopPropagation(); });
+  const sortBtns = [['recent', '最近修改'], ['name', '名称']].map(([id, label]) => {
+    const b = el('button', { type: 'button', class: 'seg-btn' }, label);
+    b.addEventListener('click', () => { sort = id; renderGrid(); });
+    return { id, b };
+  });
+  const grid = el('div', { class: 'project-grid' });
+  const allPage = el('div', { class: 'pm-page pm-all' },
+    el('div', { class: 'project-toolbar' },
+      el('h3', { class: 'pm-title' }, '全部项目'),
+      el('span', { class: 'bar-spacer' }),
+      search,
+      el('div', { class: 'seg project-sort' }, sortBtns.map(x => x.b))),
+    grid,
+  );
+
   const urls = [];
-  async function refresh() {
-    const projects = await controller.list();
+  function renderGrid() {
     urls.splice(0).forEach(u => URL.revokeObjectURL(u));
-    const currentId = store.get().project?.id;
-    grid.innerHTML = '';
-
-    for (const p of projects) {
-      const thumb = el('div', { class: 'project-thumb' });
-      if (p.thumb instanceof Blob) {
-        const url = URL.createObjectURL(p.thumb);
-        urls.push(url);
-        thumb.append(el('img', { src: url, alt: '' }));
-      } else {
-        thumb.append(el('span', {}, p.slideCount ? '暂无预览' : '空项目'));
-      }
+    sortBtns.forEach(x => x.b.classList.toggle('active', x.id === sort));
+    const currentId = current()?.id;
+    const list = projects.filter(p => !query || p.name.toLowerCase().includes(query));
+    if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+    else list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    grid.replaceChildren();
+    // 第一格：新建项目
+    if (!query) {
+      const add = el('button', { type: 'button', class: 'project-card project-add', title: '新建项目' },
+        el('div', { class: 'project-thumb' }, icon('plus', 22)),
+        el('div', { class: 'project-meta' }, el('div', { class: 'project-name' }, '新建项目'), el('div', { class: 'project-sub' }, '选择名称和画板尺寸')));
+      add.addEventListener('click', () => showPage('new'));
+      grid.append(add);
+    }
+    for (const p of list) {
       const isCurrent = p.id === currentId;
-
-      const menuBtn = (iconName, title, fn) => el('button', {
-        class: 'icon-btn visible', title, 'aria-label': title,
-        onclick: e => { e.stopPropagation(); fn(); },
-      }, icon(iconName, 15));
-
-      const card = el('div', { class: `project-card${isCurrent ? ' current' : ''}`, title: isCurrent ? '当前项目' : '打开此项目' },
-        thumb,
-        el('div', { class: 'project-meta' },
-          el('div', { class: 'project-name' }, p.name, isCurrent ? el('span', { class: 'badge' }, '当前') : null),
-          el('div', { class: 'project-sub' }, `${p.slideCount || 0} 张 · ${relativeTime(p.updatedAt)}`)),
+      const action = (iconName, title, fn, danger = false) => el('button', {
+        class: `icon-btn visible${danger ? ' danger' : ''}`, title, 'aria-label': title,
+        onclick: e => { e.stopPropagation(); fn(p); },
+      }, icon(iconName, 14));
+      const card = el('div', { class: `project-card${isCurrent ? ' current' : ''}`, tabindex: '0', role: 'button', title: isCurrent ? '当前项目' : `打开「${p.name}」` },
+        thumbOf(p, urls),
         el('div', { class: 'project-actions' },
-          menuBtn('pencil', '重命名', () => {
-            const name = prompt('项目名称', p.name);
-            if (name && name.trim() && name.trim() !== p.name) act(() => controller.rename(p.id, name));
-          }),
-          menuBtn('copy', '复制为新项目', () => act(async () => {
-            const copy = await controller.duplicate(p.id);
-            toast(`已复制为「${copy.name}」`);
-          }, '正在复制…')),
-          menuBtn('download', '导出为 .slidegrid 文件', () => act(async () => {
-            const { blob, filename } = await controller.exportFile(p.id);
-            download(blob, filename);
-            toast(`已导出「${filename}」`);
-          }, '正在打包…')),
-          menuBtn('trash-2', '删除项目', () => {
-            if (confirm(`删除项目「${p.name}」？此操作无法撤销，建议先导出备份。`)) {
-              act(async () => { await controller.remove(p.id); toast(`已删除「${p.name}」`); });
-            }
-          }),
-        ),
+          action('pencil', '重命名', renameProject),
+          action('copy', '复制为新项目', duplicateProject),
+          action('download', '导出为 .slidegrid 文件', exportProject),
+          action('trash-2', '删除项目', removeProject, true)),
+        el('div', { class: 'project-meta' },
+          el('div', { class: 'project-name' }, el('span', { class: 'project-name-text' }, p.name), isCurrent ? el('span', { class: 'badge' }, '当前') : null),
+          el('div', { class: 'project-sub' }, `${p.slideCount || 0} 张 · ${relativeTime(p.updatedAt)}`)),
       );
-      card.addEventListener('click', () => {
-        if (isCurrent) { dialog.close(); return; }
-        act(async () => {
-          const { failed } = await controller.open(p.id);
-          dialog.close();
-          toast(failed ? `已打开「${p.name}」，${failed} 张图片无法读取` : `已打开「${p.name}」`, { error: failed > 0 });
-        }, '正在打开…');
-      });
+      card.addEventListener('click', () => openProject(p));
+      card.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === card) openProject(p); });
       grid.append(card);
+    }
+    if (query && !list.length) grid.append(el('p', { class: 'note project-empty' }, `没有名称里带「${search.value.trim()}」的项目`));
+    countBadge.textContent = projects.length || '';
+  }
+
+  /* ---------------- 窗口 ---------------- */
+
+  const countBadge = el('span', { class: 'tab-count' });
+  const navBtn = (id, ic, label, extra = null) => {
+    const b = el('button', { type: 'button', class: 'pm-nav-btn', 'data-page': id }, icon(ic, 16), el('span', { class: 'pm-nav-label' }, label), extra);
+    b.addEventListener('click', () => showPage(id));
+    return b;
+  };
+  const navBtns = [navBtn('new', 'plus', '新建项目'), navBtn('all', 'folder-kanban', '全部项目', countBadge)];
+  const importBtn = el('button', { type: 'button', class: 'pm-nav-btn', title: '导入 .slidegrid 项目文件（也可以直接拖进窗口）', onclick: () => fileInput.click() },
+    icon('upload', 16), el('span', { class: 'pm-nav-label' }, '导入项目文件…'));
+  const pages = { new: newPage, all: allPage };
+  let page = 'all';
+  function showPage(id) {
+    page = id in pages ? id : 'all';
+    for (const [k, node] of Object.entries(pages)) node.hidden = k !== page;
+    navBtns.forEach(b => b.classList.toggle('active', b.dataset.page === page));
+    if (page === 'new') {
+      syncSizes();
+      if (dialog.open) nameInput.focus();
     }
   }
 
-  return {
-    async open() {
-      await refresh();
-      if (!dialog.open) dialog.showModal();
+  const dialog = el('dialog', { class: 'modal projects-modal' },
+    el('div', { class: 'modal-head' },
+      el('h2', {}, '项目'),
+      busyNote,
+      el('button', { class: 'icon-btn visible', title: '关闭', 'aria-label': '关闭', onclick: () => dialog.close() }, icon('x', 16))),
+    el('div', { class: 'pm-body' },
+      el('nav', { class: 'pm-nav' },
+        ...navBtns,
+        el('div', { class: 'menu-sep' }),
+        importBtn,
+        el('span', { class: 'bar-spacer' }),
+        el('p', { class: 'note pm-nav-note' }, '项目保存在这个浏览器里。换电脑、换浏览器请先导出 .slidegrid 文件，再到那边导入。'),
+        fileInput),
+      el('div', { class: 'pm-main' }, newPage, allPage)),
+  );
+  document.body.append(dialog);
+  dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
+  dialog.addEventListener('close', () => urls.splice(0).forEach(u => URL.revokeObjectURL(u)));
+
+  async function refresh() {
+    projects = await controller.list();
+    renderGrid();
+  }
+  async function open(target = 'all') {
+    if (target === 'new') { nameInput.value = ''; newSize = DEFAULT_SIZE; }
+    showPage(target);
+    await refresh();
+    if (!dialog.open) dialog.showModal();
+    (target === 'new' ? nameInput : search).focus(); // 全部项目：打开就可以直接输入搜索
+  }
+
+  /* ---------------- 顶栏的项目菜单 ---------------- */
+
+  const menuUrls = [];
+  const menu = anchor && createMenu(anchor, {
+    className: 'project-menu',
+    render(pop, close) {
+      menuUrls.splice(0).forEach(u => URL.revokeObjectURL(u));
+      const p = current() || { name: '未命名项目' };
+      const item = (ic, label, fn, meta = null) => el('button', { class: 'menu-item', role: 'menuitem', onclick: () => { close(); fn(); } },
+        el('span', { class: 'menu-check' }, icon(ic, 14)), el('span', { class: 'menu-label' }, label), meta ? el('span', { class: 'menu-meta' }, meta) : null);
+      const recent = el('div', { class: 'pm-recent' });
+      pop.replaceChildren(
+        el('div', { class: 'menu-title' }, `当前项目 · ${p.name}`),
+        item('pencil', '重命名…', () => renameProject(p)),
+        item('copy', '复制为新项目', () => duplicateProject(p)),
+        item('download', '导出项目文件', () => exportProject(p), '.slidegrid'),
+        el('div', { class: 'menu-sep' }),
+        item('plus', '新建项目…', () => open('new')),
+        item('upload', '导入项目文件…', () => fileInput.click()),
+        item('folder-kanban', '全部项目…', () => open('all')),
+        recent,
+      );
+      // 最近的几个项目（不含当前）：异步读出来再补上
+      controller.list().then(list => {
+        if (!menu.isOpen()) return;
+        const others = list.filter(x => x.id !== p.id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 4);
+        if (!others.length) return;
+        recent.append(el('div', { class: 'menu-sep' }), el('div', { class: 'menu-title' }, '最近的项目'), ...others.map(x => {
+          const row = el('button', { class: 'menu-item pm-recent-item', role: 'menuitem', title: `打开「${x.name}」` },
+            thumbOf(x, menuUrls), el('span', { class: 'menu-label' }, x.name), el('span', { class: 'menu-meta' }, relativeTime(x.updatedAt)));
+          row.addEventListener('click', () => { close(); openProject(x); });
+          return row;
+        }));
+      }).catch(() => {});
     },
+  });
+
+  return {
+    open,
     refresh: () => (dialog.open ? refresh() : null),
   };
 }

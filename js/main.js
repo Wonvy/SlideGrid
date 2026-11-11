@@ -10,6 +10,7 @@ import { createSlidesPanel } from './ui/slidesPanel.js';
 import { createSettingsPanel } from './ui/settingsPanel.js';
 import { createTopbarMenus } from './ui/topbarMenus.js';
 import { createProjectDialog } from './ui/projectDialog.js';
+import { VERSION, RELEASED } from './version.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -78,11 +79,18 @@ const controller = createProjectController({
   onStatus: text => {
     saveStatus.textContent = text;
     saveStatus.dataset.state = text;
+    saveStatus.title = text; // 窗口窄时只剩一个圆点，悬停能看到文字
   },
   onChange: () => projectDialog?.refresh(),
 });
-projectDialog = createProjectDialog({ store, controller, download: exporting.download, toast });
-$('project-btn').addEventListener('click', () => projectDialog.open());
+// 点项目名：项目菜单（重命名 / 新建 / 导入 / 全部项目 / 最近的项目）；新建、全部项目在项目窗口里
+projectDialog = createProjectDialog({
+  anchor: $('project-btn'), store, controller, download: exporting.download, toast,
+  setAspect: id => actions.setAspect(id), clearHistory: () => history.clear(),
+});
+// 版本号（logo 右边）
+$('app-version').textContent = `v${VERSION}`;
+$('app-version').title = `版本 ${VERSION}（${RELEASED}）`;
 
 window.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {

@@ -39,6 +39,41 @@ export function fadeCss(st) {
   return c(1);
 }
 
+/**
+ * 卡片的宽高比。style.cardAspect：
+ *   'auto'（默认）跟随图片——取图片里最常见的比例（一样多时取靠前的），竖版、4:3 的图片不用设置就是对的
+ *   '宽:高'（如 '4:3'、'9:16'）固定比例；'custom' 用 cardAspectW : cardAspectH
+ * 比例和卡片不一样的图片按「填满（裁切）」显示，可以在卡片上单独改成「完整显示」。
+ */
+export const CARD_ASPECTS = ['16:9', '16:10', '3:2', '4:3', '1:1', '4:5', '3:4', '2:3', '9:16'];
+const autoCache = new WeakMap();
+function commonAspect(slides) {
+  if (!slides?.length) return 16 / 9;
+  let hit = autoCache.get(slides);
+  if (hit == null) {
+    const count = new Map();
+    let best = null, bestN = 0;
+    for (const s of slides) {
+      if (!(s.aspect > 0)) continue;
+      const key = Math.round(s.aspect * 50) / 50; // 相差很小的算同一种比例
+      const e = count.get(key) || { n: 0, aspect: s.aspect };
+      e.n++;
+      count.set(key, e);
+      if (e.n > bestN) { best = e; bestN = e.n; }
+    }
+    hit = best ? best.aspect : 16 / 9;
+    autoCache.set(slides, hit);
+  }
+  return hit;
+}
+export function cardAspect(style, slides) {
+  const v = style?.cardAspect;
+  let a = null;
+  if (v === 'custom') a = (Number(style.cardAspectW) || 16) / (Number(style.cardAspectH) || 9);
+  else if (typeof v === 'string' && v.includes(':')) { const [w, h] = v.split(':').map(Number); if (w > 0 && h > 0) a = w / h; }
+  return a ? Math.max(0.1, Math.min(10, a)) : commonAspect(slides);
+}
+
 export const styleSchema = [
   { group: '背景' },
   {
@@ -83,6 +118,14 @@ export const styleSchema = [
     key: 'slideOrder', label: '图片顺序', type: 'select', default: 'center',
     options: [{ value: 'layout', label: '按版式' }, { value: 'visible', label: '左上开始' }, { value: 'center', label: '中心开始' }],
   },
+  // 卡片比例：默认跟随图片；也可以固定成某个比例（竖版、4:3…）或自己填
+  {
+    key: 'cardAspect', label: '卡片比例', type: 'select', default: 'auto',
+    title: '卡片的宽高比。「跟随图片」取图片里最常见的比例；比例不一样的图片会被裁切（可以在卡片上改成完整显示）',
+    options: [{ value: 'auto', label: '跟随图片' }, ...CARD_ASPECTS.map(v => ({ value: v, label: `${v}${Number(v.split(':')[0]) < Number(v.split(':')[1]) ? '（竖版）' : ''}` })), { value: 'custom', label: '自定义…' }],
+  },
+  { key: 'cardAspectW', label: '宽', type: 'number', min: 1, max: 100, step: 1, default: 16, half: true, show: s => s.cardAspect === 'custom' },
+  { key: 'cardAspectH', label: '高', type: 'number', min: 1, max: 100, step: 1, default: 9, half: true, show: s => s.cardAspect === 'custom' },
   { key: 'radius', label: '圆角', type: 'range', min: 0, max: 60, default: 10 },
   { key: 'borderWidth', label: '描边', type: 'range', min: 0, max: 30, default: 0 },
   { key: 'borderColor', label: '描边颜色', type: 'color', default: '#ffffff', show: s => s.borderWidth > 0 },

@@ -2,6 +2,7 @@ import * as m4 from './math.js';
 import { DEG } from '../core/utils.js';
 import { cameraRot } from './orient.js';
 import { aspectValue, isLongAspect, parsePixels } from '../config.js';
+import { cardAspect } from '../style/schema.js';
 
 // 世界坐标：画布高度固定为 1000，宽度 = 1000 × 画布比例，原点在画布中心，y 轴向上。
 // 长图模式：宽度固定为 LONG_W，高度由版式内容决定。
@@ -24,7 +25,7 @@ function verticalExtent(items) {
  * 计算画布的世界尺寸 { W, H, long }。
  * 长图模式下先用一个极高的画布试排，量出内容高度，再加上下边距。
  */
-export function resolveCanvas({ slides, layout, params, aspect }) {
+export function resolveCanvas({ slides, layout, params, aspect, style }) {
   if (!isLongAspect(aspect)) {
     const a = typeof aspect === 'number' ? aspect : aspectValue(aspect);
     // px：精确像素尺寸的画板（导出「画板尺寸」时用）
@@ -33,7 +34,7 @@ export function resolveCanvas({ slides, layout, params, aspect }) {
   const W = LONG_W;
   const n = slides.length; // 长图模式不限制数量
   if (!n || !layout.long) return { W, H: W * 16 / 9, long: true };
-  const probe = layout.compute({ n, aspect: slides[0].aspect || 16 / 9, W, H: 1e5, p: params, long: true }) || {};
+  const probe = layout.compute({ n, aspect: cardAspect(style, slides), W, H: 1e5, p: params, long: true }) || {};
   const margin = params.margin ?? 80;
   const H = Math.max(W * 0.3, verticalExtent(probe.items || []) + 2 * margin);
   return { W, H, long: true };
@@ -152,12 +153,12 @@ function assignSlides(raw, n, mode, project, aspect) {
  * 预览和导出共用这一函数。
  */
 export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null, pool = null, albums = null }) {
-  const { W, H, long, px } = resolveCanvas({ slides, layout, params, aspect });
+  const { W, H, long, px } = resolveCanvas({ slides, layout, params, aspect, style });
   const n = slides.length;
   const empty = { W, H, long, px, items: [], viewProj: m4.identity(), coplanar: true, style };
   if (!n) return empty;
 
-  const slideAspect = slides[0].aspect || 16 / 9;
+  const slideAspect = cardAspect(style, slides); // 卡片的宽高比：跟随图片，或画板样式里固定的比例
   // 版式的「数量」参数：只排这么多张卡片（图片仍按 n 张循环分配）
   // cards：每张卡片的手动调整（版式可以读取自己的单卡设置，例如等距展台的「抬起」）；albums：分组版式按图集取图
   const result = layout.compute({ n: cardCount(params, n, long), aspect: slideAspect, W, H, p: params, long, cards: adjust || {}, albums: albums || [] }) || {};
@@ -330,7 +331,7 @@ export function textureNeeds(scene, pxW, pxH) {
  * 场景对象保持不变也让点选、对齐用的投影缓存（按 scene 缓存）在帧之间持续有效。
  */
 const SCENE_KEYS = ['slides', 'layout', 'params', 'style', 'aspect', 'camera', 'adjust', 'pool', 'albums'];
-const CANVAS_KEYS = ['slides', 'layout', 'params', 'aspect'];
+const CANVAS_KEYS = ['slides', 'layout', 'params', 'aspect', 'style'];
 
 function memo(fn, keys, size) {
   const entries = []; // 最近使用的在最后
