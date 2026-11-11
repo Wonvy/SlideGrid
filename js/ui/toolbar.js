@@ -2,13 +2,13 @@ import { fitFolds } from './fold.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { attachWheel } from './wheel.js';
+import { clamp } from '../core/utils.js';
 
 // 工作区：左侧竖排的工具栏（工具切换，快捷键参照 Illustrator）+ 顶部浮动工具条（背景、遮罩、吸附、对齐、视图缩放、重置卡片）
 export const TOOLS = [
   { id: 'select', icon: 'mouse-pointer-2', label: '选择', key: 'V', desc: '点选卡片 / 图层，拖动移动，拖四个角缩放，拖角外侧旋转（Shift 锁定方向 / 15° 吸附，方向键微调）' },
   { id: 'crop', icon: 'crop', label: '裁切', key: 'C', desc: '调整卡片里显示图片的哪一部分：拖动平移图片，滚轮放大缩小，双击复位（平面和 3D 版式都可用）' },
   { id: 'swap', icon: 'arrow-left-right', label: '交换', key: 'X', desc: '把卡片拖到另一张上交换图片' },
-  { id: 'scale', icon: 'scaling', label: '比例', key: 'S', desc: '拖动以卡片中心等比缩放（Shift 按 5% 吸附，+/- 键微调）' },
   { id: 'orbit', icon: 'rotate-3d', label: '构图', key: 'O', desc: '调整画板内的构图（会导出）：3D 拖动旋转 / Shift+拖动平移，平面拖动平移，滚轮缩放' },
   { sep: true },
   { id: 'text', icon: 'type', label: '文字', key: 'T', desc: '单击添加点状文字，拖动创建区块文字（按框宽自动换行）；选择工具下双击文字可编辑' },
@@ -23,9 +23,69 @@ export const TOOLS = [
   { id: 'artboard', icon: 'frame', label: '画板', key: '⇧O', desc: '点击切换画板，拖动移动画板位置（按住 ⌥ 拖动 = 复制），⌘D 复制，Delete 删除画板' },
 ];
 
-export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut, onFit, onFitAll, onActualSize, onResetAdjust }) {
+function makeToolstripDraggable(root, stage, tools, handle) {
+  const inset = 12;
+  let offset = null;
+  let grab = null;
+
+  function position(x, y) {
+    const bounds = stage.getBoundingClientRect();
+    const origin = root.getBoundingClientRect();
+    offset = {
+      x: clamp(x, inset, Math.max(inset, bounds.width - tools.offsetWidth - inset)),
+      y: clamp(y, inset, Math.max(inset, bounds.height - tools.offsetHeight - inset)),
+    };
+    tools.style.left = `${bounds.left - origin.left + offset.x}px`;
+    tools.style.top = `${bounds.top - origin.top + offset.y}px`;
+  }
+
+  const reset = () => {
+    offset = null;
+    tools.style.removeProperty('left');
+    tools.style.removeProperty('top');
+  };
+
+  const atEdge = e => { const button = e.target.closest('button'); return !button || button === handle; };
+  tools.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || grab || !atEdge(e)) return;
+    const bounds = tools.getBoundingClientRect();
+    grab = { id: e.pointerId, x: e.clientX - bounds.left, y: e.clientY - bounds.top };
+    tools.setPointerCapture(e.pointerId);
+    tools.classList.add('dragging');
+  });
+  tools.addEventListener('pointermove', e => {
+    if (grab?.id !== e.pointerId) return;
+    const bounds = stage.getBoundingClientRect();
+    position(e.clientX - bounds.left - grab.x, e.clientY - bounds.top - grab.y);
+  });
+  tools.addEventListener('lostpointercapture', () => {
+    grab = null;
+    tools.classList.remove('dragging');
+  });
+  tools.addEventListener('dblclick', e => { if (atEdge(e)) reset(); });
+  handle.addEventListener('keydown', e => {
+    if (e.key === 'Home') {
+      e.preventDefault();
+      e.stopPropagation();
+      reset();
+      return;
+    }
+    const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const bounds = stage.getBoundingClientRect();
+    const current = tools.getBoundingClientRect();
+    position(current.left - bounds.left + delta[0] * 8, current.top - bounds.top + delta[1] * 8);
+  });
+  new ResizeObserver(() => { if (offset) position(offset.x, offset.y); }).observe(stage);
+}
+
+export function createToolbar(root, { stage, statusBar, onTool, availability, onZoomIn, onZoomOut, onFit, onFitAll, onActualSize, onResetAdjust }) {
   const buttons = new Map();
-  const tools = el('div', { class: 'toolstrip', role: 'toolbar', 'aria-label': '工具', 'aria-orientation': 'vertical' });
+  const handle = el('button', { type: 'button', class: 'toolstrip-grip', 'aria-label': '移动工具条', title: '拖动工具条 · 双击复位 · 方向键移动，Home 复位' });
+  const tools = el('div', { class: 'toolstrip', role: 'toolbar', 'aria-label': '工具', 'aria-orientation': 'vertical' }, handle);
+  makeToolstripDraggable(root, stage, tools, handle);
   for (const t of TOOLS) {
     if (t.sep) { tools.append(el('span', { class: 'ts-sep' })); continue; }
     const b = el('button', { class: 'tb-btn', 'aria-label': t.label, onclick: () => onTool(t.id) }, icon(t.icon, 17)); // 快捷键在提示里
@@ -57,9 +117,10 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
   const alignSlot = el('div', { class: 'tb-group tb-align', hidden: true });
 
   const bar = el('div', { class: 'toolbar', role: 'toolbar', 'aria-label': '属性' }, ctxSlot, bgSlot, alignSlot, extra);
-  // 吸附开关和视图缩放放在画布右下角（类似 Figma），顶部工具条只放和选择相关的属性
+  // 吸附开关和视图缩放放在状态栏右侧
   const viewbar = el('div', { class: 'viewbar', role: 'toolbar', 'aria-label': '视图' }, viewSlot, zoom);
-  root.append(tools, bar, viewbar);
+  root.append(tools, bar);
+  statusBar.append(viewbar);
 
   // 宽度够时按钮组整排显示，放不下时才折叠成下拉按钮：内容或窗口变化后重新排一次
   let fitQueued = false;

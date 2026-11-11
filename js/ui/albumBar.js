@@ -11,7 +11,7 @@ import { askText, askConfirm } from './dialogs.js';
  * 把列表里的图片拖到一摞上 = 移到这个图集（按住 Alt 复制）。
  *   browsingId() → 正在查看的图集；onBrowse(id)；onUseForBoard(id)；onDropSlide(slideId, albumId, copy)
  */
-const THUMB_W = 64, THUMB_H = 50, DPR = 2;
+const THUMB_W = 64, THUMB_H = 50, DPR = 3;
 
 // 一摞：最多 3 张，后面的往两边转一点，最前面的正放（图片按比例缩进卡片里）
 function drawStack(canvas, slides) {
@@ -21,7 +21,7 @@ function drawStack(canvas, slides) {
   g.setTransform(DPR, 0, 0, DPR, 0, 0);
   g.clearRect(0, 0, THUMB_W, THUMB_H);
   const list = slides.filter(x => !x.placeholder).slice(0, 3).reverse(); // 第一张在最上面
-  const cw = 46, ch = 32;
+  const cw = 50, ch = 34;
   if (!list.length) {
     g.setLineDash([3, 3]);
     g.strokeStyle = 'rgba(255,255,255,.28)';

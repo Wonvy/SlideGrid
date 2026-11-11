@@ -1,6 +1,7 @@
 import { formatSchema } from '../export/schema.js';
 import { buildControls } from './controls.js';
 import { el } from './dom.js';
+import { createSizePicker } from './sizePicker.js';
 
 /**
  * 导出面板：鼠标移到「导出」按钮上时展开——勾选要导出的画板（每个画板显示输出像素 = 画板像素 × 倍率），
@@ -9,7 +10,7 @@ import { el } from './dom.js';
  *
  * info(s, ids) → { boards: [{ id, name, width, height }], defaultName }；defaultIds(s) → 默认勾选的画板
  */
-export function createExportPopover({ anchor, store, actions, drawPreview, info, defaultIds }) {
+export function createExportPopover({ anchor, store, actions, canvasOf, drawPreview, info, defaultIds }) {
   const preview = el('canvas', { class: 'export-preview' });
   const boardList = el('div', { class: 'export-boards' });
   const quick = el('div', { class: 'export-quick' });
@@ -20,9 +21,10 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info,
   const progress = el('div', { class: 'progress', hidden: true }, bar);
   const status = el('div', { class: 'dialog-status' });
   const hint = el('div', { class: 'popover-hint' });
+  const sizeBox = el('div', { id: 'size-picker' });
 
   const pop = el('div', { class: 'popover export-popover', role: 'dialog', 'aria-label': '导出' },
-    el('div', { class: 'popover-title' }, '导出'),
+    el('div', { class: 'export-popover-head' }, el('div', { class: 'popover-title' }, '导出'), sizeBox),
     el('div', { class: 'preview-wrap small' }, preview),
     el('div', { class: 'export-section-head' }, el('span', {}, '画板'), quick),
     boardList,
@@ -43,6 +45,7 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info,
   nameInput.addEventListener('input', () => { nameEdited = true; });
 
   const updateControls = buildControls(controlsBox, formatSchema, store.get().exportOpts, actions.setExport);
+  const sizePicker = createSizePicker(sizeBox, { store, actions, canvasOf, onClose: scheduleHide });
 
   const isOpen = () => pop.classList.contains('show');
   const ids = () => store.get().artboards.map(b => b.id).filter(id => checked.has(id));
@@ -85,6 +88,7 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info,
   function update(s = store.get()) {
     if (!isOpen()) return;
     const o = s.exportOpts;
+    sizePicker.update(s);
     updateControls(o);
     for (const id of [...checked]) if (!s.artboards.some(b => b.id === id)) checked.delete(id);
     const pick = ids();
@@ -99,7 +103,7 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info,
       : multi ? `将导出 ${pick.length} 个画板，打包为 ZIP（每个画板按自己的像素尺寸 × 倍率）`
         : transparent
           ? (o.format === 'png' ? '背景透明：导出 PNG 时保留透明' : 'JPG 不支持透明，背景将以白色填充')
-          : '倍率在左侧按钮里选择 · 画板像素在顶栏中间设置 · 点击「导出」开始';
+          : '画板像素在顶栏中间设置 · 点击「导出」开始';
     hint.classList.toggle('warn', !pick.length || (transparent && o.format === 'jpg'));
     drawPreview(preview, { maxW: 300, maxH: 170, whiteFill: transparent && o.format === 'jpg' });
   }
@@ -119,7 +123,7 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info,
   function scheduleHide() {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (busy || pop.contains(document.activeElement)) return;
+      if (busy || sizePicker.isOpen() || pop.contains(document.activeElement) || pop.matches(':hover') || anchor.matches(':hover')) return;
       pop.classList.remove('show');
       nameEdited = false;
     }, 220);
@@ -129,6 +133,8 @@ export function createExportPopover({ anchor, store, actions, drawPreview, info,
     node.addEventListener('mouseenter', show);
     node.addEventListener('mouseleave', scheduleHide);
   }
+  anchor.addEventListener('focus', show);
+  anchor.addEventListener('blur', scheduleHide);
   pop.addEventListener('focusout', () => { if (!pop.matches(':hover')) scheduleHide(); });
   window.addEventListener('resize', () => { if (isOpen()) position(); });
 

@@ -7,6 +7,8 @@ import { createExportPopover } from '../ui/exportPopover.js';
 import { toast } from '../ui/toast.js';
 import { boardInput, sceneInput, canvasOf, safeName } from './boards.js';
 import { getLayout } from '../layouts/index.js';
+import { DEFAULT_CAMERA } from '../config.js';
+import { resolveCanvas } from '../render/scene.js';
 
 /**
  * 导出图片 / 复制到剪贴板 / 离屏预览。
@@ -72,7 +74,7 @@ export function createExporting({ copyBtn, exportBtn }) {
   const snapshot = async width =>
     (await renderToBlob(sceneInput(store.get()), { longSide: Math.round(width * 1.6), format: 'jpg', quality: 0.85, preview: true })).blob;
 
-  const popover = createExportPopover({ anchor: exportBtn, store, actions, drawPreview, info: exportInfo, defaultIds: s => selectionOf(s) });
+  const popover = createExportPopover({ anchor: exportBtn, store, actions, canvasOf, drawPreview, info: exportInfo, defaultIds: s => selectionOf(s) });
 
   /* ---------------- 导出 ---------------- */
 
@@ -167,14 +169,17 @@ export function createExporting({ copyBtn, exportBtn }) {
     doExport,
     doCopy,
     renderToBlob: opts => renderToBlob(sceneInput(store.get()), opts),
-    // 版式预览（版式页悬停时）：当前画板换成这个版式（用它现在的参数）离屏渲染一张小图；长图模式下不预览
+    // 版式预览：用当前画板图片及候选版式的参数渲染一张小图。
     layoutPreview: async (layoutId, longSide = 420) => {
       const s = store.get();
-      if (s.aspect === 'long') return null;
       const layout = getLayout(layoutId);
-      if (!layout) return null;
+      if (!layout || (s.aspect === 'long' && !layout.long)) return null;
       const params = s.params[layoutId] || Object.fromEntries(layout.params.filter(d => d.key).map(d => [d.key, d.default]));
-      const input = { ...sceneInput(s), layout, params, adjust: s.adjust[layoutId] || null };
+      const input = { ...sceneInput(s), layout, params, camera: DEFAULT_CAMERA, adjust: s.adjust[layoutId] || null };
+      if (s.aspect === 'long') {
+        const { W, H } = resolveCanvas(input);
+        longSide = Math.max(1, Math.min(longSide, longSide * W / H));
+      }
       return (await renderToCanvas(input, { longSide, preview: true })).canvas;
     },
     download: downloadBlob,

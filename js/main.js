@@ -1,13 +1,12 @@
 import { store, actions, selectionOf, libraryOf, boardsOf, albumOf, BOARD_KEYS } from './state.js';
 import { getLayout } from './layouts/index.js';
 import { createAlbumBar } from './ui/albumBar.js';
-import { createSizePicker } from './ui/sizePicker.js';
-import { canvasOf } from './app/boards.js';
 import { createProjectController } from './project/controller.js';
 import { createHistory } from './project/history.js';
 import { view } from './workspace/view.js';
 import { createSlidesPanel } from './ui/slidesPanel.js';
 import { createSettingsPanel } from './ui/settingsPanel.js';
+import { createPreferencesDialog } from './ui/preferencesDialog.js';
 import { createTopbarMenus } from './ui/topbarMenus.js';
 import { createProjectDialog } from './ui/projectDialog.js';
 import { VERSION, RELEASED } from './version.js';
@@ -120,7 +119,7 @@ backupBtn.addEventListener('click', async () => {
   }
 });
 
-// 主题：顶栏的按钮在深色 / 浅色之间切换（「偏好」里还可以选跟随系统）
+// 主题：顶栏的按钮在深色 / 浅色之间切换（「设置」里还可以选跟随系统）
 const themeBtn = $('theme-btn');
 function syncThemeBtn(t = currentTheme()) {
   themeBtn.replaceChildren(icon(t === 'light' ? 'moon' : 'sun', 16));
@@ -129,7 +128,8 @@ function syncThemeBtn(t = currentTheme()) {
 themeBtn.addEventListener('click', toggleTheme);
 onThemeChange(t => { syncThemeBtn(t); ws?.scheduleRender(); });
 syncThemeBtn();
-// 界面语言：顶栏的按钮直接换（语言名用各自的写法，不翻译）；导入语言文件等在「偏好」里
+const preferences = createPreferencesDialog($('settings-btn'), { store, actions, beforeReload: () => controller.flush() });
+// 界面语言：顶栏的按钮直接换（语言名用各自的写法，不翻译）；导入语言文件等在「设置」里
 const langBtn = $('lang-btn');
 const langShort = code => (code === 'zh-CN' ? '中' : code.split('-')[0].toUpperCase());
 langBtn.append(icon('languages', 15), el('span', { class: 'lang-code', 'data-no-i18n': '' }, langShort(currentLanguage())));
@@ -148,8 +148,8 @@ createMenu(langBtn, {
       el('div', { class: 'menu-sep' }),
       item('auto', '跟随系统'),
       el('div', { class: 'menu-sep' }),
-      el('button', { class: 'menu-item', onclick: () => { close(); document.querySelector('.rp-top [data-tab="prefs"]')?.click(); } },
-        el('span', { class: 'menu-check' }, icon('settings-2', 14)), el('span', { class: 'menu-label' }, '导入语言文件…')));
+      el('button', { class: 'menu-item', role: 'menuitem', onclick: () => { close(); preferences.open(); } },
+        el('span', { class: 'menu-check' }, icon('upload', 14)), el('span', { class: 'menu-label' }, '导入语言文件…')));
   },
 });
 // 版本号（logo 右边）
@@ -226,7 +226,7 @@ const importing = createImporting({
   overlay: $('drop-overlay'),
   dropLabel: $('drop-label'),
   onProjectFile: importProject,
-  onLayoutFile: file => { settings.showTab('mine'); presetsPanel.importFile(file); },
+  onLayoutFile: file => { settings.showPresets(); presetsPanel.importFile(file); },
   // 粘贴的图片 / SVG 成为图层后：选中它们，切回选择工具
   onLayersAdded: ids => { setTool('select'); clearSelection(); layerTools.select(ids); },
 });
@@ -335,28 +335,19 @@ const leftTabs = (() => {
 
 // 左栏顶部：当前画板的图片来源（跟随图集 / 单独设置）
 const slidesMode = $('slides-mode');
+const slidesSharing = $('slides-sharing');
 function renderSlidesMode(s) {
   const boards = boardsOf(s);
   const album = albumOf(s);
-  // 图片列表标题：正在显示哪个图集
-  const shown = browsedAlbum(s) || (!s.slidesOwn ? album : null);
-  $('slides-subtitle').textContent = shown ? shown.name : '此画板的图片';
-  $('slides-subtitle').title = shown ? `图集「${shown.name}」里的图片` : '这个画板单独设置的图片列表';
   const following = boards.filter(b => !b.settings.slidesOwn && albumOf(s, b.settings.albumId)?.id === album?.id).length;
   const browsing = browsedAlbum(s);
-  if (browsing) {
-    // 查看别的图集：画板不变；拖图片到卡片上只替换那一张
-    slidesMode.hidden = false;
-    slidesMode.className = 'slides-mode browse';
-    slidesMode.replaceChildren(
-      el('span', { class: 'sm-text', title: '点图集只是查看：把图片拖到画布的卡片上，只替换那一张；拖到上面别的图集上，移动过去（按住 Alt 复制）' },
-        icon('images', 14), `正在查看「${browsing.name}」· 拖图片到卡片上替换单张`),
-      el('button', { class: 'btn ghost small', title: `当前画板（多选时所选画板）换成图集「${browsing.name}」`, onclick: () => { actions.setBoardAlbum(browsing.id); setBrowse(null); toast(`已换成图集「${browsing.name}」`); } }, '用于当前画板'),
-      el('button', { class: 'btn ghost small', title: `回到当前画板的图集「${album?.name}」`, onclick: () => setBrowse(null) }, '返回'),
-    );
-    return;
+  slidesSharing.hidden = !!browsing || s.slidesOwn || boards.length <= 1;
+  if (!slidesSharing.hidden) {
+    const usage = `${following} 个画板在用这个图集`;
+    slidesSharing.title = usage;
+    slidesSharing.setAttribute('aria-label', usage);
   }
-  if (s.slidesOwn) {
+  if (!browsing && s.slidesOwn) {
     slidesMode.hidden = false;
     slidesMode.className = 'slides-mode own';
     slidesMode.replaceChildren(
@@ -365,11 +356,6 @@ function renderSlidesMode(s) {
       el('button', { class: 'btn ghost small', title: `改回跟随图集「${album?.name}」（这个画板单独的顺序和替换会丢失）`, onclick: () => { actions.followLibrary(); toast('已恢复跟随图集'); } }, '恢复跟随'),
       el('button', { class: 'btn ghost small', title: `把这个画板的图片列表存回图集「${album?.name}」，用这个图集的画板一起更新`, onclick: () => { actions.shareBoardSlides(); toast(`已更新图集「${album?.name}」`); } }, '存回图集'),
     );
-  } else if (boards.length > 1) {
-    slidesMode.hidden = false;
-    slidesMode.className = 'slides-mode';
-    slidesMode.replaceChildren(el('span', { class: 'sm-text', title: '这里的修改会同步到用这个图集的所有画板；在画布上单独替换 / 移除某张卡片时，只改那个画板' },
-      icon('images', 14), `${following} 个画板在用这个图集`));
   } else {
     slidesMode.hidden = true;
   }
@@ -405,12 +391,11 @@ const settings = createSettingsPanel($('settings-panel'), {
     dropTarget: 'background',
   },
   // 从工具条「更多背景 / 遮罩设置」跳过来时，先取消选择，回到画板设置
-  beforeReload: () => controller.flush(),
   onBoardRequest: () => { clearSelection(); layerTools?.clear(); },
   layoutPreview: exporting.layoutPreview,
 });
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
-  store, actions, snapshot: exporting.snapshot, toast, download: exporting.download, footer: settings.presetsFooter, saveFooter: settings.designFooter,
+  store, actions, snapshot: exporting.snapshot, toast, download: exporting.download, saveFooter: settings.designFooter,
   onCount: n => settings.setPresetCount(n),
 });
 const topbarMenus = createTopbarMenus($('board-bar'), {
@@ -423,9 +408,9 @@ const topbarMenus = createTopbarMenus($('board-bar'), {
   onDeleteSelected: () => boards.deleteBoards(),
   onFitAll: ws.fitAll,
 });
-// 顶栏：导出尺寸 + 复制时的透明背景开关（与导出的透明设置相互独立）
-const sizePicker = createSizePicker($('size-picker'), { store, actions, canvasOf });
+// 顶栏：复制时的透明背景开关（与导出的透明设置相互独立）
 const copyTransparentBtn = Object.assign(document.createElement('button'), { className: 'eg-toggle', type: 'button' });
+copyTransparentBtn.setAttribute('aria-label', '复制透明背景');
 copyTransparentBtn.append(Object.assign(document.createElement('span'), { className: 'checker-swatch' }));
 copyTransparentBtn.addEventListener('click', () => actions.setExport('copyTransparent', !store.get().exportOpts.copyTransparent));
 $('copy-btn').before(copyTransparentBtn);
@@ -440,7 +425,7 @@ refreshCopyTransparent(store.get().exportOpts);
 
 /* ---------------- 工具 ---------------- */
 
-const CARD_TOOLS = ['select', 'rotate', 'scale'];
+const CARD_TOOLS = ['select', 'rotate'];
 const SELECT_TOOLS = [...CARD_TOOLS, 'crop']; // 切换到这些工具时保留卡片选择
 // 工具是否可用：单张卡片调整（选择 / 旋转 / 比例）只用于平面版式
 function toolAvailability(id) {
@@ -467,6 +452,8 @@ function refreshTools() {
 }
 
 const toolbar = createToolbar($('app'), {
+  stage,
+  statusBar: $('status-bar'),
   onTool: setTool,
   availability: toolAvailability,
   onZoomIn: () => ws.zoomViewBy(1.25),
@@ -517,7 +504,7 @@ ws.hooks.editingLayer = layerTools.editingId;
 
 // 设备样机：样机页、拖到画板上、上传 PNG 样机（app/mockups.js）
 const mockups = createMockups({
-  ws, viewport, settingsSlot: settings.mockupSlot, importing, setTool, clearSelection,
+  ws, viewport, settingsSlot: settings.mockupSlot, settingsFooter: settings.mockupFooter, importing, setTool, clearSelection,
   getLayerTools: () => layerTools,
 });
 
@@ -612,7 +599,7 @@ function setMarquee(r) {
   if (r) Object.assign(marquee.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
 }
 
-// 选中卡片的缩放手柄：选择 / 旋转 / 比例工具下、平面版式中、只选中一张时显示
+// 选中卡片的缩放手柄：选择 / 旋转工具下、平面版式中、只选中一张时显示
 const resizeHandles = createResizeHandles(viewport, {
   getTarget: () => {
     if (ui.selected == null || ui.selection.length !== 1 || is3D() || ui.tempHand) return null;
@@ -706,7 +693,6 @@ const TOOL_HINTS = {
   select: '选择：拖动移动 · 拖角点缩放 · 拖角外侧旋转 · 空白处框选 · Shift/⌘ 加选 · ⌘A 全选 · 双击卡片复位 · 点画板名称选中画板（Delete 删除，右键重命名）',
   swap: '交换：把卡片拖到另一张上交换图片',
   rotate: '旋转：拖动卡片旋转 · Shift 按 15° 吸附',
-  scale: '比例：拖动以中心等比缩放 · Shift 按 5% 吸附',
   crop: '裁切：拖动卡片平移图片 · 滚轮放大缩小 · 双击复位 · 右键切换「完整显示」',
   text: '文字：单击 = 点状文字 · 拖动 = 区块文字（自动换行）· 输入完按 Esc 或点别处结束 · 双击文字可再次编辑',
   rect: '矩形：拖动绘制 · Shift 正方形 · ⌥ 从中心',
@@ -821,7 +807,6 @@ store.subscribe(s => {
   bgPicker.update(s);
   fadePicker.update(s);
   alignment.refreshSnap();
-  sizePicker.update(s);
   refreshCopyTransparent(s.exportOpts);
   exporting.popover.update(s);
   refreshTools();

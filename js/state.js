@@ -13,9 +13,16 @@ function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; }
 }
 
+function layoutParams(layout, saved = {}) {
+  const defaults = schemaDefaults(layout.params);
+  if (layout.id !== 'grid') return { ...defaults, ...saved };
+  const { centerLast, ...params } = saved;
+  return { ...defaults, ...(centerLast === false ? { lastRowAlign: 'left' } : {}), ...params };
+}
+
 const defaultParams = (saved = {}) => {
   const params = {};
-  for (const l of layouts) params[l.id] = { ...schemaDefaults(l.params), ...(saved[l.id] || {}) };
+  for (const l of layouts) params[l.id] = layoutParams(l, saved[l.id] || {});
   return params;
 };
 
@@ -659,7 +666,7 @@ export const actions = {
       const style = p.style ? { ...s.style, ...p.style, bgImageId: s.style.bgImageId } : s.style;
       return {
         layoutId: layout.id,
-        params: { ...s.params, [layout.id]: { ...schemaDefaults(layout.params), ...(p.params || {}) } },
+        params: { ...s.params, [layout.id]: layoutParams(layout, p.params || {}) },
         adjust: { ...s.adjust, [layout.id]: { ...(p.adjust || {}) } },
         camera: { ...DEFAULT_CAMERA, ...(p.camera || {}) },
         aspect,

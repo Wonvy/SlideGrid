@@ -26,7 +26,7 @@ export default {
     { key: 'groupGap', label: '组间距', type: 'range', min: 0, max: 400, default: 70 },
     { key: 'raise', label: '自动翻起', type: 'range', min: 0, max: 8, default: 0, format: v => (v > 0 ? `中间 ${Math.round(v)} 张` : '不自动') },
     { key: 'angle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°' },
-    { key: 'height', label: '浮起高度', type: 'range', min: 0, max: 300, default: 36 },
+    { key: 'height', label: '浮起高度', type: 'range', min: 0, max: 300, default: 0 },
     { key: 'edge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES },
     { key: 'tilt', label: '俯视角度', type: 'range', min: 0, max: 80, default: 40, unit: '°' },
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },

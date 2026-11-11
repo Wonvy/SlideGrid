@@ -5,7 +5,7 @@ import { DEG } from '../core/utils.js';
  * 在矩形区域内按列数排网格，整体等比缩放以完全放入区域并居中。
  * 返回 { items, bw, bh, cw, ch }，bw/bh 为网格整体宽高。
  */
-export function gridInRect({ count, cols, aspect, gap, w, h, cx = 0, cy = 0, centerLast = true, start = 0 }) {
+export function gridInRect({ count, cols, aspect, gap, w, h, cx = 0, cy = 0, lastRowAlign = 'center', start = 0 }) {
   const items = [];
   if (count <= 0) return { items, bw: 0, bh: 0, cw: 0, ch: 0 };
   cols = Math.max(1, Math.min(Math.round(cols), count));
@@ -21,11 +21,12 @@ export function gridInRect({ count, cols, aspect, gap, w, h, cx = 0, cy = 0, cen
   const bw = cols * cw + (cols - 1) * gap;
   const bh = rows * ch + (rows - 1) * gap;
   const top = cy + bh / 2;
+  const align = lastRowAlign === 'left' ? 0 : lastRowAlign === 'right' ? 1 : 0.5;
   for (let k = 0; k < count; k++) {
     const r = Math.floor(k / cols), c = k % cols;
     const inRow = r === rows - 1 ? count - r * cols : cols;
     const rowW = inRow * cw + (inRow - 1) * gap;
-    const left = cx - (centerLast ? rowW : bw) / 2;
+    const left = cx - bw / 2 + (bw - rowW) * align;
     items.push({ i: start + k, x: left + c * (cw + gap) + cw / 2, y: top - r * (ch + gap) - ch / 2, w: cw, h: ch });
   }
   return { items, bw, bh, cw, ch };
@@ -109,7 +110,7 @@ export const RAISE_EDGES = [
 export const raiseCardParams = [
   { key: 'raise', label: '抬起', type: 'select', default: 'auto', options: [{ value: 'auto', label: '跟随版式' }, { value: 'up', label: '抬起' }, { value: 'flat', label: '放平' }] },
   { key: 'raiseAngle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°', show: v => v.raise === 'up' },
-  { key: 'raiseHeight', label: '浮起高度', type: 'range', min: 0, max: 400, default: 36, show: v => v.raise === 'up' },
+  { key: 'raiseHeight', label: '浮起高度', type: 'range', min: 0, max: 400, default: 0, show: v => v.raise === 'up' },
   { key: 'raiseEdge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES, show: v => v.raise === 'up' },
   { key: 'raiseTurn', label: '倾斜', type: 'range', min: -45, max: 45, default: 0, unit: '°', show: v => v.raise === 'up' },
 ];

@@ -13,12 +13,19 @@ export default {
     { key: 'cols', label: '列数', type: 'range', min: 1, max: 12, default: 3 },
     { key: 'gap', label: '间距', type: 'range', min: 0, max: 120, default: 28 },
     { key: 'margin', label: '边距', type: 'range', min: 0, max: 300, default: 90 },
-    { key: 'centerLast', label: '末行居中', type: 'toggle', default: true },
+    {
+      key: 'lastRowAlign', label: '末行对齐', type: 'select', default: 'center', segmented: true, iconInPanel: true,
+      options: [
+        { value: 'left', label: '左对齐', icon: 'align-left' },
+        { value: 'center', label: '居中', icon: 'align-center' },
+        { value: 'right', label: '右对齐', icon: 'align-right' },
+      ],
+    },
   ],
   compute({ n, aspect, W, H, p }) {
     const { items } = gridInRect({
       count: n, cols: p.cols, aspect, gap: p.gap,
-      w: W - 2 * p.margin, h: H - 2 * p.margin, centerLast: p.centerLast,
+      w: W - 2 * p.margin, h: H - 2 * p.margin, lastRowAlign: p.lastRowAlign ?? (p.centerLast === false ? 'left' : 'center'),
     });
     return { items, camera: { type: 'ortho' } };
   },

@@ -383,6 +383,7 @@
   <s k="近端位置">Near end</s>
   <s k="弧形墙">Curved wall</s>
   <s k="方向">Direction</s>
+  <s k="角度">Angle</s>
   <s k="内凹（环抱）">Concave (wrapping)</s>
   <s k="外凸">Convex</s>
   <s k="弧度">Curvature</s>
@@ -446,7 +447,7 @@
   <s k="倾斜铺满">Tilted full-bleed</s>
   <s k="规整网格">Regular grid</s>
   <s k="边距">Margin</s>
-  <s k="末行居中">Center last row</s>
+  <s k="末行对齐">Last row alignment</s>
   <s k="主图 + 网格">Hero + grid</s>
   <s k="主图位置">Hero position</s>
   <s k="左侧">Left</s>
@@ -590,6 +591,8 @@
   <s k="图集">Albums</s>
   <s k="背景图">Background image</s>
   <s k="更换版式">Change layout</s>
+  <s k="默认">Default</s>
+  <s k="空白">Blank</s>
   <s k="版式参数">Layout parameters</s>
   <s k="样式">Style</s>
   <s k="画布比例">Canvas ratio</s>
@@ -736,7 +739,7 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="将导出 {0} 个画板，打包为 ZIP（每个画板按自己的像素尺寸 × 倍率）">{0} artboards will be exported as a ZIP (each at its own pixel size × scale)</s>
   <s k="背景透明：导出 PNG 时保留透明">Transparent background: kept when exporting PNG</s>
   <s k="JPG 不支持透明，背景将以白色填充">JPG does not support transparency; the background will be filled with white</s>
-  <s k="倍率在左侧按钮里选择 · 画板像素在顶栏中间设置 · 点击「导出」开始">Pick the scale with the button on the left · set artboard pixels in the middle of the top bar · click "Export" to start</s>
+  <s k="画板像素在顶栏中间设置 · 点击「导出」开始">Set artboard pixels in the middle of the top bar · click "Export" to start</s>
   <s k="让幻灯片逐渐透明，融进背景">Fade the slides gradually into the background</s>
   <s k="调整方向、范围和不透明度…">Adjust direction, range and opacity…</s>
   <s k="渐隐遮罩：已开启（点击更换或关闭）">Fade mask: on (click to change or turn off)</s>
@@ -799,14 +802,13 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="PNG 样机：屏幕区域要是透明的（被外框包围），上传后自动识别屏幕。">PNG mockups: the screen area must be transparent (surrounded by the frame); the screen is detected automatically after upload.</s>
   <s k="点击把设备加到当前画板中间。选中样机后，拖它下方的圆形手柄可以转动角度（双击手柄回到正面，按住 ⌥ 直接拖样机也可以）。把图片或左栏的幻灯片拖到样机上即可更换屏幕内容；其他属性在「设计」页修改。">Click to add a device to the middle of the current artboard. With a mockup selected, drag the round handle below it to turn it (double-click the handle for the front view; holding ⌥ and dragging the mockup works too). Drop an image or a slide from the left panel onto the mockup to change its screen; other properties are in the Design tab.</s>
   <s k="在「设计」页底部">at the bottom of the Design tab,</s>
-  <s k="还没有保存的版式。调好版式参数、用移动 / 旋转工具摆好卡片后，{0}点「保存当前版式」。">No saved layouts yet. Set up the layout parameters, arrange the cards with the move / rotate tools, then {0}click "Save current layout".</s>
+  <s k="还没有保存的版式。在「设计」页底部点「保存当前版式」。">No saved layouts yet. Select "Save current layout" at the bottom of the Design tab.</s>
   <s k="版式名称">Layout name</s>
   <s k="同时保存样式（背景、圆角、投影）">Also save the style (background, corner radius, shadow)</s>
   <s k="同时保存画布比例">Also save the canvas ratio</s>
   <s k="保存">Save</s>
   <s k="把当前版式、参数、卡片调整和视图保存为模板">Save the current layout, parameters, card adjustments and view as a template</s>
   <s k="保存当前版式">Save current layout</s>
-  <s k="在「设计」页底部保存当前版式">Save the current layout at the bottom of the Design tab</s>
   <s k="导入版式文件（.json）">Import layout file (.json)</s>
   <s k="导出全部版式">Export all layouts</s>
   <s k="已保存版式「{0}」">Layout "{0}" saved</s>
@@ -921,8 +923,7 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="拖动调整宽度，双击恢复默认">Drag to resize, double-click to reset</s>
   <s k="设计">Design</s>
   <s k="版式">Layouts</s>
-  <s k="偏好">Preferences</s>
-  <s k="偏好（滚轮等操作习惯）">Preferences (scroll wheel and other habits)</s>
+  <s k="设置">Settings</s>
   <s k="只保留当前画板，退出批量编辑">Keep only the current artboard and leave batch editing</s>
   <s k="只编辑当前">Edit current only</s>
   <s k="单击应用 · 双击应用并调参数">Click to apply · double-click to apply and adjust parameters</s>
@@ -989,6 +990,8 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="单击放大视图，按住 ⌥ 单击缩小（Ctrl/⌘ + 滚轮也可以）">Click to zoom in, ⌥-click to zoom out (Ctrl/⌘ + scroll also works)</s>
   <s k="点击切换画板，拖动移动画板位置（按住 ⌥ 拖动 = 复制），⌘D 复制，Delete 删除画板">Click to switch artboards, drag to move an artboard (⌥-drag = duplicate), ⌘D duplicates, Delete removes the artboard</s>
   <s k="工具">Tools</s>
+  <s k="移动工具条">Move toolbar</s>
+  <s k="拖动工具条 · 双击复位 · 方向键移动，Home 复位">Drag to move toolbar · double-click to reset · arrow keys to move, Home to reset</s>
   <s k="视图缩放（不影响导出）· 点击 = 100%（⌘/Ctrl + 1）· 滚轮放大缩小">View zoom (does not affect export) · click = 100% (⌘/Ctrl + 1) · scroll to zoom</s>
   <s k="缩小视图（⌘/Ctrl + -）">Zoom out (⌘/Ctrl + -)</s>
   <s k="放大视图（⌘/Ctrl + =）">Zoom in (⌘/Ctrl + =)</s>
@@ -1009,7 +1012,7 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="高（像素）">Height (pixels)</s>
   <s k="横竖互换">Swap width and height</s>
   <s k="画板尺寸（当前为长图）">Artboard size (currently a long image)</s>
-  <s k="导出 1× 时就是这个像素；倍率在右上角选择">This is the pixel size at 1× export; pick the scale at the top right</s>
+  <s k="导出 1× 时就是这个像素；倍率在导出面板选择">This is the pixel size at 1× export. Pick the scale in the export panel.</s>
   <s k="{0}（保持短边 {1} px）">{0} (keeps the short side at {1} px)</s>
   <s k="常用比例">Common ratios</s>
   <s k="{0} × {1} 像素">{0} × {1} pixels</s>

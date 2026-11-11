@@ -17,13 +17,13 @@ export const MOCKUP_DRAG_TYPE = 'application/x-slidegrid-mockup';
  *   卡片可以拖到画板上：拖动数据类型为 DRAG_TYPE，放下时由 main.js 调用 drop(data, at) 加到放下的位置
  *   getSlide() → 缩略图屏幕里显示的图片；getCustom() → [{ frameAssetId, frameW, frameH, screen, name, frameImg }]
  */
-export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddCustom, getCustom = () => [] }) {
+export function createMockupPanel(container, footer, { onAdd, getSlide, onUpload, onAddCustom, getCustom = () => [] }) {
   let frame = 'dark';
   try { if (localStorage.getItem(FRAME_KEY) in FRAMES) frame = localStorage.getItem(FRAME_KEY); } catch { /* 忽略 */ }
 
   const frameBtns = new Map();
-  const seg = el('div', { class: 'seg' }, Object.entries(FRAMES).map(([id, f]) => {
-    const b = el('button', { type: 'button', class: 'seg-btn', title: f.label }, f.label);
+  const framePicker = el('div', { class: 'mockup-finishes' }, Object.entries(FRAMES).map(([id, f]) => {
+    const b = el('button', { type: 'button', class: 'mockup-finish', title: f.label, 'aria-label': f.label, style: `--finish-color: ${f.body}` });
     b.addEventListener('click', () => {
       frame = id;
       try { localStorage.setItem(FRAME_KEY, id); } catch { /* 忽略 */ }
@@ -52,8 +52,9 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   let device = 'laptop';
   try { if (localStorage.getItem(DEVICE_KEY) in DEVICES) device = localStorage.getItem(DEVICE_KEY); } catch { /* 忽略 */ }
   const deviceBtns = new Map();
-  const devicePicker = el('div', { class: 'mockup-devices', role: 'tablist' }, Object.entries(DEVICES).map(([id, d]) => {
-    const b = el('button', { type: 'button', class: 'mockup-device', title: d.label, 'aria-label': d.label }, icon(d.icon, 18), el('span', {}, d.label.replace('（横）', ' 横')));
+  const devicePicker = el('div', { class: 'mockup-devices', role: 'group', 'aria-label': '设备' }, Object.entries(DEVICES).map(([id, d]) => {
+    const b = el('button', { type: 'button', class: 'mockup-device', 'aria-label': d.label },
+      icon(d.icon, 30), el('span', { class: 'mockup-device-label' }, d.label.replace('（横）', ' 横')));
     b.addEventListener('click', () => {
       device = id;
       try { localStorage.setItem(DEVICE_KEY, id); } catch { /* 忽略 */ }
@@ -71,7 +72,10 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     return { p, canvas, card: b };
   });
   function showDevice() {
-    deviceBtns.forEach((b, id) => b.classList.toggle('active', id === device));
+    deviceBtns.forEach((b, id) => {
+      b.classList.toggle('active', id === device);
+      b.setAttribute('aria-pressed', String(id === device));
+    });
     cards.forEach(c => { c.card.hidden = c.p.device !== device; });
   }
 
@@ -86,12 +90,14 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   container.append(
     el('div', { class: 'ctrls' },
       el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '设备'), devicePicker),
-      el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '外观'), seg),
-      el('div', { class: 'ctrl stacked' }, el('label', { class: 'ctrl-label' }, '风格'), lookSeg)),
+      el('div', { class: 'ctrl mockup-option-row' }, el('label', { class: 'ctrl-label' }, '外观'), framePicker),
+      el('div', { class: 'ctrl mockup-option-row' }, el('label', { class: 'ctrl-label' }, '风格'), lookSeg)),
     el('div', { class: 'mockup-grid' }, cards.map(c => c.card)),
     uploadBtn, fileInput,
-    el('p', { class: 'note pane-hint' }, 'PNG 样机：屏幕区域要是透明的（被外框包围），上传后自动识别屏幕。'),
     customHead, customGrid,
+  );
+  footer.append(
+    el('p', { class: 'note pane-hint' }, 'PNG 样机：屏幕区域要是透明的（被外框包围），上传后自动识别屏幕。'),
     el('p', { class: 'note pane-hint' }, '点击把设备加到当前画板中间。选中样机后，拖它下方的圆形手柄可以转动角度（双击手柄回到正面，按住 ⌥ 直接拖样机也可以）。把图片或左栏的幻灯片拖到样机上即可更换屏幕内容；其他属性在「设计」页修改。'),
   );
 
@@ -154,7 +160,7 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
   }
 
   function refresh() {
-    frameBtns.forEach((b, id) => b.classList.toggle('active', id === frame));
+    frameBtns.forEach((b, id) => b.setAttribute('aria-pressed', String(id === frame)));
     lookBtns.forEach((b, id) => b.classList.toggle('active', id === look));
     cards.forEach(draw);
     renderCustom();

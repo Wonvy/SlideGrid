@@ -8,18 +8,36 @@ import { createMenu } from './menu.js';
  *   返回 { node, set(value), value() }
  * 点击打开一列菜单（当前项打勾）；获得焦点时 ↑ / ↓ 直接换上一个 / 下一个，Enter / 空格打开。
  */
-export function dropdown({ options, onChange, title = null, className = '' }) {
+export function dropdown({ options, onChange, title = null, className = '', previews = false }) {
   let current = options[0]?.value;
   const label = el('span', { class: 'select-label' });
-  const node = el('button', { type: 'button', class: `select select-btn ${className}`.trim(), title, 'aria-haspopup': 'listbox' }, label, icon('chevron-down', 13));
+  const updatePreview = (preview, value) => {
+    preview.dataset.preview = previews === true ? value : `${previews}-${value}`;
+    if (previews === 'aspect') {
+      const [w, h] = value.split(':').map(Number);
+      preview.style.setProperty('--preview-aspect', w > 0 && h > 0 ? w / h : 4 / 3);
+    }
+  };
+  const makePreview = (value, small = false) => {
+    const grid = previews === 'order' ? el('span', { class: 'select-preview-order' },
+      Array.from({ length: 9 }, () => el('span'))) : null;
+    const preview = el('span', { class: small ? 'select-preview select-preview-current' : 'select-preview', 'aria-hidden': 'true' }, grid);
+    updatePreview(preview, value);
+    return preview;
+  };
+  const thumbnail = previews ? makePreview(current, true) : null;
+  const node = el('button', { type: 'button', class: `select select-btn ${className}`.trim(), title, 'aria-haspopup': 'listbox' }, thumbnail, label, icon('chevron-down', 13));
   const labelOf = v => options.find(o => o.value === v)?.label ?? '';
   const menu = createMenu(node, {
-    className: 'select-menu',
+    className: previews ? 'select-menu select-preview-grid' : 'select-menu',
+    align: previews ? 'right' : 'left',
+    flip: !!previews,
     render(pop, close) {
-      pop.style.minWidth = `${Math.round(node.getBoundingClientRect().width)}px`;
+      if (!previews) pop.style.minWidth = `${Math.round(node.getBoundingClientRect().width)}px`;
       pop.replaceChildren(...options.map(o => {
         const item = el('button', { class: `menu-item${o.value === current ? ' active' : ''}`, role: 'option', 'aria-selected': o.value === current ? 'true' : 'false' },
-          el('span', { class: 'menu-check' }, o.value === current ? icon('check', 14) : null),
+          previews ? makePreview(o.value)
+            : el('span', { class: 'menu-check' }, o.value === current ? icon('check', 14) : null),
           el('span', { class: 'menu-label' }, o.label));
         item.addEventListener('click', () => { close(); if (o.value !== current) onChange(o.value); });
         return item;
@@ -39,6 +57,10 @@ export function dropdown({ options, onChange, title = null, className = '' }) {
   const set = v => {
     current = v;
     label.textContent = labelOf(v);
+    if (thumbnail) {
+      updatePreview(thumbnail, v);
+      if (!title) node.title = label.textContent;
+    }
     menu.refresh();
   };
   set(current);

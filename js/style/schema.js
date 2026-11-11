@@ -77,7 +77,7 @@ export function cardAspect(style, slides) {
 export const styleSchema = [
   { group: '背景' },
   {
-    key: 'bgType', label: '类型', type: 'select', default: 'radial',
+    key: 'bgType', label: '类型', type: 'select', default: 'radial', previews: true,
     options: [
       { value: 'transparent', label: '透明' },
       { value: 'solid', label: '纯色' },
@@ -115,12 +115,12 @@ export const styleSchema = [
   // 图片分配到卡片的顺序：按版式（从第一个位置开始循环）；或先填满画板里看得见的卡片（左上开始 / 中心开始），
   // 这样可见区域里尽量不出现重复的图片，画板外的卡片再接着用剩下的
   {
-    key: 'slideOrder', label: '图片顺序', type: 'select', default: 'center',
+    key: 'slideOrder', label: '图片顺序', type: 'select', default: 'center', segmented: false, previews: 'order',
     options: [{ value: 'layout', label: '按版式' }, { value: 'visible', label: '左上开始' }, { value: 'center', label: '中心开始' }],
   },
   // 卡片比例：默认跟随图片；也可以固定成某个比例（竖版、4:3…）或自己填
   {
-    key: 'cardAspect', label: '卡片比例', type: 'select', default: 'auto',
+    key: 'cardAspect', label: '卡片比例', type: 'select', default: 'auto', previews: 'aspect',
     title: '卡片的宽高比。「跟随图片」取图片里最常见的比例；比例不一样的图片会被裁切（可以在卡片上改成完整显示）',
     options: [{ value: 'auto', label: '跟随图片' }, ...CARD_ASPECTS.map(v => ({ value: v, label: `${v}${Number(v.split(':')[0]) < Number(v.split(':')[1]) ? '（竖版）' : ''}` })), { value: 'custom', label: '自定义…' }],
   },
@@ -130,16 +130,16 @@ export const styleSchema = [
   // 厚度：卡片向背面延伸成一块板（转动视角、3D 版式里看得到侧边）。侧边的颜色取图片最靠边的颜色，或者自己指定
   { key: 'thickness', label: '厚度', type: 'range', min: 0, max: 80, default: 0, title: '卡片的厚度：3D 版式、或者用右上角的立方体转动视角后看得到侧边' },
   {
-    key: 'sideMode', label: '侧边颜色', type: 'select', default: 'edge', show: s => s.thickness > 0,
+    key: 'sideMode', label: '侧边颜色', type: 'select', default: 'edge', half: true, previews: 'side', show: s => s.thickness > 0,
     options: [{ value: 'edge', label: '延伸图片边缘' }, { value: 'color', label: '指定颜色' }],
   },
+  { key: 'borderWidth', label: '描边', type: 'range', min: 0, max: 30, default: 0, half: true },
   { key: 'sideColor', label: '侧边', type: 'color', default: '#d9dbe0', show: s => s.thickness > 0 && s.sideMode === 'color' },
-  { key: 'borderWidth', label: '描边', type: 'range', min: 0, max: 30, default: 0 },
   { key: 'borderColor', label: '描边颜色', type: 'color', default: '#ffffff', show: s => s.borderWidth > 0 },
 
   { group: '渐隐遮罩' },
   {
-    key: 'fadeType', label: '类型', type: 'select', default: 'none',
+    key: 'fadeType', label: '类型', type: 'select', default: 'none', segmented: false, previews: 'fade',
     options: [
       { value: 'none', label: '无' },
       { value: 'solid', label: '单色' },
@@ -158,6 +158,7 @@ export const styleSchema = [
   { key: 'shadowOpacity', label: '不透明度', type: 'range', min: 0, max: 1, step: 0.01, default: 0.45 },
   { key: 'shadowBlur', label: '模糊', type: 'range', min: 0, max: 120, default: 36 },
   { key: 'shadowY', label: '偏移', type: 'range', min: -60, max: 120, default: 16 },
+  { key: 'shadowAngle', label: '角度', type: 'range', min: 0, max: 360, default: 180, unit: '°' },
   { key: 'shadowColor', label: '颜色', type: 'color', default: '#000000' },
 ];
 

@@ -67,7 +67,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     const s = store.get();
     const p = s.params[s.layoutId] || {};
     const a = cardAdjust(order);
-    return { raise: a.raise || 'auto', raiseAngle: a.raiseAngle ?? p.angle ?? 58, raiseHeight: a.raiseHeight ?? p.height ?? 36, raiseEdge: a.raiseEdge ?? p.edge ?? 'bottom', raiseTurn: a.raiseTurn ?? 0 };
+    return { raise: a.raise || 'auto', raiseAngle: a.raiseAngle ?? p.angle ?? 58, raiseHeight: a.raiseHeight ?? p.height ?? 0, raiseEdge: a.raiseEdge ?? p.edge ?? 'bottom', raiseTurn: a.raiseTurn ?? 0 };
   };
   function renderRaise(cards) {
     const schema = cardParams?.() || null;

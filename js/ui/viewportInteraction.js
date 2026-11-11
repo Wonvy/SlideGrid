@@ -110,7 +110,7 @@ export function attachViewportInteraction(target, opts) {
     const r = target.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
   };
-  const cardTools = new Set(['select', 'rotate', 'scale']);
+  const cardTools = new Set(['select', 'rotate']);
   const isAdditive = e => e.shiftKey || e.metaKey || e.ctrlKey;
   const deselectAll = () => { setSelection([]); layers?.clear(); selectBoards([activeBoard()]); setUi('boardPicked', false); };
 
@@ -155,7 +155,7 @@ export function attachViewportInteraction(target, opts) {
     const key = e.key.toLowerCase();
     if (key === 'o' && e.shiftKey) { setTool('artboard'); return; }
     const TOOL_KEYS = {
-      v: 'select', c: 'crop', x: 'swap', s: 'scale', o: 'orbit', h: 'hand', z: 'zoom',
+      v: 'select', c: 'crop', x: 'swap', o: 'orbit', h: 'hand', z: 'zoom',
       t: 'text', m: 'rect', l: 'ellipse', p: 'pen', a: 'direct', '\\': 'line',
     };
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
@@ -180,7 +180,7 @@ export function attachViewportInteraction(target, opts) {
       each(a => scaled(a, e.key === '-' || e.key === '_' ? 1 - step : 1 + step));
       return;
     }
-    // 方向键：选择工具移动、旋转工具旋转、比例工具缩放
+    // 方向键：选择工具移动、旋转工具旋转
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
     if (!arrows[e.key]) return;
     e.preventDefault();
@@ -188,10 +188,8 @@ export function attachViewportInteraction(target, opts) {
     if (tool === 'select') {
       const step = e.shiftKey ? 10 : 1;
       each(a => ({ dx: a.dx + ax * step, dy: a.dy + ay * step }));
-    } else if (tool === 'rotate') {
-      each(a => ({ rz: normAngle(a.rz - (ax || -ay) * (e.shiftKey ? 15 : 1)) }));
     } else {
-      each(a => scaled(a, 1 + (ax || ay) * (e.shiftKey ? 0.01 : 0.05)));
+      each(a => ({ rz: normAngle(a.rz - (ax || -ay) * (e.shiftKey ? 15 : 1)) }));
     }
   });
   window.addEventListener('keyup', e => {
@@ -224,7 +222,6 @@ export function attachViewportInteraction(target, opts) {
     if (!toolAvailable(tool)) return 'not-allowed';
     if (tool === 'select') return 'move';
     if (tool === 'rotate') return ROTATE_CURSOR;
-    if (tool === 'scale') return 'nwse-resize';
     return 'default';
   }
   function updateCursor() {
@@ -387,7 +384,6 @@ export function attachViewportInteraction(target, opts) {
             const [cx, cy] = itemCenterClient(hit);
             Object.assign(extra, {
               cx, cy, prevA: Math.atan2(e.clientY - cy, e.clientX - cx), turned: 0,
-              d0: Math.hypot(e.clientX - cx, e.clientY - cy) || 1,
             });
             if (mode === 'move') Object.assign(extra, { startRect: selectionRect(sel), targets: cardTargets(sel) });
           }
@@ -411,7 +407,7 @@ export function attachViewportInteraction(target, opts) {
       const b = boardAt(e.clientX, e.clientY);
       const lc = layers && !spaceDown ? layers.hover(e, effectiveTool(), b) : null;
       if (lc) { setHover(null); target.style.cursor = lc; return; }
-      const showHover = b && b === activeBoard() && ['select', 'crop', 'swap', 'rotate', 'scale'].includes(effectiveTool());
+      const showHover = b && b === activeBoard() && ['select', 'crop', 'swap', 'rotate'].includes(effectiveTool());
       setHover(showHover ? pick(e.clientX, e.clientY) : null);
       updateCursor();
       return;
@@ -503,17 +499,6 @@ export function attachViewportInteraction(target, opts) {
           let rz = normAngle(adj.rz - drag.turned); // 屏幕 y 向下，顺时针为负
           if (e.shiftKey) rz = Math.round(rz / 15) * 15;
           return { order: o, patch: { rz, lift: drag.lift } };
-        }));
-        break;
-      }
-      case 'scale': {
-        // 以卡片中心等比缩放：按指针到中心的距离变化
-        const k = Math.hypot(e.clientX - drag.cx, e.clientY - drag.cy) / drag.d0;
-        if (first) drag.lift = nextLift();
-        setItemAdjusts(drag.items.map(({ o, adj }) => {
-          let s = clamp((adj.s > 0 ? adj.s : 1) * k, 0.1, 8);
-          if (e.shiftKey) s = Math.round(s * 20) / 20; // Shift 按 5% 吸附
-          return { order: o, patch: { s, lift: drag.lift } };
         }));
         break;
       }

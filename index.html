@@ -17,7 +17,6 @@
       <!-- 左边：应用（logo、版本号）· 项目（名称、保存状态） -->
       <div class="topbar-left">
         <div class="brand"><span class="logo" data-icon="layout-grid" data-icon-size="13"></span><span class="brand-name">SlideGrid</span><span class="version" id="app-version"></span></div>
-        <span class="topbar-divider"></span>
         <button class="project-btn" id="project-btn" data-icon="folder-kanban" aria-haspopup="menu" title="项目：重命名、新建、打开、导入、导出">
           <span class="project-title" id="project-title">…</span>
           <span class="caret" data-icon="chevron-down" data-icon-size="14"></span>
@@ -36,9 +35,9 @@
       <div class="topbar-right">
         <button class="lang-btn" id="lang-btn" type="button" title="界面语言" aria-haspopup="menu"></button>
         <button class="icon-btn visible theme-btn" id="theme-btn" aria-label="切换深色 / 浅色"></button>
-        <div class="export-group">
-          <div class="size-picker" id="size-picker" title="导出尺寸：普通画布为长边，长图为宽度"></div>
-          <button class="eg-btn" id="copy-btn" data-icon="clipboard-copy" data-icon-size="15" title="把当前画板按所选尺寸复制为 PNG">复制</button>
+        <button class="icon-btn visible" id="settings-btn" type="button" data-icon="settings" data-icon-size="16" title="设置" aria-label="设置" aria-haspopup="dialog" aria-controls="preferences-dialog"></button>
+        <div class="export-group" role="group" aria-label="复制">
+          <button class="eg-btn" id="copy-btn" type="button" title="把当前画板按所选尺寸复制为 PNG">复制</button>
         </div>
         <button class="btn primary" id="export-btn" data-icon="download">导出</button>
       </div>
@@ -58,9 +57,9 @@
       <div class="v-split album-splitter" id="album-splitter" title="上下拖动调整图集区域的高度（双击恢复）"></div>
       <!-- 当前画板的图片来源：跟随图集 / 单独设置（js/main.js 更新） -->
       <div class="slides-mode" id="slides-mode" hidden></div>
-      <!-- 图片列表的标题行：正在显示哪个图集、张数、显示方式 -->
+      <!-- 图片列表工具行：共享提示、张数、显示方式 -->
       <div class="slides-subhead">
-        <span class="sh-title" id="slides-subtitle">图片</span>
+        <span class="sh-sharing" id="slides-sharing" role="img" data-icon="images" data-icon-size="14" hidden></span>
         <span class="sh-count" id="slides-foot"></span>
         <span class="bar-spacer"></span>
         <div class="view-toggle" role="group" aria-label="显示方式">
@@ -71,13 +70,12 @@
 
       <div class="slides-scroll">
         <div class="dropzone" id="dropzone">
-          <div class="dz-icon" data-icon="images" data-icon-size="32"></div>
+          <div class="dz-actions">
+            <button class="btn" data-action="pick-files" data-icon="image-plus" data-icon-size="40" title="选择图片" aria-label="选择图片"></button>
+            <button class="btn" data-action="pick-folder" data-icon="folder-open" data-icon-size="40" title="选择文件夹" aria-label="选择文件夹"></button>
+          </div>
           <div class="dz-title">拖入图片或文件夹</div>
           <div class="dz-sub">图片只在本地处理，不会上传</div>
-          <div class="dz-actions">
-            <button class="btn" data-action="pick-files" data-icon="image-plus" data-icon-size="20" title="选择图片" aria-label="选择图片"></button>
-            <button class="btn" data-action="pick-folder" data-icon="folder-open" data-icon-size="20" title="选择文件夹" aria-label="选择文件夹"></button>
-          </div>
           <div class="dz-compact" data-icon="plus" data-icon-size="14" title="点击选择图片，或把图片 / 文件夹拖进来">拖入或点击添加更多</div>
         </div>
         <ol class="slide-list" id="slide-list"></ol>
@@ -105,10 +103,12 @@
         <canvas id="gl-canvas"></canvas>
         <canvas id="fg-canvas"></canvas>
       </div>
-      <div class="stage-hint" id="stage-hint"></div>
     </main>
 
     <aside class="sidebar right" id="settings-panel"></aside>
+    <footer class="status-bar" id="status-bar">
+      <div class="stage-hint" id="stage-hint"></div>
+    </footer>
   </div>
 
   <div class="drop-overlay" id="drop-overlay">

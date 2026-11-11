@@ -21,6 +21,7 @@ import hero from './flat/hero.js';
 import { staggered, tilted } from './flat/fill.js';
 import scatter from './flat/scatter.js';
 import fan from './flat/fan.js';
+import blank from './flat/blank.js';
 import isoWall from './3d/isoWall.js';
 import corridor from './3d/corridor.js';
 import cylinder from './3d/cylinder.js';
@@ -36,7 +37,7 @@ import { withDepthFx } from './helpers.js';
 // 其他 3D 版式也可以加远处渐隐 / 景深（等距展台、分组展台、满铺堆叠自己带了这几项，另外还有桌面投影）；
 // 景深感强的版式（空中飘落、纵深层叠）默认开一点
 const D = withDepthFx;
-export const layouts = [grid, hero, staggered, tilted, scatter, fan, D(isoWall), D(corridor), D(cylinder), D(cascade, { dof: 0.35 }), D(carousel),
+export const layouts = [grid, hero, staggered, tilted, scatter, fan, blank, D(isoWall), D(corridor), D(cylinder), D(cascade, { dof: 0.35 }), D(carousel),
   D(floating), isoStage, isoGroups, D(tumble, { dof: 0.4 }), pile];
 
 // legacy：已并入另一个版式（值是那个版式的 id）的旧版式——版式列表里不再列出，用过它的画板、保存的版式照常使用

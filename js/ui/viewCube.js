@@ -14,7 +14,7 @@ import { icon } from './icons.js';
  *   「透视 / 正交」切换投影；「复位」回到版式默认视角
  * 视角存在画板的构图里（camera.q 四元数；pitch / yaw 是构图工具的转动，叠加在前面），导出和预览一致。
  */
-const SIZE = 54; // 立方体边长（像素）
+const SIZE = 36; // 立方体边长（像素）
 // 内容坐标：x 右、y 上、z 朝镜头。一般的版式「上」是 +y、「前」是 +z；
 // 桌面类版式（surface: 'table'）内容平面是桌面：「上」是 +z（俯视 = 正对卡片），「前」是靠近观众的 -y
 const FRAMES = {
@@ -33,7 +33,7 @@ const flipY = v => [v[0], -v[1], v[2]]; // 内容坐标（y 上）→ CSS（y �
 const cssMatrix = (cols, t = [0, 0, 0]) => `matrix3d(${[...flipY(cols[0]), 0, ...flipY(cols[1]), 0, ...flipY(cols[2]), 0, ...flipY(t), 1].map(v => +v.toFixed(6)).join(',')})`;
 
 export function createViewCube(host, { store, actions }) {
-  const cube = el('div', { class: 'vc-cube' });
+  const cube = el('div', { class: 'vc-cube', style: `--vc-size: ${SIZE}px` });
   let frameKey = '', frame = FRAMES.wall;
   function buildFaces(key) {
     frameKey = key;

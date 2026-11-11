@@ -5,16 +5,16 @@ import { attachWheel } from './wheel.js';
 import { SCALES, resolveScale, exportSize } from '../export/schema.js';
 
 /**
- * 顶栏的导出倍率：按钮显示「1× 1920 × 1080」（当前画板输出的像素），点击展开倍率菜单。
+ * 导出面板的倍率：按钮显示「1× 1920 × 1080」（当前画板输出的像素），点击展开倍率菜单。
  * 倍率 = 画板的像素尺寸 × 几倍（1× 就是画板原始像素）；也可以输入任意倍率。滚轮切换。
  * canvasOf(s) → 当前画板的 { W, H, long, px }
  */
 const fmtScale = v => `${Number(v.toFixed(2))}×`;
 
-export function createSizePicker(root, { store, actions, canvasOf }) {
+export function createSizePicker(root, { store, actions, canvasOf, onClose }) {
   const name = el('span', { class: 'sp-name' });
   const dims = el('span', { class: 'sp-dims' });
-  const btn = el('button', { class: 'sp-btn', 'aria-haspopup': 'menu' }, name, dims, icon('chevron-down', 12));
+  const btn = el('button', { type: 'button', class: 'sp-btn', 'aria-haspopup': 'menu' }, name, dims, icon('chevron-down', 12));
   root.replaceChildren(btn);
 
   const px = (s, scale) => {
@@ -26,6 +26,7 @@ export function createSizePicker(root, { store, actions, canvasOf }) {
   const menu = createMenu(btn, {
     className: 'size-menu',
     align: 'right',
+    onClose,
     render(pop, close) {
       const s = store.get();
       const cur = resolveScale(s.exportOpts);
@@ -37,7 +38,7 @@ export function createSizePicker(root, { store, actions, canvasOf }) {
           el('span', { class: 'size-check' }, active ? icon('check', 14) : null),
           el('span', { class: 'size-name' }, v === 1 ? '1× 原始像素' : fmtScale(v)),
           el('span', { class: 'size-px' }, px(s, v)));
-        item.addEventListener('click', () => { actions.setExport('scale', v); close(); });
+        item.addEventListener('click', () => { close(); actions.setExport('scale', v); });
         pop.append(item);
       }
       // 任意倍率
@@ -60,7 +61,7 @@ export function createSizePicker(root, { store, actions, canvasOf }) {
     },
   });
 
-  // 滚轮：在预设倍率之间切换（工具栏不会滚动，悬停即可）
+  // 滚轮：在预设倍率之间切换（悬停即可）
   attachWheel(btn, steps => {
     const cur = resolveScale(store.get().exportOpts);
     const i = SCALES.indexOf(cur);
@@ -76,5 +77,5 @@ export function createSizePicker(root, { store, actions, canvasOf }) {
     if (menu.isOpen() && document.activeElement !== custom) menu.refresh();
   }
   update(store.get());
-  return { update };
+  return { update, isOpen: menu.isOpen };
 }

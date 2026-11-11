@@ -150,7 +150,11 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
             seg.append(b);
             return b;
           });
-          render = v => btns.forEach((b, i) => b.classList.toggle('active', def.options[i].value === v));
+          render = v => btns.forEach((b, i) => {
+            const active = def.options[i].value === v;
+            b.classList.toggle('active', active);
+            b.setAttribute('aria-pressed', String(active));
+          });
           wheel = steps => {
             const idx = Math.max(0, def.options.findIndex(o => o.value === current));
             return def.options[Math.min(def.options.length - 1, Math.max(0, idx + steps))].value;
@@ -161,7 +165,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         }
         if (panel) row.classList.add('stacked');
         // 选项多 / 长：自绘的下拉框（ui/dropdown.js）
-        const dd = dropdown({ options: def.options, title: def.title || null, onChange: v => onChange(def.key, v) });
+        const dd = dropdown({ options: def.options, title: def.title || null, previews: def.previews, onChange: v => onChange(def.key, v) });
         render = v => dd.set(def.options.some(o => o.value === v) ? v : def.options[0]?.value);
         wheel = steps => {
           const idx = Math.max(0, def.options.findIndex(o => o.value === current));

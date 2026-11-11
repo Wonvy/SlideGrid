@@ -21,7 +21,7 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
   /* ---------- 画板 ---------- */
   const boardName = el('span', { class: 'tb-board-name' });
   const boardBtn = el('button', { class: 'topbar-btn', 'aria-haspopup': 'menu', title: '画板：切换、新建、复制、重命名、删除' },
-    icon('frame', 15), boardName, icon('chevron-down', 13));
+    boardName);
 
   const boardMenu = createMenu(boardBtn, {
     className: 'board-menu',
@@ -70,10 +70,9 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
 
   /* ---------- 画板尺寸（像素） ---------- */
   // 画板尺寸统一用像素：宽 × 高输入框、常用比例（保持当前短边）、平台尺寸、长图开关
-  const ratioShapeSlot = el('span', { class: 'ratio-slot' });
   const ratioText = el('span', { class: 'tb-ratio-text' });
   const ratioBtn = el('button', { class: 'topbar-btn', 'aria-haspopup': 'menu', title: '当前画板的尺寸（像素；悬停滚轮切换比例）' },
-    ratioShapeSlot, ratioText, icon('chevron-down', 13));
+    ratioText);
 
   const RATIOS = ASPECTS.filter(a => a.value);
   const ratioMatch = (id, a) => { const p = parsePixels(id); return !!p && Math.abs(p.w / p.h - a.value) < 0.002; };
@@ -109,7 +108,7 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
           el('label', { class: 'size-field' }, el('span', {}, '高'), h),
           el('span', { class: 'size-unit' }, 'px'),
           swap),
-        el('div', { class: 'size-note' }, '导出 1× 时就是这个像素；倍率在右上角选择'),
+        el('div', { class: 'size-note' }, '导出 1× 时就是这个像素；倍率在导出面板选择'),
       );
 
       // 2. 常用比例：保持当前短边
@@ -161,7 +160,6 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
       const board = s.artboards.find(b => b.id === s.activeBoard);
       const n = selectionOf(s).length;
       boardName.textContent = n > 1 ? `${board?.name || '画板'} 等 ${n} 个` : board?.name || '画板';
-      ratioShapeSlot.replaceChildren(ratioShape(s.aspect, 14));
       ratioText.textContent = aspectLabel(s.aspect);
       boardMenu.refresh();
       ratioMenu.refresh();

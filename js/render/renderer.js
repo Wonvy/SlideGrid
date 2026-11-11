@@ -1,6 +1,6 @@
 import { VERT, FRAG } from './shaders.js';
 import * as m4 from './math.js';
-import { hexToRgb } from '../core/utils.js';
+import { DEG, hexToRgb } from '../core/utils.js';
 
 const SLIDE_PAD = 4;
 const SIDE_SEG = 6; // 厚度的侧边：每个圆角分几段
@@ -225,6 +225,10 @@ export class Renderer {
     }
 
     const hasShadow = shadowAlpha(st) > 0.001;
+    // 0° 向上、90° 向右；默认 180° 保持原来向下的投影。
+    const shadowAngle = (st.shadowAngle ?? 180) * DEG;
+    const shadowX = Math.sin(shadowAngle) * st.shadowY;
+    const shadowY = Math.cos(shadowAngle) * st.shadowY;
     const visible = this.visibleItems(scene, tile);
     const mvp = this.mvp;
     let lastTex = null;
@@ -255,7 +259,7 @@ export class Renderer {
     const shadowPass = () => {
       gl.uniform1i(L.uMode, 1);
       gl.uniform1f(L.uPad, st.shadowBlur + SLIDE_PAD);
-      gl.uniform2f(L.uOffset, 0, -st.shadowY);
+      gl.uniform2f(L.uOffset, shadowX, shadowY);
       if (thick > 0) gl.uniform1f(L.uZ, thick);
     };
     const slidePass = () => {

@@ -2,41 +2,36 @@ import { layouts, getLayout } from '../layouts/index.js';
 import { selectionOf } from '../state.js';
 import { styleSchema, FADE_PRESETS } from '../style/schema.js';
 import { buildControls } from './controls.js';
-import { wheelModeSchema } from './wheel.js';
-import { THEMES, themePref, setThemePref, onThemeChange } from './theme.js';
-import { languages, languagePref, setLanguage, importLanguage, removeLanguage, languageFileText, DEFAULT as DEFAULT_LANG } from '../i18n/i18n.js';
 import { el, section, isCollapsed, setCollapsed } from './dom.js';
 import { icon } from './icons.js';
+import { createMenu } from './menu.js';
 
 const MAIN_TAB_KEY = 'slidegrid:right-tab';
-const LAYOUT_TAB_KEY = 'slidegrid:layout-tab';
 const store_ = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* 忽略 */ } },
 };
 
 /**
- * 右侧面板：顶部一排标签切换页面（设计 / 版式 / 样机，右边是偏好），每页独立滚动。
+ * 右侧面板：顶部一排标签切换页面（设计 / 版式 / 样机），每页独立滚动。
  *   设计：跟随选择（类似 Figma）——选中图层时是图层属性，选中卡片时是卡片的裁切 / 位置；
  *         什么都没选时是当前画板的设置，从上到下一组一组排开：版式参数、卡片、构图、背景、投影、渐隐遮罩。
  *         投影、渐隐遮罩的标题上有开关，一键关掉 / 打开（设置保留）
- *   版式：内置 / 我的版式（只负责选版式，不会误点）
+ *   版式：我的版式 / 平面 / 3D 透视
  *   样机：把幻灯片放进笔记本 / 显示器 / 平板 / 投影幕（添加为样机图层）
- *   偏好：滚轮等操作习惯
  * 图层列表不在这里：在左栏下方单独一组（见 main.js、ui/inspector.js）。
  */
-export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null, layoutPreview = null, beforeReload = null }) {
+export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null, layoutPreview = null }) {
   root.innerHTML = '';
   root.classList.add('right-panel');
 
   /* ================= 顶层标签 ================= */
-  const TITLES = { params: '设计', layouts: '版式', mockup: '样机', prefs: '偏好' };
+  const TITLES = { params: '设计', layouts: '版式', mockup: '样机' };
   const tab = k => el('button', { class: 'rp-tab', role: 'tab', 'data-tab': k }, TITLES[k]);
   const mainTabs = {
     params: tab('params'),
     layouts: tab('layouts'),
     mockup: tab('mockup'),
-    prefs: el('button', { class: 'icon-btn visible rp-prefs', role: 'tab', 'data-tab': 'prefs', title: '偏好（滚轮等操作习惯）', 'aria-label': '偏好' }, icon('cog', 16)),
   };
   const panes = Object.fromEntries(Object.keys(TITLES).map(k => [k, el('div', { class: 'rp-pane', role: 'tabpanel' })]));
   function showMain(name) {
@@ -53,11 +48,8 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const multiBanner = el('div', { class: 'multi-banner', hidden: true },
     icon('frame', 14), multiText,
     el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
-  const t = mainTabs;
   root.append(
-    el('div', { class: 'rp-top' },
-      el('div', { class: 'rp-tabs', role: 'tablist' }, t.params, t.layouts, t.mockup),
-      t.prefs),
+    el('div', { class: 'rp-top' }, el('div', { class: 'rp-tabs', role: 'tablist' }, Object.values(mainTabs))),
     el('div', { class: 'rp-main' }, multiBanner, ...Object.values(panes)),
   );
 
@@ -73,7 +65,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     const cache = new Map(); // layoutId → { key, canvas }
     let timer = 0, token = 0;
     // 影响预览的状态：任何一项变了就重新渲染
-    const keyOf = (s, id) => [s.slides, s.params[id], s.style, s.aspect, s.layers, s.albums, s.adjust[id], s.camera, s.assets];
+    const keyOf = (s, id) => [s.slides, s.params[id], s.style, s.aspect, s.layers, s.albums, s.adjust[id], s.assets];
     const same = (a, b) => a && a.length === b.length && a.every((x, i) => x === b[i]);
     const place = anchor => {
       const r = anchor.getBoundingClientRect();
@@ -86,9 +78,10 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       clearTimeout(timer);
       timer = setTimeout(async () => {
         const s = store.get();
-        if (s.aspect === 'long' || !s.slides.length) return;
+        if (s.aspect === 'long' && !l.long) return;
         const my = ++token;
         title.textContent = l.name;
+        hint.hidden = !anchor.classList.contains('layout-btn');
         const key = keyOf(s, l.id);
         let hit = cache.get(l.id);
         if (!hit || !same(hit.key, key)) {
@@ -108,17 +101,45 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       }, 180);
     };
     const hide = () => { clearTimeout(timer); token++; box.hidden = true; };
-    return { show, hide };
+    const attach = (l, button) => {
+      button.addEventListener('mouseenter', () => show(l, button));
+      button.addEventListener('mouseleave', hide);
+      button.addEventListener('focus', () => { if (button.matches(':focus-visible')) show(l, button); });
+      button.addEventListener('blur', hide);
+    };
+    return { attach, hide };
   })();
 
-  /* ================= 版式页：内置 / 我的版式 ================= */
-  const builtin = el('div', { class: 'tab-body' });
+  /* ================= 版式页 ================= */
+  const layoutBody = el('div', { class: 'pane-body layouts-body' });
+  panes.layouts.classList.add('layouts-pane');
+  panes.layouts.append(layoutBody);
+  function addLayoutGroup(key, title, content) {
+    const head = el('button', { type: 'button', class: 'ctrl-group picker-group', title: '折叠 / 展开' }, title, icon('chevron-down', 16));
+    const apply = () => {
+      const collapsed = isCollapsed(key);
+      head.classList.toggle('collapsed', collapsed);
+      head.setAttribute('aria-expanded', String(!collapsed));
+      content.hidden = collapsed;
+    };
+    head.addEventListener('click', () => { setCollapsed(key, !isCollapsed(key)); apply(); });
+    apply();
+    layoutBody.append(head, content);
+    return () => {
+      if (isCollapsed(key)) { setCollapsed(key, false); apply(); }
+      head.scrollIntoView({ block: 'start' });
+    };
+  }
+  const mine = el('div', { class: 'my-layouts' });
+  const mineCount = el('span', { class: 'tab-count', 'aria-hidden': 'true' });
+  const revealMine = addLayoutGroup('layouts:mine', el('span', {}, '我的版式', mineCount), mine);
   const layoutButtons = new Map();
+  const layoutGroups = [['flat', '平面'], ['3d', '3D 透视']];
   const pick = (l, thenParams) => {
     if (!actions.setLayout(l.id) && store.get().aspect === 'long') { notify(`「${l.name}」不支持长图模式`); return; }
     if (thenParams) showMain('params');
   };
-  for (const [cat, title] of [['flat', '平面'], ['3d', '3D 透视']]) {
+  for (const [cat, title] of layoutGroups) {
     const grid = el('div', { class: 'picker-grid' });
     for (const l of layouts.filter(x => x.category === cat)) {
       const ic = el('span', { class: 'layout-icon' });
@@ -126,49 +147,18 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       const btn = el('button', { class: 'layout-btn', title: l.name }, ic, el('span', { class: 'layout-name' }, l.name));
       btn.addEventListener('click', () => { preview.hide(); pick(l, false); });
       btn.addEventListener('dblclick', () => pick(l, true)); // 双击：应用并去调参数
-      btn.addEventListener('mouseenter', () => preview.show(l, btn));
-      btn.addEventListener('mouseleave', () => preview.hide());
+      preview.attach(l, btn);
       layoutButtons.set(l.id, btn);
       grid.append(btn);
     }
-    // 分组标题：点击折叠 / 展开（与其他页面的分组一致，状态会记住）
-    const key = `layouts:${cat}`;
-    const head = el('button', { class: 'ctrl-group picker-group', title: '折叠 / 展开', 'aria-expanded': 'true' }, el('span', {}, title), icon('chevron-down', 16));
-    const apply = () => {
-      const c = isCollapsed(key);
-      head.classList.toggle('collapsed', c);
-      head.setAttribute('aria-expanded', String(!c));
-      grid.hidden = c;
-    };
-    head.addEventListener('click', () => { setCollapsed(key, !isCollapsed(key)); apply(); });
-    apply();
-    builtin.append(head, grid);
+    addLayoutGroup(`layouts:${cat}`, el('span', {}, title), grid);
   }
-  builtin.append(el('p', { class: 'note pane-hint' }, '单击应用版式 · 双击应用并切到「设计」'));
-  const mine = el('div', { class: 'tab-body' });
-  // 「我的版式」的保存 / 导入 / 导出固定在页面底部（列表单独滚动）
-  const presetsFooter = el('div', { class: 'rp-footer', hidden: true });
-
-  const tabBuiltin = el('button', { class: 'tab', onclick: () => showLayoutTab('builtin') }, '内置');
-  const mineCount = el('span', { class: 'tab-count' });
-  const tabMine = el('button', { class: 'tab', onclick: () => showLayoutTab('mine') }, icon('layout-template', 13), '我的版式', mineCount);
-  function showLayoutTab(name) {
-    builtin.hidden = name !== 'builtin';
-    mine.hidden = name !== 'mine';
-    tabBuiltin.classList.toggle('active', name === 'builtin');
-    tabMine.classList.toggle('active', name === 'mine');
-    presetsFooter.hidden = name !== 'mine';
-    store_.set(LAYOUT_TAB_KEY, name);
-  }
-  showLayoutTab(store_.get(LAYOUT_TAB_KEY) === 'mine' ? 'mine' : 'builtin');
-  panes.layouts.classList.add('has-footer');
-  panes.layouts.append(el('div', { class: 'pane-body' }, el('div', { class: 'tabs' }, tabBuiltin, tabMine), builtin, mine), presetsFooter);
+  layoutBody.append(el('p', { class: 'note pane-hint' }, '单击应用版式 · 双击应用并切到「设计」'));
 
   /* ================= 设计页（没有选择时：画板设置） ================= */
-  // 当前版式卡片：一眼看到在调哪个版式，「更换」回到版式页
+  // 当前版式卡片：在设计页直接切换内置版式
   const curIcon = el('span', { class: 'layout-icon' });
-  const curName = el('div', { class: 'cur-name' });
-  const curMeta = el('div', { class: 'cur-meta' });
+  const curName = el('span', { class: 'cur-name' });
   // 随机种子的历史（每个版式各记各的）：「换一组」之前的值，「上一个」退回
   const seedHistory = new Map();
   const seedsOf = layoutId => {
@@ -187,21 +177,47 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     seedsOf(s.layoutId).push(def.key, s.params[s.layoutId]?.[def.key] ?? def.default);
     actions.setParam(def.key, Math.floor(Math.random() * 1e6));
   });
-  const current = el('div', { class: 'current-layout' },
-    curIcon,
-    el('div', { class: 'cur-text' }, curName, curMeta),
-    diceBtn,
-    el('button', { class: 'btn ghost small', title: '去「版式」页选择其他版式', onclick: () => showMain('layouts') }, '更换'));
+  const layoutTrigger = el('button', { type: 'button', class: 'current-layout-trigger', title: '更换版式', 'aria-haspopup': 'menu', 'aria-expanded': 'false' },
+    curIcon, curName, icon('chevron-down', 13));
+  const current = el('div', { class: 'current-layout' }, layoutTrigger, diceBtn);
+  createMenu(layoutTrigger, {
+    className: 'select-menu current-layout-menu', align: 'right', flip: true, onClose: preview.hide,
+    render(pop, close) {
+      const s = store.get();
+      pop.replaceChildren();
+      for (const [cat, title] of layoutGroups) {
+        const options = layouts.filter(l => l.category === cat && (!l.legacy || l.id === s.layoutId));
+        pop.append(el('div', { class: 'menu-title' }, title));
+        for (const l of options) {
+          const active = l.id === s.layoutId;
+          const unavailable = s.aspect === 'long' && !l.long;
+          const shape = el('span', { class: 'layout-icon' });
+          shape.innerHTML = l.icon;
+          const item = el('button', {
+            type: 'button', class: `menu-item${active ? ' active' : ''}`, role: 'menuitemradio',
+            'aria-checked': String(active), disabled: unavailable,
+            onclick: () => { close(); if (!active) pick(l, false); },
+          }, shape, el('span', { class: 'menu-label' }, l.name), active ? icon('check', 14) : null);
+          if (!unavailable) preview.attach(l, item);
+          pop.append(item);
+        }
+      }
+      requestAnimationFrame(() => pop.querySelector('.active')?.scrollIntoView({ block: 'nearest' }));
+    },
+  });
+  current.addEventListener('click', e => { if (e.target === current) layoutTrigger.click(); });
   // 设计页：选中图层 / 卡片时显示它们的属性（ui/inspector.js），否则显示画板设置
   const selectionSlot = el('div', { class: 'inspector', hidden: true });
-  const boardBox = el('div');
+  const boardBox = el('div', { class: 'board-settings' });
   // 设计页底部固定「保存当前版式」（只在显示画板设置时出现，见 presetsPanel 的 saveFooter）
   const designFooter = el('div', { class: 'rp-footer design-footer' });
   panes.params.classList.add('has-footer');
   panes.params.append(el('div', { class: 'design-body' }, selectionSlot, boardBox), designFooter);
   // 样机页（ui/mockupPanel.js 填充）
-  const mockupSlot = el('div', { class: 'page-body' });
-  panes.mockup.append(mockupSlot);
+  const mockupSlot = el('div', { class: 'pane-body page-body' });
+  const mockupFooter = el('div', { class: 'rp-footer mockup-footer' });
+  panes.mockup.classList.add('has-footer');
+  panes.mockup.append(mockupSlot, mockupFooter);
 
   // 设计页（没有选择时）：版式参数、构图
   const resetBtn = (title, fn) => el('button', { class: 'icon-btn visible', title, 'aria-label': title, onclick: fn }, icon('rotate-ccw', 14));
@@ -209,7 +225,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   boardBox.append(section('版式', el('div', {}, current, paramsBox), resetBtn('恢复当前版式的默认参数', () => actions.resetParams())));
 
   // 卡片样式（style/schema.js 的「卡片」分组）
-  const cardStyleBox = el('div');
+  const cardStyleBox = el('div', { class: 'card-style-controls' });
   const cardSection = section('卡片', cardStyleBox);
   boardBox.append(cardSection);
 
@@ -222,7 +238,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const fadeOn = st => !!st.fadeType && st.fadeType !== 'none' && !st.fadeHidden;
   const STYLE_GROUPS = {
     背景: {},
-    投影: { isOn: st => !st.shadowHidden, set: on => actions.setStyle('shadowHidden', !on) },
+    投影: { className: 'shadow-style-controls', isOn: st => !st.shadowHidden, set: on => actions.setStyle('shadowHidden', !on) },
     渐隐遮罩: {
       isOn: fadeOn,
       // 打开：还没选过类型时先用「底部渐隐」；关掉：只是隐藏（类型、范围都保留）
@@ -236,65 +252,14 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   };
   const styleBoxes = {}, styleSections = {};
   for (const [name, g] of Object.entries(STYLE_GROUPS)) {
-    styleBoxes[name] = el('div');
+    styleBoxes[name] = el('div', { class: 'board-style-controls' });
+    if (g.className) styleBoxes[name].classList.add(g.className);
     styleSections[name] = section(name, styleBoxes[name], null, `section:style:${name}`, { onSwitch: g.set || null });
     boardBox.append(styleSections[name]);
   }
-  // 偏好页
-  const prefsBox = el('div');
-  panes.prefs.append(section('操作习惯', prefsBox, null, 'section:prefs'));
-  // 界面主题：跟随系统 / 深色 / 浅色（存在本机，不属于项目）
-  const themeBox = el('div');
-  panes.prefs.append(section('界面', themeBox, null, 'section:prefs-theme'));
-  const updateTheme = buildControls(themeBox, [{ key: 'theme', label: '主题', type: 'select', default: 'auto', options: THEMES }], { theme: themePref() }, (_, v) => setThemePref(v));
-  onThemeChange(() => updateTheme({ theme: themePref() }));
-  // 界面语言：跟随系统 / 简体中文 / 语言文件里的语言（lang/*.xml）/ 自己导入的。换了以后刷新页面
-  const langBox = el('div');
-  themeBox.append(langBox);
-  const langOptions = [...languages().map(l => ({ value: l.code, label: l.custom ? `${l.name}（导入的）` : l.name })), { value: 'auto', label: '跟随系统' }];
-  const pref = languagePref();
-  buildControls(langBox, [{ key: 'lang', label: '语言', type: 'select', segmented: false, default: DEFAULT_LANG, options: langOptions }],
-    { lang: langOptions.some(o => o.value === pref) ? pref : DEFAULT_LANG }, (_, v) => setLanguage(v, { beforeReload }));
-  // 导入语言文件（XML）：存在这台电脑上，马上换过去；下载英文语言文件：翻译新语言时照着改
-  const langInput = el('input', { type: 'file', accept: '.xml,text/xml,application/xml', hidden: true });
-  langInput.addEventListener('change', async () => {
-    const file = langInput.files[0];
-    langInput.value = '';
-    if (!file) return;
-    try {
-      const { code } = importLanguage(await file.text());
-      await setLanguage(code, { beforeReload });
-    } catch (err) {
-      notify(`导入失败：${err.message || err}`);
-    }
-  });
-  const langFileBtn = el('button', { class: 'btn small', type: 'button', title: '导入一个 XML 语言文件（存在这台电脑上），界面马上换成这种语言' }, icon('upload', 13), '导入语言文件…');
-  langFileBtn.addEventListener('click', () => langInput.click());
-  const langTemplateBtn = el('button', { class: 'btn small', type: 'button', title: '下载英文的语言文件：翻译新语言时复制一份，改 code、name 和每条译文' }, icon('download', 13), '下载语言文件模板');
-  langTemplateBtn.addEventListener('click', async () => {
-    try {
-      const blob = new Blob([await languageFileText('en.xml')], { type: 'application/xml' });
-      const a = el('a', { href: URL.createObjectURL(blob), download: 'en.xml' });
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    } catch (err) {
-      notify(`下载失败：${err.message || err}`);
-    }
-  });
-  // 导入过的语言：每个一个「移除」按钮（正在用的那个移除后回到跟随系统）
-  const langRemoveBtns = languages().filter(l => l.custom).map(l => {
-    const btn = el('button', { class: 'btn small lang-remove', type: 'button', 'data-code': l.code, title: '从这台电脑上移除这个导入的语言文件' }, icon('trash-2', 13), `移除「${l.name}」`);
-    btn.addEventListener('click', () => {
-      removeLanguage(l.code);
-      setLanguage(pref === l.code ? null : pref, { beforeReload });
-    });
-    return btn;
-  });
-  themeBox.append(el('div', { class: 'lang-actions' }, langFileBtn, langTemplateBtn, ...langRemoveBtns, langInput),
-    el('p', { class: 'note' }, '默认跟随系统语言（系统不是中文时用英文）；顶栏右边的语言按钮也可以直接切换。界面语言来自 XML 语言文件：每条是「中文原文 → 译文」。换语言后页面会刷新一次（项目会先保存）。'));
 
   const saved = store_.get(MAIN_TAB_KEY);
-  showMain(saved in panes ? saved : 'params');
+  showMain(Object.hasOwn(panes, saved) ? saved : 'params');
 
   /* ================= 同步 ================= */
   const s0 = store.get();
@@ -311,7 +276,6 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     styleUpdaters.forEach(u => u(st));
     for (const [name, g] of Object.entries(STYLE_GROUPS)) if (g.isOn) styleSections[name].setOn(g.isOn(st));
   };
-  const updatePrefs = buildControls(prefsBox, wheelModeSchema, s0, actions.setPref);
   let updateParams = () => {};
   let currentLayout = null;
 
@@ -325,8 +289,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       layoutButtons.forEach((b, id) => { b.classList.toggle('active', id === currentLayout); b.hidden = !!getLayout(id).legacy && id !== currentLayout; });
       curIcon.innerHTML = layout.icon;
       curName.textContent = layout.name;
-      curMeta.textContent = layout.legacy ? `已并入「${getLayout(layout.legacy).name}」` : `${layout.category === '3d' ? '3D 透视' : '平面'}版式${layout.long ? ' · 支持长图' : ''}`;
-      curMeta.title = layout.legacy ? `这个旧版式和「${getLayout(layout.legacy).name}」是同一种，版式列表里只保留了后者；这个画板照常显示` : '';
+      curName.title = layout.legacy ? `这个旧版式和「${getLayout(layout.legacy).name}」是同一种，版式列表里只保留了后者；这个画板照常显示` : '';
     }
     const cam = s.camera || {};
     const changed = [
@@ -345,7 +308,6 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     });
     updateParams(s.params[currentLayout]);
     updateStyle(s.style);
-    updatePrefs(s);
     const n = selectionOf(s).length;
     multiBanner.hidden = n <= 1;
     multiText.textContent = `同时编辑 ${n} 个画板（构图、卡片调整除外）`;
@@ -369,15 +331,14 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     revealBackground: () => revealStyleGroup('背景'),
     revealStyleGroup,
     presetsContainer: mine,
-    presetsFooter,
     designFooter,
     mockupSlot,
+    mockupFooter,
     selectionSlot,
     currentTab: () => Object.keys(panes).find(k => !panes[k].hidden),
     // 设计页显示选中对象的属性（true）还是画板设置（false）
     setSelectionMode(on) { selectionSlot.hidden = !on; boardBox.hidden = on; designFooter.hidden = on; },
-    // 打开「版式」页的某个子标签（导入版式文件时用）
-    showTab: name => { showMain('layouts'); showLayoutTab(name); },
+    showPresets() { showMain('layouts'); revealMine(); },
     tabBar: root.querySelector('.rp-top'),
     showMain,
     setPresetCount: n => { mineCount.textContent = n ? String(n) : ''; },

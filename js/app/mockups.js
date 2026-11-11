@@ -13,7 +13,7 @@ const rectQuad = ([x, y, w, h]) => [[x, y], [x + w, y], [x + w, y + h], [x, y + 
  * 设备样机的接线：右栏「样机」页（点击 / 拖到画板上添加）、上传 PNG 样机（对准屏幕四角）、
  * 设计页里「更换屏幕图片」「调整屏幕区域」。
  */
-export function createMockups({ ws, viewport, settingsSlot, importing, getLayerTools, setTool, clearSelection }) {
+export function createMockups({ ws, viewport, settingsSlot, settingsFooter, importing, getLayerTools, setTool, clearSelection }) {
   // 把样机加到当前画板：宽度不超过画板的 62%、高度不超过 72%；at 为放下的位置（中心），
   // 否则放在画板中间，多台时依次显示下一张、稍微错开
   function addDeviceLayer(props, label, asset = null, at = null) {
@@ -37,7 +37,7 @@ export function createMockups({ ws, viewport, settingsSlot, importing, getLayerT
     toast(`已添加${label}样机`);
   }
 
-  const panel = createMockupPanel(settingsSlot, {
+  const panel = createMockupPanel(settingsSlot, settingsFooter, {
     getSlide: () => slidesOf(store.get())[0]?.preview,
     onAdd(p, frame, at = null, look = 'simple') {
       const n = (store.get().layers || []).filter(x => x.type === 'device' && x.device === p.device).length + 1;

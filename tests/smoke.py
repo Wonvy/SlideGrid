@@ -131,6 +131,15 @@ def t_album(page, errors):
       return out;
     }''')
     assert r['switched'] and r['firstSame'] and r['back'] and r['count'] == 2, r
+    page.click('.lp-top [data-tab="slides"]')
+    grid = page.locator('#album-bar .album-strip')
+    original = grid.locator('.album-tile.active .album-label').inner_text()
+    assert grid.get_by_role('button', name='新建', exact=False).is_visible()
+    page.get_by_role('option', name='第二组', exact=False).click()
+    assert grid.locator('.album-tile.active .album-label').inner_text() == '第二组'
+    assert page.evaluate("SlideGrid.store.get().albums[0].id === SlideGrid.store.get().albumId")
+    page.get_by_role('option').filter(has=page.locator('.album-label', has_text=original)).click()
+    assert grid.locator('.album-tile.active .album-label').inner_text() == original
 
 
 def t_swap(page, errors):
@@ -290,6 +299,16 @@ def t_pixels(page, errors):
 
 
 def t_layers(page, errors):
+    page.click('.rp-top [data-tab="layouts"]')
+    groups = page.locator('.layouts-body .picker-group')
+    assert groups.all_inner_texts() == ['我的版式', '平面', '3D 透视']
+    mine = page.locator('.my-layouts')
+    groups.first.click()
+    assert mine.is_hidden()
+    groups.first.click()
+    assert mine.is_visible()
+    assert mine.get_by_role('button', name='导入版式文件（.json）').is_visible()
+    page.click('.rp-top [data-tab="params"]')
     # 新版式能渲染；图层可以放到幻灯片下面；平面版式里卡片可以调前后
     r = page.evaluate('''async () => {
       const S = SlideGrid, before = S.store.get().layoutId;
@@ -419,7 +438,7 @@ def t_layer_panel(page, errors):
 
 
 def t_switches(page, errors):
-    # 「设计」页：投影 / 渐隐遮罩 / 空间效果的一键开关（关掉后数值保留），左栏分隔条能调高度
+    # 「设计」页：投影 / 渐隐遮罩 / 空间效果的一键开关（关掉后数值保留）
     r = page.evaluate("""async () => {
       const S = SlideGrid, st = () => S.store.get(), wait = ms => new Promise(r => setTimeout(r, ms));
       S.layers.clear();
@@ -428,14 +447,14 @@ def t_switches(page, errors):
       await wait(100);
       const sec = name => [...document.querySelectorAll('.design-body .panel-section')].find(x => x.querySelector('h3').textContent === name);
       const out = { blur: st().style.shadowBlur };
-      sec('投影').querySelector('.switch').click();
+      sec('投影').querySelector('.section-visibility').click();
       out.shadowOff = st().style.shadowHidden === true && sec('投影').classList.contains('off') && st().style.shadowBlur === out.blur;
       out.render = (await S.renderToBlob({ longSide: 300, preview: true })).width;
-      sec('投影').querySelector('.switch').click();
+      sec('投影').querySelector('.section-visibility').click();
       out.shadowOn = st().style.shadowHidden === false;
-      sec('渐隐遮罩').querySelector('.switch').click();
+      sec('渐隐遮罩').querySelector('.section-visibility').click();
       out.fadeOn = st().style.fadeType === 'linear' && !st().style.fadeHidden;
-      sec('渐隐遮罩').querySelector('.switch').click();
+      sec('渐隐遮罩').querySelector('.section-visibility').click();
       out.fadeOff = st().style.fadeType === 'linear' && st().style.fadeHidden === true;
       S.actions.patchStyle({ fadeType: 'none', fadeHidden: false });
       const fx = [...document.querySelectorAll('.design-body .ctrl-group.has-switch')].find(x => x.textContent.includes('空间效果'));
@@ -447,19 +466,6 @@ def t_switches(page, errors):
       return out;
     }""")
     assert all(r[k] for k in ('shadowOff', 'shadowOn', 'fadeOn', 'fadeOff', 'fxOff', 'fxOn')) and r['render'] == 300, r
-    # 左栏「幻灯片」页的分隔条：把图集区域拉高 80px，双击恢复
-    page.click('.lp-top [data-tab="slides"]')
-    bar = page.locator('#album-bar')
-    page.locator('#album-splitter').dblclick()
-    h0 = bar.bounding_box()['height']
-    sp = page.locator('#album-splitter').bounding_box()
-    page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] + sp['height'] / 2)
-    page.mouse.down()
-    page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] + sp['height'] / 2 + 80, steps=4)
-    page.mouse.up()
-    h1 = bar.bounding_box()['height']
-    assert 70 < h1 - h0 < 90, (h0, h1)
-    page.locator('#album-splitter').dblclick()
     assert not errors, errors
 
 
@@ -530,15 +536,28 @@ def t_theme(page, errors):
     assert page.evaluate("localStorage.getItem('slidegrid:theme')") == theme()
     page.click('#theme-btn')
     assert theme() == first and bg() == color0
-    page.click('.rp-top [data-tab="prefs"]')
-    page.click('.panel-section:has(h3:text-is("界面")) .seg-btn:text-is("浅色")')
+    page.click('.rp-top [data-tab="layouts"]')
+    page.click('#settings-btn')
+    dialog = page.get_by_role('dialog', name='设置')
+    assert dialog.is_visible()
+    assert page.locator('#settings-panel [role="tab"][aria-selected="true"]').inner_text() == '版式'
+    theme_picker = page.locator('.prefs-pane .ctrl-select:has(.ctrl-label:text-is("主题")) .select-btn')
+    theme_picker.click()
+    page.keyboard.press('Escape')
+    assert dialog.is_visible() and theme_picker.get_attribute('aria-expanded') == 'false'
+    theme_picker.click()
+    page.get_by_role('option', name='浅色', exact=True).click()
     assert theme() == 'light'
     light_panel = page.evaluate("getComputedStyle(document.querySelector('.sidebar.right')).backgroundColor")
     assert light_panel == 'rgb(255, 255, 255)', light_panel
-    page.click('.panel-section:has(h3:text-is("界面")) .seg-btn:text-is("深色")')
+    theme_picker.click()
+    page.get_by_role('option', name='深色', exact=True).click()
     assert theme() == 'dark' and page.evaluate("getComputedStyle(document.querySelector('.sidebar.right')).backgroundColor") == 'rgb(21, 24, 30)'
-    page.click('.panel-section:has(h3:text-is("界面")) .seg-btn:text-is("跟随系统")')
+    theme_picker.click()
+    page.get_by_role('option', name='跟随系统', exact=True).click()
     assert page.evaluate("localStorage.getItem('slidegrid:theme')") is None
+    page.keyboard.press('Escape')
+    assert dialog.is_hidden() and page.locator('#settings-btn').evaluate('(el) => el === document.activeElement')
     page.click('.rp-top [data-tab="params"]')
     assert not errors, errors
 
@@ -551,7 +570,7 @@ LANG_XML = """<?xml version="1.0" encoding="UTF-8"?>
 # 界面上（顶栏、两边栏的页签、右栏、底部提示）还剩下的中文
 LEFT_CJK = r"""() => {
   const out = [], CJK = /[㐀-鿿]/;
-  for (const root of document.querySelectorAll('.topbar, .lp-top, .rp-top, .sidebar.right, .toolstrip, .toolbar, .viewbar, .stage-hint')) {
+  for (const root of document.querySelectorAll('.topbar, .lp-top, .rp-top, .sidebar.right, .prefs-modal[open], .toolstrip, .toolbar, .viewbar, .stage-hint')) {
     const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       if (n.nodeType === 3) { if (CJK.test(n.nodeValue)) out.push(n.nodeValue.trim()); }
@@ -569,7 +588,7 @@ def t_language(page, errors):
     export = lambda: page.locator('#export-btn').inner_text().strip()
     ready = lambda code: (page.wait_for_function(f"document.documentElement.lang === '{code}' && window.SlideGrid && document.querySelector('.rp-top')", timeout=15000),
                           page.wait_for_function('SlideGrid.store.get().slides.length === 3', timeout=15000), page.wait_for_timeout(300))
-    section = '.panel-section:has(.lang-actions)'
+    language_picker = page.locator('.prefs-pane .ctrl-select:has(.ctrl-label:text-is("语言")) .select-btn')
     assert lang() == 'zh-CN' and export() == '导出', (lang(), export())
     # 顶栏的语言按钮：菜单里语言名用各自的写法；换成 English 再换回来
     assert page.locator('#lang-btn').inner_text().strip() == '中'
@@ -585,8 +604,9 @@ def t_language(page, errors):
     ready('zh-CN')
     assert export() == '导出' and page.evaluate("localStorage.getItem('slidegrid:lang')") == 'zh-CN'
     # 「偏好」里的下拉框
-    page.click('.rp-top [data-tab="prefs"]')
-    page.click(f'{section} .select-btn')
+    page.click('#lang-btn')
+    page.get_by_role('menuitem', name='导入语言文件…').click()
+    language_picker.click()
     page.click('.select-menu .menu-item:has-text("English")')
     ready('en')
     assert page.evaluate("localStorage.getItem('slidegrid:lang')") == 'en'
@@ -597,7 +617,7 @@ def t_language(page, errors):
     page.wait_for_timeout(200)
     left = page.evaluate(LEFT_CJK)
     assert not left, f'英文界面还剩中文：{left[:8]}'
-    page.click('.rp-top [data-tab="prefs"]')
+    page.click('#settings-btn')
     left = page.evaluate(LEFT_CJK)
     assert left == ['简体中文'] or not left, f'英文界面还剩中文：{left[:8]}'
     # 导入语言文件：马上换过去；没有译文的条目显示中文原文
@@ -607,13 +627,13 @@ def t_language(page, errors):
     ready('xx')
     assert export() == 'Exportieren', export()
     assert page.locator('.rp-top [data-tab="params"]').inner_text().strip() == '设计'
-    page.click('.rp-top [data-tab="prefs"]')
-    assert 'Test' in page.locator(f'{section} .select-btn').inner_text()
+    page.click('#settings-btn')
+    assert 'Test' in language_picker.inner_text()
     # 坏文件：提示导入失败，语言不变
     with tempfile.NamedTemporaryFile('w', suffix='.xml', delete=False, encoding='utf-8') as bad:
         bad.write('<nope/>')
     page.set_input_files('.lang-actions input[type="file"]', bad.name)
-    page.wait_for_function("document.getElementById('toast').textContent.includes('导入失败')", timeout=5000)
+    page.locator('.prefs-error').filter(has_text='导入失败').wait_for(state='visible')
     assert lang() == 'xx'
     page.click('.lang-remove[data-code="xx"]')
     ready('zh-CN')
@@ -683,9 +703,12 @@ def t_contrast(page, errors):
             page.click('#theme-btn')
             page.wait_for_timeout(400)  # 颜色有过渡动画：等它走完再量
         assert page.evaluate("document.documentElement.dataset.theme") == theme
-        for tab, name in (('params', '设计页'), ('layouts', '版式页'), ('mockup', '样机页'), ('prefs', '偏好页')):
+        for tab, name in (('params', '设计页'), ('layouts', '版式页'), ('mockup', '样机页')):
             page.click(f'.rp-top [data-tab="{tab}"]')
             audit(theme, name)
+        page.click('#settings-btn')
+        audit(theme, '设置窗口')
+        page.keyboard.press('Escape')
         page.click('.rp-top [data-tab="params"]')
         page.click('.lp-top [data-tab="layers"]')
         page.evaluate("SlideGrid.layers.select(['l_c1'])")
@@ -800,7 +823,7 @@ def t_persist(page, errors):
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('画板右键菜单 / Delete 删除画板', t_board_menu), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
-         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
+         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关', t_switches),
          ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('深色 / 浅色主题', t_theme), ('界面语言（英文 / 导入语言文件）', t_language), ('两套主题的文字对比度', t_contrast), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
 
