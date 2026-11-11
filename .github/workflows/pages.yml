@@ -18,16 +18,18 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # 固定在 Ubuntu 24.04：ubuntu-latest 正在换到 26，这个版本的 Playwright 在新系统上装不了浏览器依赖
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: 安装 Playwright
+        timeout-minutes: 8
         run: |
           pip install -r tests/requirements.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chromium || (sleep 20 && python -m playwright install --with-deps chromium)
       - name: 单文件版是最新的
         run: python build.py --check
       - name: 冒烟测试（开发版 + 单文件版）
@@ -43,7 +45,7 @@ jobs:
 
   deploy:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
