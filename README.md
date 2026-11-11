@@ -419,7 +419,8 @@ tests/screenshots.py   生成 README 截图（docs/images/）
 .github/workflows/     推送后自动测试、构建、发布到 GitHub Pages
 .githooks/pre-commit   提交前自动重新构建单文件版
 serve.py               本地开发服务器（禁止缓存）
-css/style.css
+css/style.css          全部样式。颜色都是文件开头的变量（深色主题的值），文件末尾的「浅色主题」只把变量换一套值；
+                       文件是一层层写下来的，后面的覆盖前面的（开头的注释里有各段的顺序）
 js/
   main.js              入口：创建各模块并把它们连起来
   version.js           版本号（显示在 logo 右边）：有用户看得见的改动时改这里

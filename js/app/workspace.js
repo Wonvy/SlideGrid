@@ -28,8 +28,8 @@ const colors = () => (themeColors ||= {
   pasteboard: themeColor('--pasteboard') || '#0b0d11',
   label: themeColor('--faint') || '#6b7385',
   labelActive: themeColor('--accent-text') || '#a3afff',
-  checkA: themeColor('--n-2a2e37') || '#2a2e37',
-  checkB: themeColor('--n-3a3f4b') || '#3a3f4b',
+  checkA: themeColor('--checker-a') || '#2a2e37',
+  checkB: themeColor('--checker-b') || '#3a3f4b',
 });
 const ACCENT = [124 / 255, 140 / 255, 1];
 const HL = {
