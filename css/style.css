@@ -1903,3 +1903,7 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .lang-actions .btn.small { height: 30px; padding: 0 10px; }
 /* 非中文界面：词更长，分段按钮按文字多少分宽度，不再平均分 */
 :root:not(:lang(zh)) .seg-btn { flex: 1 1 auto; padding: 0 5px; }
+/* 顶栏的语言按钮 */
+.lang-btn { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 9px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.lang-btn:hover, .lang-btn.open { color: var(--text); background: var(--panel-2); }
+.lang-menu { min-width: 180px; }

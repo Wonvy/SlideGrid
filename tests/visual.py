@@ -24,6 +24,8 @@ from playwright.sync_api import sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smoke import start_server, wait_app  # noqa: E402
 
+ZH_INIT = "try { if (!localStorage.getItem('slidegrid:lang')) localStorage.setItem('slidegrid:lang', 'zh-CN'); } catch (e) {}"  # 界面默认英文；测试用中文（测试里自己换了语言的不管）
+
 ROOT = Path(__file__).resolve().parent.parent
 BASE = ROOT / 'tests' / 'baseline'
 OUT = ROOT / 'tests' / 'visual-out'
@@ -152,7 +154,9 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            page = browser.new_context(viewport={'width': 1440, 'height': 900}, locale='zh-CN', device_scale_factor=1).new_page()
+            ctx = browser.new_context(viewport={'width': 1440, 'height': 900}, locale='zh-CN', device_scale_factor=1)
+            ctx.add_init_script(ZH_INIT)
+            page = ctx.new_page()
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.goto(url)

@@ -13,6 +13,8 @@ from playwright.sync_api import sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smoke import start_server, wait_app  # noqa: E402
 
+ZH_INIT = "try { if (!localStorage.getItem('slidegrid:lang')) localStorage.setItem('slidegrid:lang', 'zh-CN'); } catch (e) {}"  # 界面默认英文；测试用中文（测试里自己换了语言的不管）
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / 'docs/images'
 
@@ -34,6 +36,7 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page(viewport={'width': 1440, 'height': 900}, locale='zh-CN', device_scale_factor=2, color_scheme='dark')  # README 的截图用深色主题
+            page.add_init_script(ZH_INIT)
             page.goto(url)
             wait_app(page)
             page.wait_for_timeout(600)

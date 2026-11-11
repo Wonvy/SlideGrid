@@ -1048,7 +1048,7 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <!-- 运行时拼出来的文字 -->
   <s k="请使用最新版 Chrome / Edge / Safari / Firefox">Please use the latest Chrome / Edge / Safari / Firefox</s>
   <s k="{0}（竖版）">{0} (portrait)</s>
-  <s k="简体中文">Chinese (Simplified)</s>
+  <s k="简体中文">简体中文</s>
   <s k="不是有效的语言文件">Not a valid language file</s>
   <s k="语言文件缺少 code">The language file has no code</s>
   <s k="读不到 lang/{0}">Cannot read lang/{0}</s>
@@ -1069,4 +1069,8 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="显示右栏">Show right panel</s>
   <s k="从这台电脑上移除这个导入的语言文件">Remove this imported language file from this computer</s>
   <s k="移除「{0}」">Remove "{0}"</s>
+  <s k="界面语言">Interface language</s>
+  <s k="中">中</s>
+  <s k="导入的">imported</s>
+  <s k="默认跟随系统语言（系统不是中文时用英文）；顶栏右边的语言按钮也可以直接切换。界面语言来自 XML 语言文件：每条是「中文原文 → 译文」。换语言后页面会刷新一次（项目会先保存）。">By default the interface follows the system language (English when the system is not Chinese); you can also switch with the language button at the top right. Interface languages come from XML language files: each entry maps the Chinese source text to a translation. The page reloads once after switching (the project is saved first).</s>
 </language>

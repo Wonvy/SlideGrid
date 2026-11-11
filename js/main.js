@@ -14,7 +14,8 @@ import { VERSION, RELEASED } from './version.js';
 import { askConfirm } from './ui/dialogs.js';
 import { currentTheme, toggleTheme, onThemeChange } from './ui/theme.js';
 import { tipOnce } from './ui/tips.js';
-import { initI18n, tr } from './i18n/i18n.js';
+import { initI18n, tr, languages, languagePref, currentLanguage, setLanguage } from './i18n/i18n.js';
+import { createMenu } from './ui/menu.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -128,6 +129,29 @@ function syncThemeBtn(t = currentTheme()) {
 themeBtn.addEventListener('click', toggleTheme);
 onThemeChange(t => { syncThemeBtn(t); ws?.scheduleRender(); });
 syncThemeBtn();
+// 界面语言：顶栏的按钮直接换（语言名用各自的写法，不翻译）；导入语言文件等在「偏好」里
+const langBtn = $('lang-btn');
+const langShort = code => (code === 'zh-CN' ? '中' : code.split('-')[0].toUpperCase());
+langBtn.append(icon('languages', 15), el('span', { class: 'lang-code', 'data-no-i18n': '' }, langShort(currentLanguage())));
+createMenu(langBtn, {
+  className: 'lang-menu',
+  align: 'right',
+  render(pop, close) {
+    const pref = languagePref();
+    const pick = code => { close(); if (code !== pref) setLanguage(code, { beforeReload: () => controller.flush() }); };
+    const item = (code, label, meta, native) => el('button', { class: `menu-item${pref === code ? ' active' : ''}`, role: 'menuitemradio', 'aria-checked': String(pref === code), 'data-lang': code, onclick: () => pick(code) },
+      el('span', { class: 'menu-check' }, pref === code ? icon('check', 14) : null),
+      el('span', native ? { class: 'menu-label', 'data-no-i18n': '' } : { class: 'menu-label' }, label),
+      meta ? el('span', { class: 'menu-meta' }, meta) : null);
+    pop.replaceChildren(
+      ...languages().map(l => item(l.code, l.name, l.custom ? '导入的' : null, true)),
+      el('div', { class: 'menu-sep' }),
+      item('auto', '跟随系统'),
+      el('div', { class: 'menu-sep' }),
+      el('button', { class: 'menu-item', onclick: () => { close(); document.querySelector('.rp-top [data-tab="prefs"]')?.click(); } },
+        el('span', { class: 'menu-check' }, icon('settings-2', 14)), el('span', { class: 'menu-label' }, '导入语言文件…')));
+  },
+});
 // 版本号（logo 右边）
 $('app-version').textContent = `v${VERSION}`;
 $('app-version').title = `版本 ${VERSION}（${RELEASED}）`;

@@ -15,7 +15,8 @@
  *
  * 切换语言后刷新页面（setLanguage）；用户还可以导入自己的语言文件（存在本机）。
  */
-const KEY = 'slidegrid:lang';           // 'auto'（没存时）| 语言代码
+const KEY = 'slidegrid:lang';           // 语言代码 | 'auto'（跟随系统）；没存时用 DEFAULT
+export const DEFAULT = 'auto';         // 默认：第一次打开时跟随系统语言（系统不是中文、也没有对应语言文件时用英文）
 const CUSTOM_KEY = 'slidegrid:lang-custom'; // { 代码: XML 文本 }：用户导入的语言文件
 export const SOURCE = { code: 'zh-CN', name: '简体中文' };
 const CJK = /[㐀-鿿]/;
@@ -31,7 +32,7 @@ const cache = new Map();
 export const currentLanguage = () => current;
 export const languages = () => list;
 export function languagePref() {
-  try { return localStorage.getItem(KEY) || 'auto'; } catch { return 'auto'; }
+  try { return localStorage.getItem(KEY) || DEFAULT; } catch { return DEFAULT; }
 }
 
 /* ---------------- 语言文件 ---------------- */
@@ -263,9 +264,9 @@ export async function initI18n() {
   document.documentElement.classList.remove('i18n-wait');
 }
 
-/** 换语言：记下来，然后刷新页面（beforeReload：刷新前要做的事，比如先保存项目） */
+/** 换语言（code：语言代码 / 'auto' 跟随系统 / 空 = 回到默认）：记下来，然后刷新页面（beforeReload：刷新前要做的事，比如先保存项目） */
 export async function setLanguage(code, { beforeReload } = {}) {
-  try { if (code && code !== 'auto') localStorage.setItem(KEY, code); else localStorage.removeItem(KEY); } catch { /* 忽略 */ }
+  try { if (code) localStorage.setItem(KEY, code); else localStorage.removeItem(KEY); } catch { /* 忽略 */ }
   try { await beforeReload?.(); } catch { /* 照样刷新 */ }
   location.reload();
 }

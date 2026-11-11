@@ -21,6 +21,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+ZH_INIT = "try { if (!localStorage.getItem('slidegrid:lang')) localStorage.setItem('slidegrid:lang', 'zh-CN'); } catch (e) {}"  # 界面默认英文；测试用中文（测试里自己换了语言的不管）
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -561,7 +563,7 @@ LEFT_CJK = r"""() => {
 
 
 def t_language(page, errors):
-    # 界面语言：「偏好」里换成 English（页面刷新一次，项目还在），界面上不剩中文；导入一个 XML 语言文件，没翻到的还是中文；移除后回到中文
+    # 界面语言：顶栏按钮 / 「偏好」里换成 English（页面刷新一次，项目还在），界面上不剩中文；导入一个 XML 语言文件，没翻到的还是中文；移除后回到中文
     import tempfile
     lang = lambda: page.evaluate("document.documentElement.lang")
     export = lambda: page.locator('#export-btn').inner_text().strip()
@@ -569,6 +571,20 @@ def t_language(page, errors):
                           page.wait_for_function('SlideGrid.store.get().slides.length === 3', timeout=15000), page.wait_for_timeout(300))
     section = '.panel-section:has(.lang-actions)'
     assert lang() == 'zh-CN' and export() == '导出', (lang(), export())
+    # 顶栏的语言按钮：菜单里语言名用各自的写法；换成 English 再换回来
+    assert page.locator('#lang-btn').inner_text().strip() == '中'
+    page.click('#lang-btn')
+    assert page.locator('.lang-menu .menu-item[data-lang="zh-CN"]').get_attribute('aria-checked') == 'true'
+    page.click('.lang-menu .menu-item[data-lang="en"]')
+    ready('en')
+    assert export() == 'Export' and page.locator('#lang-btn').inner_text().strip() == 'EN', export()
+    page.click('#lang-btn')
+    names = page.locator('.lang-menu .menu-item[data-lang] .menu-label').all_inner_texts()
+    assert names[:2] == ['简体中文', 'English'] and 'System' in names, names
+    page.click('.lang-menu .menu-item[data-lang="zh-CN"]')
+    ready('zh-CN')
+    assert export() == '导出' and page.evaluate("localStorage.getItem('slidegrid:lang')") == 'zh-CN'
+    # 「偏好」里的下拉框
     page.click('.rp-top [data-tab="prefs"]')
     page.click(f'{section} .select-btn')
     page.click('.select-menu .menu-item:has-text("English")')
@@ -602,7 +618,7 @@ def t_language(page, errors):
     page.click('.lang-remove[data-code="xx"]')
     ready('zh-CN')
     assert export() == '导出', export()
-    assert page.evaluate("[localStorage.getItem('slidegrid:lang'), localStorage.getItem('slidegrid:lang-custom')]") == [None, '{}']
+    assert page.evaluate("[localStorage.getItem('slidegrid:lang'), localStorage.getItem('slidegrid:lang-custom')]") == ['zh-CN', '{}']  # 移除正在用的语言 → 回到默认（测试环境里的默认是中文，见 ZH_INIT）
     assert page.locator('.lang-remove').count() == 0
     page.click('.rp-top [data-tab="params"]')
     assert not errors, errors
@@ -792,6 +808,7 @@ STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图
 def run(browser, label, url) -> bool:
     print(f'\n== {label}：{url}')
     ctx = browser.new_context(viewport={'width': 1440, 'height': 900}, locale='zh-CN')
+    ctx.add_init_script(ZH_INIT)
     page = ctx.new_page()
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))

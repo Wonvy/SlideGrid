@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>SlideGrid</title>
   <!-- 界面语言不是中文时：先不显示页面，等语言文件读好、文字换完再显示（最多等 3 秒），避免先闪一下中文。见 js/i18n/i18n.js -->
-  <script>try { var l = localStorage.getItem('slidegrid:lang'); if (l ? l !== 'zh-CN' : !/^zh\b/i.test(navigator.language || 'zh')) { document.documentElement.classList.add('i18n-wait'); setTimeout(function () { document.documentElement.classList.remove('i18n-wait'); }, 3000); } } catch (e) {}</script>
+  <script>try { var l = localStorage.getItem('slidegrid:lang') || 'auto'; if (l === 'auto' ? !/^zh\b/i.test(navigator.language || 'zh') : l !== 'zh-CN') { document.documentElement.classList.add('i18n-wait'); setTimeout(function () { document.documentElement.classList.remove('i18n-wait'); }, 3000); } } catch (e) {}</script>
   <style>html.i18n-wait body { visibility: hidden; }</style>
   <!-- 先把主题定下来（深色 / 浅色，见 js/ui/theme.js），页面一出来就是对的颜色 -->
   <script>try { var t = localStorage.getItem('slidegrid:theme'); if (t !== 'dark' && t !== 'light') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; } catch (e) {}</script>
@@ -34,6 +34,7 @@
       <!-- 中间：画板 / 画板尺寸菜单（由 topbarMenus 填充），始终在窗口正中 -->
       <div class="topbar-center" id="board-bar"></div>
       <div class="topbar-right">
+        <button class="lang-btn" id="lang-btn" type="button" title="界面语言" aria-haspopup="menu"></button>
         <button class="icon-btn visible theme-btn" id="theme-btn" aria-label="切换深色 / 浅色"></button>
         <div class="export-group">
           <div class="size-picker" id="size-picker" title="导出尺寸：普通画布为长边，长图为宽度"></div>
