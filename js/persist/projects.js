@@ -3,7 +3,7 @@ import { createZip, readZip } from './zip.js';
 
 /**
  * 项目存储（IndexedDB）
- *   projects：{ id, name, createdAt, updatedAt, settings, order, slideCount, thumb }
+ *   projects：{ id, name, createdAt, updatedAt, settings, order, slideCount, thumb, exportedAt（上次导出备份的时间） }
  *             order 中图片为 slideId 字符串，示例空位为 { id, placeholder: true }
  *   files：   { id, projectId, name, path, file }                 —— 幻灯片原图
  *             { id, projectId, name, file, kind: 'asset' }        —— 素材（背景图）
@@ -98,6 +98,8 @@ const patchProject = (id, patch) => serial(async () => {
 
 export const renameProject = (id, name) => patchProject(id, { name, updatedAt: Date.now() });
 export const setProjectThumb = (id, thumb) => patchProject(id, { thumb }); // 缩略图不算修改，不更新时间
+// 记下「什么时候导出过备份」（项目卡片、顶栏的「未备份」提示用）
+export const markProjectExported = (id, at = Date.now()) => patchProject(id, { exportedAt: at });
 
 export const deleteProject = id => serial(async () => {
   const db = await openDB();
@@ -157,7 +159,7 @@ export const deleteFiles = keys => serial(async () => {
 });
 
 // 写入一个完整的新项目（复制 / 导入共用）。素材会换新 id，并同步更新设置里的引用。
-async function insertProject({ name, settings, slides, assets = [], thumb = null }) {
+async function insertProject({ name, settings, slides, assets = [], thumb = null, exportedAt = null }) {
   const db = await openDB();
   const now = Date.now();
   const id = newProjectId();
@@ -227,6 +229,7 @@ async function insertProject({ name, settings, slides, assets = [], thumb = null
     order: order.some(x => typeof x === 'string') ? order : [],
     slideCount: order.filter(x => typeof x === 'string').length,
     thumb,
+    ...(exportedAt ? { exportedAt } : {}),
   };
   tx.objectStore('projects').put(rec);
   await done(tx);
@@ -289,5 +292,6 @@ export const importProjectFile = file => serial(async () => {
     assets.push({ id: a.id, name: a.name, file: new File([bytes], a.name, { type: mimeOf(a.name) }) });
   }
   const base = manifest.name || file.name.replace(/\.slidegrid$/i, '');
-  return insertProject({ name: base, settings: manifest.settings || {}, slides, assets });
+  // 从文件导入的：外面本来就有一份，算作已备份
+  return insertProject({ name: base, settings: manifest.settings || {}, slides, assets, exportedAt: Date.now() });
 });

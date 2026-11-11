@@ -82,7 +82,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   /* ---------- 图层页 ---------- */
   const list = el('div', { class: 'layer-list' });
   const dropLine = el('div', { class: 'layer-drop', hidden: true }); // 拖动时的插入位置
-  const empty = el('p', { class: 'note layer-empty-note' }, '还没有图层。用画布左边的工具添加文字、形状、路径，或粘贴图片 / SVG。');
+  const empty = el('p', { class: 'note layer-empty-note' }, '还没有图层。用画布左边的工具添加文字、形状、路径，或粘贴图片 / SVG。有了图层以后，可以把下面的卡片拖到图层之间。');
   layersSlot.append(empty, list);
 
   // 修改选中的图层（文字会重新测量尺寸，路径作用在锚点上）

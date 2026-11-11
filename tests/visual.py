@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-SlideGrid 版式截图对比：每个版式用默认参数、同一组测试图片渲染一张小图，和 tests/baseline/ 里的基准图比较。
+SlideGrid 截图对比：每个版式用默认参数、同一组测试图片渲染一张小图，和 tests/baseline/ 里的基准图比较。
 画面变了（卡片被裁掉、比例不对、少了卡片……）就报出来，并在 tests/visual-out/ 里留下这次的截图和差异图。
+除了版式，还比较：每种样机（正面 / 带角度 / 背面 × 简洁 / 写实）、卡片厚度、卡片比例、拖出「幻灯片」组的卡片。
 
     python tests/visual.py            # 对比
     python tests/visual.py --update   # 改动是有意的：用这次的结果更新基准图（记得提交 tests/baseline/）
@@ -66,6 +67,51 @@ RENDER = '''async id => {
   return btoa(s);
 }'''
 
+# 把一张 canvas 变成 base64 的 PNG
+TO_PNG = '''async c => { const buf = new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer());
+  let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(s); }'''
+
+# 一种样机的三个角度（正面、左侧、背面）画成一排；灰底上银色机身，亮部暗部都看得出来
+DEVICE_SHEET = '''async ([device, look]) => {
+  const D = await import('./js/layers/devices.js');
+  const img = SlideGrid.store.get().slides[0].preview;
+  const angles = [[0, 0], [-30, 14], [150, 10]], CW = 160, CH = 140;
+  const c = new OffscreenCanvas(CW * angles.length, CH), g = c.getContext('2d');
+  g.fillStyle = '#8a8f99';
+  g.fillRect(0, 0, c.width, c.height);
+  angles.forEach(([yaw, pitch], k) => {
+    const ar = D.deviceAspect(device, { yaw, pitch }), pad = 12, w = Math.min(CW - pad * 2, (CH - pad * 2) / ar), h = w * ar;
+    D.drawDevice(g, { device, yaw, pitch, frame: 'silver', look, fit: 'cover', shadow: true, x: k * CW + (CW - w) / 2, y: (CH - h) / 2, w, h }, img);
+  });
+  return (TO_PNG)(c);
+}'''.replace('TO_PNG', TO_PNG)
+
+# 其他情况：先摆好场景（setup），导出一张小图，再恢复（restore）
+SCENE_SHOT = '''async ([setup, restore]) => {
+  const S = SlideGrid;
+  await (0, eval)('(' + setup + ')')(S);
+  await new Promise(r => setTimeout(r, 30));
+  const { blob } = await S.renderToBlob({ longSide: 480, format: 'png', preview: true });
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  await (0, eval)('(' + restore + ')')(S);
+  return btoa(s);
+}'''
+RESET_STYLE = "S => S.actions.patchStyle({ thickness: 0, sideMode: 'edge', cardAspect: 'auto' })"
+SCENES = [
+    # 卡片厚度：等距展台（看得到侧边）、环形展台（后面一圈卡片背对镜头）、指定颜色的侧边
+    ('thick-isoStage', "S => { S.actions.setLayout('isoStage'); S.actions.resetParams(); S.actions.patchStyle({ thickness: 40, sideMode: 'edge' }); }", RESET_STYLE),
+    ('thick-carousel', "S => { S.actions.setLayout('carousel'); S.actions.resetParams(); S.actions.patchStyle({ thickness: 30, sideMode: 'color', sideColor: '#e8c26a' }); }", RESET_STYLE),
+    # 卡片比例：竖版 3:4
+    ('aspect-3x4', "S => { S.actions.setLayout('grid'); S.actions.resetParams(); S.actions.patchStyle({ cardAspect: '3:4' }); }", RESET_STYLE),
+    # 拖出「幻灯片」一组的卡片：盖在铺满画板的白色图层上面，其余卡片被图层盖住
+    ('pulled-card', '''async S => { S.actions.setLayout('grid'); S.actions.resetParams();
+        S.actions.setLayers([{ id: 'l_v', type: 'rect', name: '底', x: 0, y: 0, w: 1920, h: 1080, rotation: 0, opacity: 1, fillType: 'solid', fill: '#ffffff', fillAlpha: 1, strokeWidth: 0, radius: 0 }]);
+        const m = await import('./js/app/cardOrder.js'); m.dropCards([0, 3], { kind: 'layer', id: 'l_v', place: 'above' }); }''',
+     "S => { S.actions.setLayers([]); const s = S.store.get(); for (const o of Object.keys(s.adjust[s.layoutId] || {})) S.actions.resetItemAdjust(+o); }"),
+]
+DEVICE_SMALL = 240  # 样机是 2D 画布画的，各平台差别更小，比较时可以细一点
+
 # 在页面里解码两张 PNG、逐像素比较；返回差异指标和一张差异图（不同的地方标红）
 COMPARE = '''async ([a, b, SMALL]) => {
   const load = async b64 => createImageBitmap(await (await fetch('data:image/png;base64,' + b64)).blob());
@@ -112,31 +158,48 @@ def main():
             page.set_input_files('#file-input', SLIDES)
             page.wait_for_function(f'SlideGrid.store.get().slides.length === {len(SLIDES)}', timeout=15000)
             ids = page.evaluate("import('./js/layouts/index.js').then(m => m.layouts.map(l => l.id))")
-            print(f'\n== 版式截图对比（{len(ids)} 个版式）')
-            for lid in ids:
-                if only and lid not in only:
-                    continue
-                shot = page.evaluate(RENDER, lid)
+            print(f'\n== 版式（{len(ids)} 个）')
+            def check(lid, shot, small=SMALL):
                 (OUT / f'{lid}.png').write_bytes(base64.b64decode(shot))
                 base = BASE / f'{lid}.png'
                 if args.update:
                     base.write_bytes(base64.b64decode(shot))
                     print(f'  ↻ {lid}：已更新基准图')
-                    continue
+                    return
                 if not base.is_file():
                     missing.append(lid)
                     print(f'  ? {lid}：没有基准图（python tests/visual.py --update 生成）')
-                    continue
-                r = page.evaluate(COMPARE, [base64.b64encode(base.read_bytes()).decode(), shot, SMALL])
+                    return
+                r = page.evaluate(COMPARE, [base64.b64encode(base.read_bytes()).decode(), shot, small])
                 if 'size' in r:
                     failed.append(lid)
                     print(f'  ✗ {lid}：尺寸不同 {r["size"]}')
-                    continue
+                    return
                 ok = r['mean'] <= MEAN_LIMIT and r['changed'] <= CHANGED_LIMIT
                 (OUT / f'{lid}.diff.png').write_bytes(base64.b64decode(r['diff']))
                 print(f'  {"✓" if ok else "✗"} {lid}：平均差 {r["mean"]:.2f}，明显不同 {r["changed"] * 100:.2f}%')
                 if not ok:
                     failed.append(lid)
+
+            for lid in ids:
+                if only and lid not in only:
+                    continue
+                check(lid, page.evaluate(RENDER, lid))
+
+            devices = page.evaluate("import('./js/layers/devices.js').then(m => Object.keys(m.DEVICES))")
+            print(f'\n== 样机（{len(devices)} 种 × 简洁 / 写实）')
+            for dev in devices:
+                for look in ('simple', 'real'):
+                    name = f'device-{dev}-{look}'
+                    if only and name not in only and 'devices' not in only:
+                        continue
+                    check(name, page.evaluate(DEVICE_SHEET, [dev, look]), DEVICE_SMALL)
+
+            print('\n== 卡片厚度 / 卡片比例 / 拖出组的卡片')
+            for name, setup, restore in SCENES:
+                if only and name not in only:
+                    continue
+                check(name, page.evaluate(SCENE_SHOT, [setup, restore]))
             if errors:
                 failed.append('页面报错')
                 print(f'  ✗ 页面报错：{errors}')

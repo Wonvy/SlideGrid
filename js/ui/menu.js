@@ -18,6 +18,9 @@ export function createMenu(anchor, { render, className = '', align = 'left' }) {
   }
 
   function show() {
+    // 按钮在弹窗（<dialog>）里时，菜单也放进弹窗：弹窗在浏览器的「顶层」，放在 body 里会被它盖住
+    const host = anchor.closest('dialog') || document.body;
+    if (pop.parentElement !== host) host.append(pop);
     render(pop, close);
     pop.classList.add('show');
     anchor.classList.add('open');

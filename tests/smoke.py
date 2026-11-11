@@ -406,6 +406,12 @@ def t_layer_panel(page, errors):
     drag(cards.nth(3), cards.first, 'above')  # 铺满型版式卡片很多：只在画板里看得见的卡片之间排
     after = names()
     assert after[0] == before[3] and after[1:4] == before[:3] and after[4:] == before[4:], (before[:6], after[:6])
+    # 3D 版式里只给挪动的那一张加「远近偏移」，别的卡片不动（转动视角后它们仍按真实远近排）
+    moved = [k for k, v in adj().items() if 'bias' in v or 'lift' in v]
+    assert moved == [before[3]], (moved, before[3])
+    page.locator('.layer-list .layer-row[data-kind="slides"]').click(button='right')
+    page.click('.ctx-menu .menu-item:has-text("恢复版式默认的前后")')
+    assert names() == before and not adj(), (names()[:5], adj())
     page.evaluate("""() => { const S = SlideGrid; S.actions.setLayout('scatter'); S.actions.setLayers(S.store.get().layers.filter(l => !l.id.startsWith('l_p'))); S.layers.clear(); }""")
     assert not errors, errors
 
@@ -535,12 +541,111 @@ def t_theme(page, errors):
     assert not errors, errors
 
 
+# 找出文字和底色对比度不够的地方（看得见的文字；渐变 / 图片底色、禁用的控件不算）。返回 [{ text, path, ratio }]
+CONTRAST = r"""(limit) => {
+  const parse = c => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return [0, 0, 0, 0]; const p = m[1].split(/[,/ ]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; };
+  const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const over = (top, bottom) => [0, 1, 2].map(i => top[i] * top[3] + bottom[i] * (1 - top[3]));
+  const root = parse(getComputedStyle(document.documentElement).backgroundColor), body = parse(getComputedStyle(document.body).backgroundColor);
+  const pageBg = root[3] ? root : body;
+  const bgOf = el => {
+    const stack = [];
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (cs.backgroundImage !== 'none') return null;
+      const bg = parse(cs.backgroundColor);
+      if (bg[3] > 0) { stack.push(bg); if (bg[3] >= 0.99) break; }
+    }
+    let base = [pageBg[0], pageBg[1], pageBg[2]];
+    for (const layer of stack.reverse()) base = over(layer, base);
+    return base;
+  };
+  const dimmed = el => { for (let n = el; n && n.nodeType === 1; n = n.parentElement) { const cs = getComputedStyle(n); if (+cs.opacity < 0.6 || cs.visibility === 'hidden' || cs.display === 'none') return true; } return false; };
+  const out = [], seen = new Set(), modal = document.querySelector('dialog[open]');
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    const text = t.nodeValue.trim(), el = t.parentElement;
+    if (!text || !el || ['SCRIPT', 'STYLE', 'OPTION'].includes(el.tagName)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
+    if (dimmed(el) || (modal && !el.closest('dialog[open]'))) continue;
+    const cs = getComputedStyle(el), bg = bgOf(el);
+    if (!bg) continue;
+    const fg = over(parse(cs.color), bg), a = lum(fg), b = lum(bg), ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    if (ratio >= limit) continue;
+    const key = (el.id || el.className) + '|' + cs.color + '|' + bg.map(Math.round).join();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ text: text.slice(0, 14), path: el.tagName.toLowerCase() + '.' + String(el.className).trim().replace(/\s+/g, '.'), ratio: +ratio.toFixed(2) });
+  }
+  return out;
+}"""
+
+
+def t_contrast(page, errors):
+    # 深色、浅色两套主题下走一遍主要界面：文字和底色的对比度都不能太低（防止换主题后出现「深色字在深色底上」）
+    limit = 3.4
+    found = []
+
+    def audit(theme, where):
+        for it in page.evaluate(CONTRAST, limit):
+            found.append(f'{theme} · {where}：「{it["text"]}」{it["ratio"]}（{it["path"]}）')
+
+    start = page.evaluate("localStorage.getItem('slidegrid:theme')")
+    page.evaluate("""() => { const S = SlideGrid; S.actions.setLayout('grid');
+      S.actions.setLayers([...S.store.get().layers, { id: 'l_c1', type: 'text', name: '字', x: 500, y: 300, w: 300, h: 80, rotation: 0, opacity: 1, text: '标题', fontFamily: 'sans-serif',
+        fontSize: 64, fontWeight: 700, align: 'left', lineHeight: 1.2, letterSpacing: 0, color: '#ffffff' }]); S.setTool('select'); S.layers.clear(); }""")
+    for theme in ('dark', 'light'):
+        if page.evaluate("document.documentElement.dataset.theme") != theme:
+            page.click('#theme-btn')
+            page.wait_for_timeout(400)  # 颜色有过渡动画：等它走完再量
+        assert page.evaluate("document.documentElement.dataset.theme") == theme
+        for tab, name in (('params', '设计页'), ('layouts', '版式页'), ('mockup', '样机页'), ('prefs', '偏好页')):
+            page.click(f'.rp-top [data-tab="{tab}"]')
+            audit(theme, name)
+        page.click('.rp-top [data-tab="params"]')
+        page.click('.lp-top [data-tab="layers"]')
+        page.evaluate("SlideGrid.layers.select(['l_c1'])")
+        audit(theme, '图层页 + 选中文字图层')
+        page.evaluate("SlideGrid.layers.clear()")
+        page.click('.lp-top [data-tab="slides"]')
+        for sel, name in (('#project-btn', '项目菜单'), ('#board-bar .topbar-btn:first-child', '画板菜单'), ('#board-bar .topbar-btn:last-child', '画板尺寸菜单')):
+            page.click(sel)
+            page.wait_for_timeout(120)
+            audit(theme, name)
+            page.keyboard.press('Escape')
+        page.click('#project-btn')
+        page.click('.project-menu .menu-item:has-text("全部项目")')
+        page.wait_for_function("/\\d (KB|MB|GB)/.test(document.querySelector('.storage-text')?.textContent || '')", timeout=10000)
+        audit(theme, '项目窗口 · 全部项目')
+        page.click('.pm-nav-btn[data-page="new"]')
+        audit(theme, '项目窗口 · 新建项目')
+        page.click('.storage-clean')
+        page.wait_for_selector('.ask-modal[open]')
+        audit(theme, '清理空间对话框')
+        page.keyboard.press('Escape')
+        page.click('.projects-modal .modal-head .icon-btn')
+    page.evaluate("""start => { if (start) localStorage.setItem('slidegrid:theme', start); else localStorage.removeItem('slidegrid:theme');
+      SlideGrid.actions.setLayers(SlideGrid.store.get().layers.filter(l => l.id !== 'l_c1')); }""", start)
+    page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
+    page.reload()
+    wait_app(page)
+    assert not found, '对比度不够：\n    ' + '\n    '.join(found)
+    assert not errors, errors
+
+
 def t_project_ui(page, errors):
     # 版本号；项目菜单 → 新建项目（名称 + 竖屏画板）；全部项目里搜索、点卡片切回原来的项目
     version = page.inner_text('#app-version')
     assert version.startswith('v') and version.count('.') == 2, version
     page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
     orig = page.evaluate('SlideGrid.store.get().project.id')
+    # 备份提醒：有图片、还没导出过 → 顶栏出现「未备份」；点一下导出项目文件，之后不再提示
+    page.wait_for_selector('#backup-btn:not([hidden])', timeout=5000)
+    with page.expect_download() as dl:
+        page.click('#backup-btn')
+    assert dl.value.suggested_filename.endswith('.slidegrid'), dl.value.suggested_filename
+    page.wait_for_selector('#backup-btn', state='hidden', timeout=5000)
     page.click('#project-btn')
     page.click('.project-menu .menu-item:has-text("新建项目")')
     page.fill('.project-name-input', '竖版项目')
@@ -569,6 +674,10 @@ def t_project_ui(page, errors):
     page.wait_for_selector('.ask-modal[open] .ask-option')
     assert '竖版项目' in page.inner_text('.ask-modal[open] .ask-options')
     page.keyboard.press('Escape')
+    # 备份全部项目：一个 zip
+    with page.expect_download() as dl:
+        page.click('.pm-nav-btn:has-text("备份全部项目")')
+    assert dl.value.suggested_filename.startswith('SlideGrid 备份') and dl.value.suggested_filename.endswith('.zip'), dl.value.suggested_filename
     test_card = page.locator('.projects-modal .project-card:not(.project-add):not(.current)')
     test_card.hover()
     test_card.locator('.icon-btn[title="删除项目"]').click()
@@ -609,7 +718,7 @@ def t_persist(page, errors):
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('画板右键菜单 / Delete 删除画板', t_board_menu), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
          ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
-         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('深色 / 浅色主题', t_theme), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
+         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('深色 / 浅色主题', t_theme), ('两套主题的文字对比度', t_contrast), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
 
 

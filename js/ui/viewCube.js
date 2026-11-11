@@ -62,7 +62,10 @@ export function createViewCube(host, { store, actions }) {
   const stage = el('div', { class: 'vc-stage', title: '拖动旋转视角 · 点面 / 棱 / 角切换视图' }, cube);
   const projBtn = el('button', { class: 'vc-btn', type: 'button' });
   const homeBtn = el('button', { class: 'vc-btn icon', type: 'button', title: '复位视角（回到版式默认的角度）', 'aria-label': '复位视角' }, icon('rotate-ccw', 13));
-  const root = el('div', { class: 'view-cube', hidden: true }, stage, el('div', { class: 'vc-bar' }, projBtn, homeBtn));
+  // 平面版式转动 / 改成透视后：单张卡片暂时不能调，给一句说明和「回到平面」
+  const backBtn = el('button', { class: 'vc-note-btn', type: 'button' }, '回到平面');
+  const note = el('div', { class: 'vc-note', hidden: true }, el('span', {}, '已转动视角，单张卡片暂时不能调整'), backBtn);
+  const root = el('div', { class: 'view-cube', hidden: true }, stage, el('div', { class: 'vc-bar' }, projBtn, homeBtn), note);
   host.append(root);
 
   const scene = () => cachedScene(sceneInput(store.get()));
@@ -126,7 +129,9 @@ export function createViewCube(host, { store, actions }) {
     actions.setCamera({ proj: next === own ? undefined : next }); // 和版式自己的一样时不用记
   });
   // 复位：回到版式默认的角度和投影
-  homeBtn.addEventListener('click', () => { if (store.get().camera.proj) actions.setCamera({ proj: undefined }); animateTo(m4.identity()); });
+  const goHome = () => { if (store.get().camera.proj) actions.setCamera({ proj: undefined }); animateTo(m4.identity()); };
+  homeBtn.addEventListener('click', goHome);
+  backBtn.addEventListener('click', goHome);
 
   /* ---------- 同步 ---------- */
   let lastKey = '';
@@ -145,6 +150,7 @@ export function createViewCube(host, { store, actions }) {
     projBtn.title = sc.ortho ? '现在是正交投影（没有近大远小），点击切换为透视' : '现在是透视投影（近大远小），点击切换为正交';
     const custom = (!!s.camera.q && Math.abs(s.camera.q[3]) < 0.99999) || Math.abs(s.camera.pitch || 0) > 1e-3 || Math.abs(s.camera.yaw || 0) > 1e-3;
     homeBtn.disabled = !custom && !s.camera.proj;
+    note.hidden = getLayout(s.layoutId)?.category === '3d' || (!custom && !s.camera.proj);
   }
   store.subscribe(s => update(s));
   update();

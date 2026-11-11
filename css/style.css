@@ -6,13 +6,15 @@
   --line-2: #323846;
   --text: #e7e9ee;
   --muted: #8a92a3;
-  --faint: #5d6576;
+  --faint: #717a8b;
   --accent: #7c8cff;
   --accent-2: #a78bfa;
   --danger: #ff6b6b;
   color-scheme: dark;
   /* 主题用的其他颜色（深色）。--fg：半透明前景（深色主题是白，浅色主题是深灰）；--shadow-k：阴影浓度 */
   --fg: 255, 255, 255;
+  --accent-solid: #6272f0; /* 白字按钮的底色：比 --accent 深一点，白字对比度够 */
+  --accent-solid-hover: #7181f5;
   --accent-rgb: 124, 140, 255;
   --accent-text: #aab4ff;
   --shadow-k: 1;
@@ -99,8 +101,8 @@ button { font: inherit; color: inherit; }
 }
 .btn:hover { background: var(--n-232835); border-color: var(--n-3d4455); }
 .btn:disabled { opacity: .5; cursor: default; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.btn.primary:hover { background: #8d9bff; }
+.btn.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; font-weight: 600; }
+.btn.primary:hover { background: var(--accent-solid-hover); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--text); background: var(--panel-2); }
 .btn.small { padding: 3px 8px; font-size: 12px; }
@@ -445,7 +447,7 @@ input[type=color]::-moz-color-swatch { border: 0; border-radius: 4px; }
 .drop-overlay.show { display: flex; }
 .drop-label {
   margin-top: 64px; padding: 8px 16px; border-radius: 999px;
-  background: var(--accent); color: #fff; font-weight: 600;
+  background: var(--accent-solid); color: #fff; font-weight: 600;
   box-shadow: 0 8px 24px rgba(0, 0, 0, calc(.35 * var(--shadow-k)));
 }
 
@@ -720,7 +722,7 @@ body.layer-dragging, body.layer-dragging * { cursor: grabbing !important; }
   background: transparent; color: var(--muted); cursor: pointer;
 }
 .tb-btn:hover { background: var(--panel-2); color: var(--text); }
-.tb-btn.active { background: var(--accent); color: #fff; }
+.tb-btn.active { background: var(--accent-solid); color: #fff; }
 .tb-btn.disabled { opacity: .3; }
 .tb-btn.disabled:hover { background: transparent; color: var(--muted); }
 .tb-text { font-size: 12px; padding: 0 8px; }
@@ -1500,7 +1502,7 @@ body.scrubbing, body.scrubbing * { cursor: ew-resize !important; user-select: no
 .album-bar { position: relative; max-height: var(--album-h, 236px); overflow-y: auto; flex: none; }
 body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select: none; }
 .album-tile { position: relative; }
-.album-badge { position: absolute; top: 4px; right: 4px; padding: 0 5px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; line-height: 17px; transform: scale(.85); transform-origin: top right; }
+.album-badge { position: absolute; top: 4px; right: 4px; padding: 0 5px; border-radius: 6px; background: var(--accent-solid); color: #fff; font-size: 12px; line-height: 17px; transform: scale(.85); transform-origin: top right; }
 .album-tile.drop-hover { background: rgba(var(--accent-rgb), .18); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .slides-mode.browse { background: rgba(var(--accent-rgb), .12); color: var(--accent-text); flex-wrap: wrap; row-gap: 6px; padding: 8px; }
 .slides-mode.browse .sm-text { flex: 1 0 100%; white-space: normal; }
@@ -1882,13 +1884,15 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
   --line-2: #cfd4dc;
   --text: #1b1e25;
   --muted: #5a6372;
-  --faint: #8a92a0;
+  --faint: #6f7786;
   --accent: #5566f2;
   --accent-2: #8b6cf6;
   --danger: #e5484d;
   color-scheme: light;
   --fg: 20, 26, 40;
   --accent-rgb: 85, 102, 242;
+  --accent-solid: #5566f2;
+  --accent-solid-hover: #4354e0;
   --accent-text: #3f4fd6;
   --shadow-k: .3;
   --pasteboard: #e6e9ee;
@@ -1919,7 +1923,6 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
   --n-0d0f13: #edeff3;
 }
 /* 浅色主题里的个别调整 */
-:root[data-theme="light"] .btn.primary:hover { background: #4354e0; }
 :root[data-theme="light"] .seg-btn.active { background: #fff; box-shadow: 0 1px 3px rgba(20, 26, 40, .16), 0 0 0 1px rgba(20, 26, 40, .06); }
 :root[data-theme="light"] .modal::backdrop { background: rgba(30, 36, 50, .32); }
 :root[data-theme="light"] .project-thumb, :root[data-theme="light"] .preset-thumb { background: #e9ecf1; }
@@ -1928,3 +1931,44 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 
 /* 顶栏的主题切换按钮 */
 .theme-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; }
+
+/* 选中项（带强调色底）里的计数、说明：用深一档的辅助色，对比度才够 */
+.pm-nav-btn.active .tab-count, .board-item.active .menu-meta, .size-card.active .size-card-note { color: var(--muted); }
+
+/* ================= 自绘的下拉框（ui/dropdown.js，代替浏览器自带的 <select>） ================= */
+.select-btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; cursor: pointer; text-align: left; }
+.select-btn .select-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-btn .icon { flex: none; color: var(--faint); transition: transform .15s; }
+.select-btn:hover, .select-btn.open { background: var(--field-hover); }
+.select-btn.open .icon { transform: rotate(180deg); }
+.select-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ctx-controls .select-btn { width: auto; }
+.select-menu { max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+
+/* ---------- 立方体下面的说明（平面版式转动后） ---------- */
+.vc-note {
+  max-width: 150px; padding: 7px 9px; border-radius: 9px; background: var(--float-bg); border: 1px solid var(--line-2);
+  color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; display: flex; flex-direction: column; gap: 5px;
+}
+.vc-note[hidden] { display: none; }
+.vc-note-btn { height: 24px; border: 0; border-radius: 7px; background: var(--accent-solid); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.vc-note-btn:hover { background: var(--accent-solid-hover); }
+
+/* ---------- 底部的操作提示：一行最常用的 + 「更多」 ---------- */
+.stage .stage-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; pointer-events: none; }
+.hint-more {
+  pointer-events: auto; flex: none; height: 20px; padding: 0 7px; border: 0; border-radius: 6px; background: rgba(var(--fg), .08);
+  color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.hint-more:hover { background: rgba(var(--fg), .16); color: var(--text); }
+.hint-all { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 3px 6px; padding: 3px 0 2px; }
+.hint-all[hidden] { display: none; }
+.hint-item { padding: 1px 7px; border-radius: 6px; background: rgba(var(--fg), .06); color: var(--muted); white-space: nowrap; }
+
+/* ---------- 备份提醒 ---------- */
+.backup-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 0; border-radius: 7px;
+  background: rgba(240, 179, 90, .16); color: var(--warn); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.backup-btn:hover { background: rgba(240, 179, 90, .28); }
+.project-nobackup { margin-left: 6px; padding: 0 5px; border-radius: 5px; background: rgba(240, 179, 90, .16); color: var(--warn); font-size: 12px; white-space: nowrap; }

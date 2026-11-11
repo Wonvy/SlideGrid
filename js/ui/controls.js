@@ -1,4 +1,5 @@
 import { el, isCollapsed, setCollapsed } from './dom.js';
+import { dropdown } from './dropdown.js';
 import { attachWheel, shiftLightness } from './wheel.js';
 import { icon } from './icons.js';
 import { createFontPicker } from './fontPicker.js';
@@ -159,19 +160,14 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
           break;
         }
         if (panel) row.classList.add('stacked');
-        const input = el('select', { class: 'select', title: def.title || null },
-          def.options.map((o, idx) => el('option', { value: String(idx) }, o.label)));
-        input.addEventListener('change', () => onChange(def.key, def.options[Number(input.value)].value));
-        render = v => {
-          input.value = String(Math.max(0, def.options.findIndex(o => o.value === v)));
-        };
+        // 选项多 / 长：自绘的下拉框（ui/dropdown.js）
+        const dd = dropdown({ options: def.options, title: def.title || null, onChange: v => onChange(def.key, v) });
+        render = v => dd.set(def.options.some(o => o.value === v) ? v : def.options[0]?.value);
         wheel = steps => {
           const idx = Math.max(0, def.options.findIndex(o => o.value === current));
           return def.options[Math.min(def.options.length - 1, Math.max(0, idx + steps))].value;
         };
-        // 下拉框获得焦点时浏览器自己也会响应滚轮，这里统一由行处理
-        input.addEventListener('wheel', e => { if (document.activeElement === input) input.blur(); }, { passive: true });
-        row.append(input);
+        row.append(dd.node);
         break;
       }
       case 'number': {
@@ -292,16 +288,16 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
           if (!albums.length) { box.replaceChildren(el('p', { class: 'note' }, '还没有图集')); return; }
           box.replaceChildren(...Array.from({ length: n }, (_, i) => {
             const autoName = albums[i % albums.length].name;
-            const sel = el('select', { class: 'select' },
-              el('option', { value: '' }, `自动 · ${autoName}`),
-              ...albums.map(a => el('option', { value: a.id }, a.name)));
-            sel.value = list[i] && albums.some(a => a.id === list[i]) ? list[i] : '';
-            sel.addEventListener('change', () => {
-              const next = Array.from({ length: Math.max(n, list.length) }, (_, j) => list[j] ?? null);
-              next[i] = sel.value || null;
-              onChange(def.key, next);
+            const sel = dropdown({
+              options: [{ value: '', label: `自动 · ${autoName}` }, ...albums.map(a => ({ value: a.id, label: a.name }))],
+              onChange: v => {
+                const next = Array.from({ length: Math.max(n, list.length) }, (_, j) => list[j] ?? null);
+                next[i] = v || null;
+                onChange(def.key, next);
+              },
             });
-            return el('div', { class: 'ag-row' }, el('span', { class: 'ag-label' }, def.itemLabel(vals, i)), sel);
+            sel.set(list[i] && albums.some(a => a.id === list[i]) ? list[i] : '');
+            return el('div', { class: 'ag-row' }, el('span', { class: 'ag-label' }, def.itemLabel(vals, i)), sel.node);
           }));
         };
         row.classList.add('stacked');

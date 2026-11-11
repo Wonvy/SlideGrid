@@ -221,7 +221,9 @@ export function createProjectDialog({ anchor, store, controller, download, toast
           action('trash-2', '删除项目', removeProject, true)),
         el('div', { class: 'project-meta' },
           el('div', { class: 'project-name' }, el('span', { class: 'project-name-text' }, p.name), isCurrent ? el('span', { class: 'badge' }, '当前') : null),
-          el('div', { class: 'project-sub' }, [`${p.slideCount || 0} 张`, usage ? formatBytes(sizeOf(p)) : null, relativeTime(p.updatedAt)].filter(Boolean).join(' · '))),
+          el('div', { class: 'project-sub' }, [`${p.slideCount || 0} 张`, usage ? formatBytes(sizeOf(p)) : null, relativeTime(p.updatedAt)].filter(Boolean).join(' · '),
+            // 有图片、从没导出过：标出来
+            p.slideCount && !p.exportedAt ? el('span', { class: 'project-nobackup', title: '这个项目还没有导出过备份' }, '未备份') : null)),
       );
       card.addEventListener('click', () => openProject(p));
       card.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === card) openProject(p); });
@@ -237,11 +239,13 @@ export function createProjectDialog({ anchor, store, controller, download, toast
   const storageText = el('div', { class: 'storage-text' });
   const storageFill = el('span', { class: 'storage-fill' });
   const storageNote = el('div', { class: 'storage-note' });
+  const persistNote = el('div', { class: 'storage-note', hidden: true });
+  let persisted = null;
   const cleanBtn = el('button', { type: 'button', class: 'btn small storage-clean', title: '清理用不到的文件和没有内容的项目' }, icon('trash-2', 13), '清理空间…');
   const storageBox = el('div', { class: 'storage-box' },
     el('div', { class: 'storage-head' }, el('span', { class: 'storage-title' }, '占用空间'), storageText),
     el('div', { class: 'storage-bar' }, storageFill),
-    storageNote, cleanBtn);
+    storageNote, persistNote, cleanBtn);
   function renderStorage() {
     if (!usage) { storageText.textContent = '…'; storageNote.textContent = ''; return; }
     storageText.textContent = formatBytes(usage.total);
@@ -252,6 +256,8 @@ export function createProjectDialog({ anchor, store, controller, download, toast
     const free = q?.quota ? Math.max(0, q.quota - (q.usage || 0)) : null;
     const waste = usage.unused.count ? `，其中 ${formatBytes(usage.unused.bytes)} 用不到` : '';
     storageNote.textContent = `${projects.length} 个项目${waste}${free != null ? ` · 浏览器还可用约 ${formatBytes(free)}` : ''}`;
+    persistNote.textContent = persisted === true ? '已设为持久保存：浏览器不会自动清理' : persisted === false ? '浏览器空间紧张时可能清理这些数据，重要的项目请导出备份' : '';
+    persistNote.hidden = persisted == null;
   }
   cleanBtn.addEventListener('click', async () => {
     const u = usage || await controller.usage();
@@ -291,6 +297,14 @@ export function createProjectDialog({ anchor, store, controller, download, toast
   const navBtns = [navBtn('new', 'plus', '新建项目'), navBtn('all', 'folder-kanban', '全部项目', countBadge)];
   const importBtn = el('button', { type: 'button', class: 'pm-nav-btn', title: '导入 .slidegrid 项目文件（也可以直接拖进窗口）', onclick: () => fileInput.click() },
     icon('upload', 16), el('span', { class: 'pm-nav-label' }, '导入项目文件…'));
+  // 备份全部：每个项目一个 .slidegrid，打成一个 zip
+  const backupAllBtn = el('button', { type: 'button', class: 'pm-nav-btn', title: '把所有项目各导出一个 .slidegrid 文件，打包成一个 zip 下载（恢复时把里面的文件逐个导入）' },
+    icon('download', 16), el('span', { class: 'pm-nav-label' }, '备份全部项目'));
+  backupAllBtn.addEventListener('click', () => act(async () => {
+    const { blob, filename, count } = await controller.exportAll(t => { busyNote.textContent = `正在打包… ${Math.round(t * 100)}%`; });
+    download(blob, filename);
+    toast(`已备份 ${count} 个项目：「${filename}」`);
+  }, '正在打包…'));
   const pages = { new: newPage, all: allPage };
   let page = 'all';
   function showPage(id) {
@@ -313,6 +327,7 @@ export function createProjectDialog({ anchor, store, controller, download, toast
         ...navBtns,
         el('div', { class: 'menu-sep' }),
         importBtn,
+        backupAllBtn,
         el('span', { class: 'bar-spacer' }),
         storageBox,
         el('p', { class: 'note pm-nav-note' }, '项目保存在这个浏览器里。换电脑、换浏览器请先导出 .slidegrid 文件，再到那边导入。'),
@@ -328,6 +343,7 @@ export function createProjectDialog({ anchor, store, controller, download, toast
     renderGrid();
     // 占用空间要读一遍所有文件，稍慢：先把列表显示出来，算好了再补上
     try { usage = await controller.usage(); } catch (err) { console.warn(err); usage = null; }
+    if (persisted == null && projects.some(p => p.slideCount)) persisted = await controller.persist(); // 有内容了：请浏览器别自动清理
     projects = await controller.list();
     renderGrid();
   }

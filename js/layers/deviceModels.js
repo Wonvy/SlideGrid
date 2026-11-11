@@ -446,14 +446,17 @@ function paintWatchBack(g, o) {
 }
 
 // 表带：两侧稍暗（弧面），靠近表壳的一端有表壳的影子（near：'top' | 'bottom'；'in' = 插在表壳里的一段，整段在影子里）
-const band = near => (g, { f, w, h, r, real }) => {
+// k：这一段的明暗（表带往后弯，越靠外越暗一点）；near 为 'mid' 时没有表壳的影子
+const band = (near, k = 1) => (g, { f, w, h, r, real }) => {
   rr(g, 0, 0, w, h, r);
-  g.fillStyle = f.band;
+  g.fillStyle = tone(f.band, k);
   g.fill();
   g.fillStyle = grad(g, 0, 0, w, 0, [[0, 'rgba(0,0,0,0.2)'], [0.16, 'rgba(0,0,0,0)'], [0.84, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.2)']]);
   g.fill();
-  g.fillStyle = near === 'in' ? 'rgba(0,0,0,0.3)' : near === 'bottom' ? grad(g, 0, h - 90, 0, h, ['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)']) : grad(g, 0, 0, 0, 90, ['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)']);
-  g.fill();
+  if (near !== 'mid') {
+    g.fillStyle = near === 'in' ? 'rgba(0,0,0,0.3)' : near === 'bottom' ? grad(g, 0, h - 90, 0, h, ['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)']) : grad(g, 0, 0, 0, 90, ['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)']);
+    g.fill();
+  }
   if (real && near !== 'in') {
     // 写实：氟橡胶表带——中间一道柔和的高光，两边各一条细细的压线
     g.fillStyle = grad(g, 0, 0, w, 0, [[0.3, 'rgba(255,255,255,0)'], [0.5, 'rgba(255,255,255,0.12)'], [0.7, 'rgba(255,255,255,0)']]);
@@ -593,8 +596,33 @@ function phone(id) {
 }
 
 function watch(f) {
-  // 表带分两段：露在表壳外面的一段（从上 / 下看时在表壳前面），和插进表壳里的一小段（总在表壳后面，只从圆角的缝里露出来）
-  const strap = (key, y, h, r, paint) => facing(key, 104, y, 44, 232, h, { r, t: 22, side: f.band, front: { paint }, back: { paint } });
+  // 表带：插进表壳里的一小段（总在表壳后面，只从圆角的缝里露出来）+ 露在外面、向后弯下去的三段。
+  // 每段比上一段多弯一些；正面看过去三段的高度加起来还是 180（和正面图的尺寸一致）
+  const inner = (key, y) => facing(key, 104, y, 44, 232, 70, { r: 0, t: 22, side: f.band, front: { paint: band('in') }, back: { paint: band('in') } });
+  const BEND = [[70, 8, 1], [66, 24, 0.93], [70, 44, 0.84]]; // [长度, 向后弯的角度, 明暗]
+  // dir：1 = 下面的表带（从表壳往下），-1 = 上面的。返回按先后顺序排好的结构（见文件开头的 tree）
+  function strap(name, dir) {
+    let p = [104, dir > 0 ? 580 : 180, 44];
+    const segs = BEND.map(([len, deg, k], i) => {
+      const a = (deg * Math.PI) / 180, d = [0, dir * Math.cos(a), Math.sin(a)]; // 这一段往外走的方向
+      const start = p, end = [p[0], p[1] + d[1] * len, p[2] + d[2] * len];
+      p = end;
+      const last = i === BEND.length - 1;
+      const paint = band(i === 0 ? (dir > 0 ? 'top' : 'bottom') : 'mid', k);
+      return {
+        joint: [start, d],
+        slab: {
+          key: `${name}${i}`, w: 232, h: len, t: 22, side: f.band, front: { paint }, back: { paint },
+          // 正面的左上角：下面的表带是靠表壳的一端，上面的表带是外面的一端
+          O: dir > 0 ? start : end, U: X, V: dir > 0 ? d : d.map(v => -v),
+          r: last ? (dir > 0 ? [0, 0, 30, 30] : [30, 30, 0, 0]) : 0,
+        },
+      };
+    });
+    // 相邻两段以接缝处的平面分开：镜头在外面那一侧时先画里面的一段，反之先画外面的
+    const chain = k => (k === segs.length - 1 ? [segs[k].slab] : { plane: segs[k + 1].joint, front: chain(k + 1), back: [segs[k].slab] });
+    return chain(0);
+  }
   return {
     center: [220, 380, 35],
     tree: {
@@ -605,13 +633,13 @@ function watch(f) {
       ],
       back: {
         plane: [[0, 180, 0], UP],
-        front: [strap('strapTop', 0, 180, [30, 30, 0, 0], band('bottom'))],
+        front: strap('strapTop', -1),
         back: {
           plane: [[0, 580, 0], Y],
-          front: [strap('strapBottom', 580, 180, [0, 0, 30, 30], band('top'))],
+          front: strap('strapBottom', 1),
           back: [
-            strap('strapTopIn', 180, 70, 0, band('in')),
-            strap('strapBottomIn', 510, 70, 0, band('in')),
+            inner('strapTopIn', 180),
+            inner('strapBottomIn', 510),
             facing('case', 40, 180, 0, 360, 400, { r: 96, t: 70, front: { paint: paintWatch, screen: true }, back: { paint: paintWatchBack, lit: true }, edge: true }),
           ],
         },

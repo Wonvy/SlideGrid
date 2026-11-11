@@ -1,5 +1,6 @@
 import { store, actions } from '../state.js';
-import { cachedScene, PULL_BACK } from '../render/scene.js';
+import { cachedScene, PULL_BACK, sortKey } from '../render/scene.js';
+import { getLayout } from '../layouts/index.js';
 import { itemCornersNdc } from '../render/picking.js';
 import { sceneInput } from './boards.js';
 
@@ -8,7 +9,8 @@ import { sceneInput } from './boards.js';
  * 前后记在卡片的 lift（手动调整）里：重新排好后按名次写回每张卡片的 lift。
  *   平面版式：lift 把卡片抬高一点（z = lift × 20），按远近自然叠在上面。版式本身给的 z（扇形、散落有一点点前后差）
  *             不超过 40，所以每一名相差 3（= 60 个世界单位）足以盖过它
- *   3D 版式：不动位置，只改绘制的先后（没调过的卡片仍按远近；「恢复版式默认的前后」回到全部按远近）
+ *   3D 版式：不动位置，只给挪动的那几张卡片的「远近」加一个偏移（bias），让它排到目标位置；
+ *             别的卡片仍按真实的远近排，所以之后转动视角，前后大体还是对的（「恢复版式默认的前后」去掉所有偏移）
  * 另外两项也记在手动调整里：hidden（隐藏这张卡片）、above（拖出「幻灯片」一组，画在某个图层上面）。
  */
 const LIFT_STEP = 3;
@@ -16,6 +18,33 @@ const MANY = 150; // 卡片太多（铺满型版式）时只调选中的卡片
 
 export const activeCardScene = (s = store.get()) => cachedScene(sceneInput(s));
 export const canStack = () => true;
+const isFlatLayout = (s = store.get()) => getLayout(s.layoutId)?.category !== '3d';
+
+/**
+ * 3D 版式：把 moving 这几张卡片排到 next（从下到上的新顺序）里的位置——只改它们的 bias，别的卡片不动。
+ * 返回要写回的调整 [{ order, patch }]（没有变化时为空）。
+ */
+function biasPatches(scene, next, moving) {
+  const byOrder = new Map(scene.items.map(it => [it.order, it]));
+  const keys = new Map(scene.items.map(it => [it.order, sortKey(it)]));
+  const sel = new Set(moving);
+  const out = [];
+  for (let k = 0; k < next.length; k++) {
+    const o = next[k];
+    if (!sel.has(o)) continue;
+    const it = byOrder.get(o);
+    if (!it) continue;
+    const lower = k > 0 ? keys.get(next[k - 1]) : undefined; // 前一张（可能刚挪过，用新的数）
+    let upper;
+    for (let j = k + 1; j < next.length; j++) if (!sel.has(next[j])) { upper = keys.get(next[j]); break; }
+    const key = lower != null && upper != null ? (lower + upper) / 2 : lower != null ? lower + 1 : upper != null ? upper - 1 : keys.get(o);
+    keys.set(o, key);
+    const bias = key - (it.stack * 1e6 + it.depth);
+    // 旧数据里的名次（lift）会压过 bias：挪过的卡片去掉它
+    if (Math.abs(bias - (it.bias || 0)) > 1e-9 || it.rank) out.push({ order: o, patch: { bias: Math.abs(bias) < 1e-9 ? undefined : bias, lift: undefined } });
+  }
+  return out;
+}
 
 // 卡片在画板上的范围：四个角（NDC）+ 包围盒
 function boxOf(scene, it) {
@@ -59,7 +88,8 @@ export function stackCards(orders, dir, toEnd = false) {
   const list = scene.items.map(it => it.order); // 从下到上（绘制顺序）
   const sel = new Set(orders);
   const adjust = store.get().adjust[store.get().layoutId] || {};
-  if (list.length > MANY) {
+  const flat = isFlatLayout();
+  if (flat && list.length > MANY) {
     // 卡片很多：只把选中的放到最上 / 最下
     const lifts = Object.values(adjust).map(a => a.lift || 0);
     const lift = dir > 0 ? Math.max(0, ...lifts) + LIFT_STEP : Math.min(0, ...lifts) - LIFT_STEP;
@@ -81,6 +111,13 @@ export function stackCards(orders, dir, toEnd = false) {
       next.splice(i, 1);
       next.splice(dir > 0 ? j : j, 0, o); // 删除后 j 前移了一位：往上插在它后面、往下插在它前面，都是 j
     }
+  }
+  if (!flat) {
+    if (next.every((o, k) => o === list[k])) return false;
+    const patches = biasPatches(scene, next, list.filter(o => sel.has(o)));
+    if (!patches.length) return false;
+    actions.setItemAdjusts(patches);
+    return true;
   }
   return writeRanks(list, next);
 }
@@ -153,10 +190,19 @@ export function dropCards(orders, drop) {
     if (at < 0) return false;
     next.splice(rel.place === 'above' ? at + 1 : at, 0, ...moving);
     if (next.some((o, k) => o !== list[k])) {
-      // 名次接在画板外那些卡片的后面
-      const base = Math.max(0, ...Object.entries(adjust).filter(([o]) => !listed.has(+o)).map(([, a]) => a.lift || 0));
-      next.forEach((o, rank) => put(o, { lift: base + (rank + 1) * LIFT_STEP }));
+      if (!isFlatLayout(s)) {
+        // 3D 版式：只给挪动的卡片加远近的偏移
+        for (const { order, patch } of biasPatches(scene, next, moving)) put(order, patch);
+      } else {
+        // 名次接在画板外那些卡片的后面
+        const base = Math.max(0, ...Object.entries(adjust).filter(([o]) => !listed.has(+o)).map(([, a]) => a.lift || 0));
+        next.forEach((o, rank) => put(o, { lift: base + (rank + 1) * LIFT_STEP }));
+      }
     }
+  } else if (!isFlatLayout(s)) {
+    // 放到那个位置的最上面（3D 版式）：排到所有卡片后面画
+    const all = scene.items.map(it => it.order);
+    for (const { order, patch } of biasPatches(scene, [...all.filter(o => !sel.has(o)), ...moving], moving)) put(order, patch);
   } else {
     // 放到那个位置的最上面
     let top = Math.max(0, ...Object.values(adjust).map(a => a.lift || 0));
@@ -176,9 +222,10 @@ export const releaseCards = orders => actions.setItemAdjusts(orders.map(order =>
 export const listCards = (scene = activeCardScene()) => [...visibleCards(scene), ...(scene.hidden || [])];
 
 /** 有没有调过卡片的前后 / 恢复版式默认的前后 */
-export const stackChanged = (s = store.get()) => Object.values(s.adjust[s.layoutId] || {}).some(a => a.lift);
+export const stackChanged = (s = store.get()) => Object.values(s.adjust[s.layoutId] || {}).some(a => a.lift || a.bias);
 export function resetStack() {
   if (!stackChanged()) return false;
   actions.clearAdjustKey('lift');
+  actions.clearAdjustKey('bias');
   return true;
 }

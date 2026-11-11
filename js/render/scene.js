@@ -176,9 +176,11 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
       w: it.w * k,
       h: it.h * k,
       rz: (it.rz || 0) + (a.rz || 0),
-      // 调整过前后的卡片：平面版式抬高一点（z），按远近自然叠在上面；3D 版式不动位置，只改绘制的先后（rank）
+      // 调整过前后的卡片：平面版式抬高一点（z），按远近自然叠在上面；
+      // 3D 版式不动位置，只给它的「远近」加一个偏移（bias）——别的卡片仍按真实远近排，转动视角后大体还对
       z: (it.z || 0) + (flatLayout ? (a.lift || 0) * 20 : 0),
-      rank: flatLayout ? 0 : a.lift || 0,
+      rank: flatLayout ? 0 : a.lift || 0, // 旧数据：3D 版式里按名次排（新的改动都用 bias）
+      bias: flatLayout ? 0 : a.bias || 0,
       adjusted: true,
       crop: a,
     };
@@ -227,7 +229,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
     // order：在版式结果中的序号（同一版式下稳定，用于悬停/拖放定位）
     // slideIndex：对应第几张幻灯片（铺满型版式中会重复出现）
     return {
-      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0, rank: it.rank || 0, lifted: !!it.floor, fxDepth,
+      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0, rank: it.rank || 0, bias: it.bias || 0, lifted: !!it.floor, fxDepth,
       opacity: it.opacity ?? 1,
       // 图层列表里的操作：hidden 隐藏这张卡片；pulled 把它拖出「幻灯片」一组，画在某个图层的上面（值为图层 id，或 PULL_BACK = 最底下）
       hidden: !!adjust?.[order]?.hidden, pulled: adjust?.[order]?.above || null,
@@ -237,8 +239,8 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   // 由远及近绘制；版式给了 stack（叠放层级，例如桌面上一堆卡片谁压着谁）时先按 stack，同一层再按远近
   // 拖出组的卡片排在后面（画在图层之间，比组里的卡片靠前；拖到最底下的排在前面），点选时也就先点中它们
   const tier = it => (it.pulled === PULL_BACK ? -1 : it.pulled ? 1 : 0);
-  // 3D 版式里手动调过前后的（rank）优先于版式自己的叠放层级（stack）；没调过的 rank 都是 0，照旧按 stack、远近
-  const sorted = items.sort((a, b) => (tier(a) - tier(b)) || (a.rank - b.rank) || (a.stack - b.stack) || (a.depth - b.depth) || (a.order - b.order));
+  // 先后 = 叠放层级（stack）→ 远近（depth）；3D 版式里手动调过的卡片在这个数上加了偏移（bias，见 sortKey）
+  const sorted = items.sort((a, b) => (tier(a) - tier(b)) || (a.rank - b.rank) || (sortKey(a) - sortKey(b)) || (a.order - b.order));
   // 隐藏的卡片不画、点不中（图层列表里还列着，可以再显示）
   const hiddenItems = sorted.filter(it => it.hidden);
   if (hiddenItems.length) items = sorted.filter(it => !it.hidden);
@@ -297,7 +299,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   const coplanar = raw.every(it => (it.z || 0) === z0 && !it.rx && !it.ry);
 
   const scene = {
-    W, H, long, px, items, viewProj, coplanar: coplanar && !floors.length && items.every(it => !it.rank), style, groupM, floors, depthFx,
+    W, H, long, px, items, viewProj, coplanar: coplanar && !floors.length && items.every(it => !it.rank && !it.bias), style, groupM, floors, depthFx,
     extraSlides: [...extraSlides.values()], ortho: effectiveCamera(result.camera, camera || {}).type !== 'perspective', layoutCamera: result.camera || { type: 'ortho' },
     hidden: hiddenItems,
   };
@@ -309,6 +311,9 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   scene.main = groups.size ? { ...scene, items: items.filter(it => !it.pulled), pulled: [] } : scene;
   return scene;
 }
+
+// 卡片在组里的先后（越大越靠前）：叠放层级为主、远近为次，再加手动调整的偏移
+export const sortKey = it => it.stack * 1e6 + it.depth + (it.bias || 0);
 
 // 卡片「拖到所有图层下面」时的位置标记（adjust[版式][位置].above 的特殊值）
 export const PULL_BACK = '__back__';

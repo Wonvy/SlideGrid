@@ -3,8 +3,9 @@ import { CURRENT_PROJECT_KEY } from '../persist/db.js';
 import {
   listProjects, getProject, loadProjectSlides, loadProjectAssets, createProject, saveProject,
   renameProject, setProjectThumb, deleteProject, duplicateProject,
-  exportProjectFile, importProjectFile, storageUsage, deleteFiles,
+  exportProjectFile, importProjectFile, storageUsage, deleteFiles, markProjectExported,
 } from '../persist/projects.js';
+import { createZip } from '../persist/zip.js';
 import { createSlides, createAsset } from '../slides/slideFactory.js';
 
 /**
@@ -200,11 +201,53 @@ export function createProjectController({ store, actions, placeholders, snapshot
     return out;
   }
 
+  const fileName = name => `${name.replace(/[\\/:*?"<>|]/g, '_')}.slidegrid`;
   async function exportFile(id) {
     if (current()?.id === id) await flush();
     const rec = await getProject(id);
     const blob = await exportProjectFile(id);
-    return { blob, filename: `${rec.name.replace(/[\\/:*?"<>|]/g, '_')}.slidegrid` };
+    await markProjectExported(id);
+    onChange();
+    return { blob, filename: fileName(rec.name) };
+  }
+  // 备份全部项目：每个项目一个 .slidegrid，打成一个 zip
+  async function exportAll(onProgress = () => {}) {
+    await flush();
+    const list = await listProjects();
+    const entries = [], used = new Set();
+    for (let i = 0; i < list.length; i++) {
+      let name = fileName(list[i].name);
+      for (let n = 2; used.has(name); n++) name = fileName(`${list[i].name} ${n}`);
+      used.add(name);
+      entries.push({ name, data: await exportProjectFile(list[i].id) });
+      onProgress((i + 1) / list.length);
+    }
+    const blob = await createZip(entries);
+    const now = Date.now();
+    for (const p of list) await markProjectExported(p.id, now);
+    onChange();
+    const d = new Date(now), pad = v => String(v).padStart(2, '0');
+    return { blob, filename: `SlideGrid 备份 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.zip`, count: list.length };
+  }
+
+  /**
+   * 当前项目的备份情况：{ need, never, days }。
+   *   need：该备份了——有图片，而且从没导出过，或者上次导出之后又改过、并且已经过了 3 天
+   */
+  async function backupState() {
+    const rec = current() ? await getProject(current().id) : null;
+    if (!rec || !rec.slideCount) return { need: false, never: !rec?.exportedAt, days: 0 };
+    const at = rec.exportedAt || 0;
+    const days = at ? Math.floor((Date.now() - at) / 86400000) : 0;
+    return { need: !at || (rec.updatedAt > at + 60000 && days >= 3), never: !at, days };
+  }
+
+  // 请浏览器把数据设为「持久保存」（空间紧张时不自动清理）。返回 true / false；不支持时为 null
+  async function persist() {
+    try {
+      if (!navigator.storage?.persist) return null;
+      return (await navigator.storage.persisted()) || (await navigator.storage.persist());
+    } catch { return null; }
   }
 
   async function importFile(file) {
@@ -219,7 +262,7 @@ export function createProjectController({ store, actions, placeholders, snapshot
 
   return {
     init, open, createNew, rename, duplicate, remove, exportFile, importFile,
-    markDirty, flush, list: listProjects, usage, cleanup,
+    markDirty, flush, list: listProjects, usage, cleanup, exportAll, backupState, persist,
     isLoading: () => loading,
   };
 }

@@ -13,6 +13,7 @@ import { createProjectDialog } from './ui/projectDialog.js';
 import { VERSION, RELEASED } from './version.js';
 import { askConfirm } from './ui/dialogs.js';
 import { currentTheme, toggleTheme, onThemeChange } from './ui/theme.js';
+import { tipOnce } from './ui/tips.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -83,13 +84,38 @@ const controller = createProjectController({
     saveStatus.dataset.state = text;
     saveStatus.title = text; // 窗口窄时只剩一个圆点，悬停能看到文字
   },
-  onChange: () => projectDialog?.refresh(),
+  onChange: () => { projectDialog?.refresh(); refreshBackup(); },
 });
 // 点项目名：项目菜单（重命名 / 新建 / 导入 / 全部项目 / 最近的项目）；新建、全部项目在项目窗口里
 projectDialog = createProjectDialog({
   anchor: $('project-btn'), store, controller, download: exporting.download, toast,
   setAspect: id => actions.setAspect(id), clearHistory: () => history.clear(),
 });
+// 备份提醒：项目只存在这个浏览器里。有图片、又一直没导出过（或导出之后改了好几天）时，顶栏出现「未备份」，点一下导出项目文件
+const backupBtn = $('backup-btn');
+async function refreshBackup() {
+  try {
+    const st = await controller.backupState();
+    backupBtn.hidden = !st.need;
+    backupBtn.title = st.never
+      ? '这个项目还没有导出过备份。项目只保存在这个浏览器里，清理浏览器数据或换电脑就没有了——点击导出项目文件（.slidegrid）'
+      : `上次导出备份是 ${st.days} 天前，之后又改过。点击再导出一份项目文件（.slidegrid）`;
+  } catch { /* 读不到就不提示 */ }
+}
+backupBtn.addEventListener('click', async () => {
+  const p = store.get().project;
+  if (!p) return;
+  try {
+    toast('正在打包项目…', { sticky: true });
+    const { blob, filename } = await controller.exportFile(p.id);
+    exporting.download(blob, filename);
+    toast(`已导出「${filename}」，请把它存到安全的地方`);
+  } catch (err) {
+    console.error(err);
+    toast('导出失败：' + (err.message || err), { error: true });
+  }
+});
+
 // 主题：顶栏的按钮在深色 / 浅色之间切换（「偏好」里还可以选跟随系统）
 const themeBtn = $('theme-btn');
 function syncThemeBtn(t = currentTheme()) {
@@ -232,7 +258,11 @@ const leftTabs = (() => {
     }
     try { localStorage.setItem(KEY, name); } catch { /* 忽略 */ }
   }
-  for (const k of Object.keys(tabs)) tabs[k].addEventListener('click', () => show(k));
+  for (const k of Object.keys(tabs)) tabs[k].addEventListener('click', () => {
+    show(k);
+    // 第一次打开图层页、又有图层时：提示卡片可以拖到图层之间
+    if (k === 'layers' && (store.get().layers || []).length) tipOnce('pull-card', '图层页里的卡片也能拖动：调整前后，或拖到图层之间（盖在某个图层上面）');
+  });
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch { /* 忽略 */ }
   show(saved in pages ? saved : 'slides');
@@ -661,12 +691,25 @@ const TOOL_HINTS = {
   zoom: '放大镜：单击放大 · ⌥ 单击缩小',
   artboard: '画板：点击切换 · Shift/⌘ 单击加选 · 空白处拖动框选 · 拖动一起移动 · ⌥ 拖动复制 · ⌘D 复制 · ⌘A 全选 · Delete 删除所选',
 };
+// 底部的操作提示：平时只显示当前工具最常用的三条；点右边的「更多」展开全部（含通用的滚轮、平移等），换工具时收起
+const hintText = el('span', { class: 'hint-text' });
+const hintMore = el('button', { class: 'hint-more', type: 'button', title: '显示这个工具的全部操作' }, '更多');
+const hintAll = el('div', { class: 'hint-all', hidden: true });
+hint.replaceChildren(hintText, hintMore, hintAll);
+hintMore.addEventListener('click', () => { hintAll.hidden = !hintAll.hidden; hintMore.textContent = hintAll.hidden ? '更多' : '收起'; });
+let hintTool = '';
 function updateHint() {
   const s = store.get();
-  const parts = [TOOL_HINTS[ui.tempHand ? 'hand' : ui.tool]];
-  if (!s.slides.length) parts.push('拖入图片替换示例图');
-  parts.push(s.wheelNav === 'scroll' ? '滚轮滚动 · ⌘ + 滚轮缩放' : '滚轮缩放', '空格 / 中键平移', '拖画板名称移动画板', 'Tab 隐藏面板');
-  hint.textContent = parts.join('  ·  ');
+  const tool = ui.tempHand ? 'hand' : ui.tool;
+  const [name, rest = ''] = TOOL_HINTS[tool].split('：');
+  const tips = rest.split(' · ').map(x => x.trim()).filter(Boolean);
+  const general = [s.wheelNav === 'scroll' ? '滚轮滚动 · ⌘ + 滚轮缩放' : '滚轮缩放', '空格 / 中键平移', '拖画板名称移动画板', 'Tab 隐藏面板'];
+  const short = tips.slice(0, 3);
+  if (!s.slides.length) short.push('拖入图片替换示例图');
+  hintText.textContent = `${name}：${short.join(' · ')}`;
+  hintMore.hidden = tips.length <= 3 && false; // 通用操作也在「更多」里，所以一直显示
+  hintAll.replaceChildren(...[...tips.slice(3), ...general].map(t => el('span', { class: 'hint-item' }, t)));
+  if (tool !== hintTool) { hintTool = tool; hintAll.hidden = true; hintMore.textContent = '更多'; }
 }
 
 /* ---------------- 同步 ---------------- */
@@ -692,6 +735,11 @@ onUiChange(key => {
     albumBar.update(s);
   }
   if (key === 'selection' || key === 'layerSel') alignment.refreshAlign();
+  // 第一次选中样机：提示可以在画板上直接转动
+  if (key === 'layerSel' && ui.layerSel.length === 1) {
+    const l = (store.get().layers || []).find(x => x.id === ui.layerSel[0]);
+    if (l?.type === 'device' && l.device !== 'custom') tipOnce('orbit-handle', '拖样机下方的圆形手柄可以转动角度（双击手柄回到正面，按住 ⌥ 直接拖样机也可以）');
+  }
   if (key === 'selection' || key === 'layerSel') {
     syncInspector();
     // 新选中了对象：在「版式」页时切到「设计」页（「图层」页保持不动，方便连续管理图层）
@@ -714,6 +762,8 @@ store.subscribe(s => {
     albumBar.update(s);
   }
   mockups.update(s, prev);
+  // 第一次给卡片加厚度、而画面正对着看（看不到侧边）：提示转动视角
+  if (s.style.thickness > 0 && !(prev.style.thickness > 0) && !is3D(s)) tipOnce('thickness-view', '厚度在正对着看时看不到：拖右上角的立方体转动视角，或换一个 3D 版式');
   if (s.slides !== prev.slides || s.albums !== prev.albums || s.albumId !== prev.albumId) slidesPanel.render(listSlides(s));
   if (s.slides !== prev.slides) {
     // 只释放不再被任何画板使用的纹理
