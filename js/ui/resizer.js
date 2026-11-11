@@ -3,7 +3,7 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 
 /**
- * 左右两栏：拖动分隔条调整宽度（双击恢复默认），可折叠隐藏。
+ * 左右两栏：拖动分隔条调整宽度（双击恢复默认），可折叠隐藏（每栏靠工作区那条边正中间的小箭头）。
  *   Tab：隐藏 / 显示左右两栏（类似 Photoshop）；Shift + Tab：只切换右栏
  * 宽度和折叠状态保存到 localStorage。
  */
@@ -21,13 +21,18 @@ export function initResizers(app) {
   for (const side of ['left', 'right']) st[side] = clamp(st[side], ...LIMITS[side]); // 旧版本保存的宽度可能太窄
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* 忽略 */ } };
 
-  // 收起后贴在屏幕边缘的展开按钮
-  const edges = {
-    left: el('button', { class: 'edge-tab edge-left', title: '显示左栏（Tab）', 'aria-label': '显示左栏' }, icon('panel-left-open', 15)),
-    right: el('button', { class: 'edge-tab edge-right', title: '显示右栏（Tab / Shift+Tab）', 'aria-label': '显示右栏' }, icon('panel-right-open', 15)),
+  // 收起 / 展开按钮：贴在每一栏靠工作区那条边的正中间，只有一个小箭头（指向点击后栏移动的方向）；
+  // 收起后它留在屏幕边缘，再点一下展开
+  const TIPS = {
+    left: ['收起左栏（Tab）', '显示左栏（Tab）'],
+    right: ['收起右栏（Shift+Tab）', '显示右栏（Tab / Shift+Tab）'],
   };
-  edges.left.addEventListener('click', () => setHidden('left', false));
-  edges.right.addEventListener('click', () => setHidden('right', false));
+  const edges = {
+    left: el('button', { class: 'edge-toggle edge-left', type: 'button' }, icon('chevron-down', 12)),
+    right: el('button', { class: 'edge-toggle edge-right', type: 'button' }, icon('chevron-down', 12)),
+  };
+  edges.left.addEventListener('click', () => toggle('left'));
+  edges.right.addEventListener('click', () => toggle('right'));
   app.append(edges.left, edges.right);
 
   // 实际显示的宽度：窗口变窄时先收窄右栏、再收窄左栏（不低于最小宽度），尽量给工作区留出 MIN_STAGE
@@ -45,8 +50,12 @@ export function initResizers(app) {
     app.style.setProperty('--right-w', `${r}px`);
     app.classList.toggle('left-hidden', st.leftHidden);
     app.classList.toggle('right-hidden', st.rightHidden);
-    edges.left.hidden = !st.leftHidden;
-    edges.right.hidden = !st.rightHidden;
+    for (const side of ['left', 'right']) {
+      const hidden = st[`${side}Hidden`];
+      edges[side].title = TIPS[side][hidden ? 1 : 0];
+      edges[side].setAttribute('aria-label', TIPS[side][hidden ? 1 : 0].replace(/（.*）/, ''));
+      edges[side].setAttribute('aria-expanded', String(!hidden));
+    }
   };
   apply();
   window.addEventListener('resize', apply);
@@ -114,15 +123,5 @@ export function initResizers(app) {
     });
   }
 
-  // 面板标题里的「收起」按钮
-  const collapseButton = side => {
-    const b = el('button', {
-      class: 'icon-btn visible panel-collapse', title: side === 'left' ? '收起左栏（Tab）' : '收起右栏（Shift+Tab）',
-      'aria-label': side === 'left' ? '收起左栏' : '收起右栏',
-    }, icon(side === 'left' ? 'panel-left-close' : 'panel-right-close', 15));
-    b.addEventListener('click', () => setHidden(side, true));
-    return b;
-  };
-
-  return { toggle, toggleAll, setHidden, collapseButton, isHidden: side => st[`${side}Hidden`] };
+  return { toggle, toggleAll, setHidden, isHidden: side => st[`${side}Hidden`] };
 }

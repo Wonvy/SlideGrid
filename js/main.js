@@ -301,7 +301,6 @@ function renderSlidesMode(s) {
 /* ---------------- 面板 ---------------- */
 
 const panels = initResizers($('app'));
-document.querySelector('#slides-panel .lp-top').append(panels.collapseButton('left'));
 
 const slidesPanel = createSlidesPanel({
   listEl: $('slide-list'),
@@ -332,7 +331,6 @@ const settings = createSettingsPanel($('settings-panel'), {
   onBoardRequest: () => { clearSelection(); layerTools?.clear(); },
   layoutPreview: exporting.layoutPreview,
 });
-settings.tabBar.append(panels.collapseButton('right'));
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
   store, actions, snapshot: exporting.snapshot, toast, download: exporting.download, footer: settings.presetsFooter, saveFooter: settings.designFooter,
   onCount: n => settings.setPresetCount(n),

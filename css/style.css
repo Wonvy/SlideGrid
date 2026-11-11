@@ -1030,17 +1030,24 @@ button.size-item:hover { background: var(--panel-2); }
 body.resizing .app { transition: none; }
 .app.left-hidden .sidebar.left, .app.right-hidden .sidebar.right { visibility: hidden; border: 0; }
 .app.left-hidden .gutter-left, .app.right-hidden .gutter-right { display: none; }
-.slides-head .panel-collapse { width: 28px; height: 28px; color: var(--muted); margin-left: 2px; }
-.panel-collapse:hover { color: var(--text) !important; background: var(--panel-2) !important; }
-.edge-tab {
-  position: absolute; z-index: 8; top: 50%; transform: translateY(-50%);
-  width: 22px; height: 56px; display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--line-2); background: rgba(21, 24, 30, .95); color: var(--muted); cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+/* 收起 / 展开左右两栏：贴在栏和工作区的分界线正中间的小把手，只有一个箭头；收起后留在屏幕边缘 */
+.edge-toggle {
+  position: absolute; z-index: 7; top: calc(52px + (100% - 52px) / 2); transform: translateY(-50%);
+  width: 12px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--line); color: var(--faint); cursor: pointer;
+  transition: left .18s ease, right .18s ease, color .12s, background .12s, width .12s;
 }
-.edge-tab:hover { color: var(--text); background: var(--panel-2); }
-.edge-left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
-.edge-right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+.edge-toggle:hover { width: 16px; color: var(--text); background: var(--panel-2); }
+.edge-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.edge-toggle .icon { flex: none; transition: transform .18s; }
+.edge-left { left: var(--left-w, 248px); border-left: 0; border-radius: 0 7px 7px 0; }
+.edge-right { right: var(--right-w, 312px); border-right: 0; border-radius: 7px 0 0 7px; }
+/* 箭头指向点击后栏移动的方向：显示着时指向栏（收起），收起后指向工作区（展开） */
+.edge-left .icon { transform: rotate(90deg); }
+.app.left-hidden .edge-left .icon { transform: rotate(-90deg); }
+.edge-right .icon { transform: rotate(-90deg); }
+.app.right-hidden .edge-right .icon { transform: rotate(90deg); }
+body.resizing .edge-toggle { transition: none; }
 
 html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止双击缩放和回弹 */
 
