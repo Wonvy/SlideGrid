@@ -13,6 +13,7 @@ SlideGrid 截图对比：每个版式用默认参数、同一组测试图片渲�
 """
 import argparse
 import base64
+import os
 import struct
 import sys
 import zlib
@@ -145,7 +146,7 @@ def main():
     only = {x for x in args.only.split(',') if x}
     BASE.mkdir(parents=True, exist_ok=True)
     OUT.mkdir(parents=True, exist_ok=True)
-    failed, missing = [], []
+    failed, missing, numbers = [], [], []
     proc, url = start_server()
     try:
         with sync_playwright() as p:
@@ -178,6 +179,7 @@ def main():
                 ok = r['mean'] <= MEAN_LIMIT and r['changed'] <= CHANGED_LIMIT
                 (OUT / f'{lid}.diff.png').write_bytes(base64.b64decode(r['diff']))
                 print(f'  {"✓" if ok else "✗"} {lid}：平均差 {r["mean"]:.2f}，明显不同 {r["changed"] * 100:.2f}%')
+                numbers.append(f'{lid} {r["mean"]:.2f}/{r["changed"] * 100:.2f}%')
                 if not ok:
                     failed.append(lid)
 
@@ -206,6 +208,13 @@ def main():
             browser.close()
     finally:
         proc.kill()
+    if failed and os.environ.get('GITHUB_ACTIONS'):
+        # 在 GitHub 上：把各项的数字写成一条标注（不用登录也能在运行页面上看到是哪几项、差多少）
+        bad = [n for n in numbers if n.split(' ')[0] in failed]
+        print(f'::error title=截图对比::不一致（平均差/明显不同）：{"；".join(bad)}')
+        rest = [n for n in numbers if n.split(' ')[0] not in failed and not n.endswith(' 0.00/0.00%')]
+        if rest:
+            print(f'::notice title=截图对比::其余有差别的：{"；".join(rest)}')
     if failed:
         print(f'\n画面有变化：{", ".join(failed)}\n  对比 tests/visual-out/ 里的截图和 .diff.png（红色是不同的地方）；'
               f'如果是有意的改动，运行 python tests/visual.py --update 更新基准图')
