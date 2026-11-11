@@ -111,7 +111,8 @@ SCENES = [
         const m = await import('./js/app/cardOrder.js'); m.dropCards([0, 3], { kind: 'layer', id: 'l_v', place: 'above' }); }''',
      "S => { S.actions.setLayers([]); const s = S.store.get(); for (const o of Object.keys(s.adjust[s.layoutId] || {})) S.actions.resetItemAdjust(+o); }"),
 ]
-DEVICE_SMALL = 240  # 样机是 2D 画布画的，各平台差别更小，比较时可以细一点
+DEVICE_SMALL = 240      # 样机比较时细一点（一排三个角度，每个只有 160 像素宽）
+DEVICE_CHANGED = 0.025  # 样机是 2D 画布画的：本机（显卡）和 CI（软件渲染）的投影、抗锯齿差别比 WebGL 的大一点，实测最多约 1.1%
 
 # 在页面里解码两张 PNG、逐像素比较；返回差异指标和一张差异图（不同的地方标红）
 COMPARE = '''async ([a, b, SMALL]) => {
@@ -160,7 +161,7 @@ def main():
             page.wait_for_function(f'SlideGrid.store.get().slides.length === {len(SLIDES)}', timeout=15000)
             ids = page.evaluate("import('./js/layouts/index.js').then(m => m.layouts.map(l => l.id))")
             print(f'\n== 版式（{len(ids)} 个）')
-            def check(lid, shot, small=SMALL):
+            def check(lid, shot, small=SMALL, changed_limit=CHANGED_LIMIT):
                 (OUT / f'{lid}.png').write_bytes(base64.b64decode(shot))
                 base = BASE / f'{lid}.png'
                 if args.update:
@@ -176,7 +177,7 @@ def main():
                     failed.append(lid)
                     print(f'  ✗ {lid}：尺寸不同 {r["size"]}')
                     return
-                ok = r['mean'] <= MEAN_LIMIT and r['changed'] <= CHANGED_LIMIT
+                ok = r['mean'] <= MEAN_LIMIT and r['changed'] <= changed_limit
                 (OUT / f'{lid}.diff.png').write_bytes(base64.b64decode(r['diff']))
                 print(f'  {"✓" if ok else "✗"} {lid}：平均差 {r["mean"]:.2f}，明显不同 {r["changed"] * 100:.2f}%')
                 numbers.append(f'{lid} {r["mean"]:.2f}/{r["changed"] * 100:.2f}%')
@@ -195,7 +196,7 @@ def main():
                     name = f'device-{dev}-{look}'
                     if only and name not in only and 'devices' not in only:
                         continue
-                    check(name, page.evaluate(DEVICE_SHEET, [dev, look]), DEVICE_SMALL)
+                    check(name, page.evaluate(DEVICE_SHEET, [dev, look]), DEVICE_SMALL, DEVICE_CHANGED)
 
             print('\n== 卡片厚度 / 卡片比例 / 拖出组的卡片')
             for name, setup, restore in SCENES:
