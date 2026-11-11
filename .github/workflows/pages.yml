@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   test:
-    # 固定在 Ubuntu 24.04：ubuntu-latest 正在换到 26，这个版本的 Playwright 在新系统上装不了浏览器依赖
+    # 固定在 Ubuntu 24.04（ubuntu-latest 正在换到 26），测试用的浏览器和系统保持稳定
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,9 @@ jobs:
         timeout-minutes: 8
         run: |
           pip install -r tests/requirements.txt
-          python -m playwright install --with-deps chromium || (sleep 20 && python -m playwright install --with-deps chromium)
+          # 只下载浏览器：GitHub 的 Ubuntu 镜像里已经带了浏览器需要的系统库（--with-deps 要走 apt，镜像源卡住时整步会超时）。
+          # 下载偶尔失败，重试一次
+          timeout 200 python -m playwright install chromium || (sleep 15 && timeout 200 python -m playwright install chromium)
       - name: 单文件版是最新的
         run: python build.py --check
       - name: 冒烟测试（开发版 + 单文件版）
