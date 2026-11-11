@@ -59,7 +59,7 @@ def start_server():
 # ---------------- 测试步骤（按顺序执行，共用同一个页面） ----------------
 
 def wait_app(page):
-    page.wait_for_function('window.SlideGrid && document.querySelector(".rp-rail")', timeout=15000)
+    page.wait_for_function('window.SlideGrid && document.querySelector(".rp-top")', timeout=15000)
 
 
 def t_load(page, errors):
@@ -157,7 +157,7 @@ def t_board_dup(page, errors):
 
 
 def t_mockup(page, errors):
-    page.click('.rp-rail [aria-label="样机"]')
+    page.click('.rp-top [data-tab="mockup"]')
     page.click('.mockup-device[aria-label="笔记本"]')
     page.locator('.mockup-card:not([hidden])').nth(1).click()   # 笔记本 · 左侧
     layer = page.evaluate('SlideGrid.store.get().layers.at(-1)')
@@ -230,7 +230,8 @@ def t_layer_panel(page, errors):
         fillType: 'solid', fill: '#ffffff', fillAlpha: 1, strokeWidth: 0, radius: 0 });
       S.actions.setLayers([...S.store.get().layers, mk('l_pa', '甲', 100), mk('l_pb', '乙', 200), mk('l_pc', '丙', 300)]);
     }""")
-    page.click('.rp-tab[aria-label^="图层"]')
+    # 图层在左栏下方单独一组：先拉高，所有行都在可见范围内
+    page.evaluate("() => { const d = document.getElementById('dock-layers'); d.classList.add('sized'); d.style.setProperty('--layers-h', '560px'); }")
     row = lambda i: page.locator(f'.layer-list .layer-row[data-kind="layer"][data-id="{i}"]')
     order = lambda: page.evaluate("SlideGrid.store.get().layers.filter(l => l.id.startsWith('l_p')).map(l => l.name + (l.under ? '↓' : '')).join('')")
 
@@ -266,6 +267,50 @@ def t_layer_panel(page, errors):
     assert not errors, errors
 
 
+def t_switches(page, errors):
+    # 「设计」页：投影 / 渐隐遮罩 / 空间效果的一键开关（关掉后数值保留），左栏分隔条能调高度
+    r = page.evaluate("""async () => {
+      const S = SlideGrid, st = () => S.store.get(), wait = ms => new Promise(r => setTimeout(r, ms));
+      S.layers.clear();
+      S.actions.setLayout('isoStage');
+      document.querySelector('.rp-top [data-tab="params"]').click();
+      await wait(100);
+      const sec = name => [...document.querySelectorAll('.design-body .panel-section')].find(x => x.querySelector('h3').textContent === name);
+      const out = { blur: st().style.shadowBlur };
+      sec('投影').querySelector('.switch').click();
+      out.shadowOff = st().style.shadowHidden === true && sec('投影').classList.contains('off') && st().style.shadowBlur === out.blur;
+      out.render = (await S.renderToBlob({ longSide: 300, preview: true })).width;
+      sec('投影').querySelector('.switch').click();
+      out.shadowOn = st().style.shadowHidden === false;
+      sec('渐隐遮罩').querySelector('.switch').click();
+      out.fadeOn = st().style.fadeType === 'linear' && !st().style.fadeHidden;
+      sec('渐隐遮罩').querySelector('.switch').click();
+      out.fadeOff = st().style.fadeType === 'linear' && st().style.fadeHidden === true;
+      S.actions.patchStyle({ fadeType: 'none', fadeHidden: false });
+      const fx = [...document.querySelectorAll('.design-body .ctrl-group.has-switch')].find(x => x.textContent.includes('空间效果'));
+      fx.querySelector('.switch').click();
+      out.fxOff = st().params.isoStage.fxOff === true && st().params.isoStage.farFade > 0;
+      fx.querySelector('.switch').click();
+      out.fxOn = st().params.isoStage.fxOff === false;
+      S.actions.setLayout('grid');
+      return out;
+    }""")
+    assert all(r[k] for k in ('shadowOff', 'shadowOn', 'fadeOn', 'fadeOff', 'fxOff', 'fxOn')) and r['render'] == 300, r
+    # 分隔条：把图层区域拉高 80px
+    dock = page.locator('#dock-layers')
+    page.locator('#layers-splitter').dblclick()  # 先恢复默认高度（上一步测试把它拉高了）
+    h0 = dock.bounding_box()['height']
+    sp = page.locator('#layers-splitter').bounding_box()
+    page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] + sp['height'] / 2)
+    page.mouse.down()
+    page.mouse.move(sp['x'] + sp['width'] / 2, sp['y'] - 80, steps=4)
+    page.mouse.up()
+    h1 = dock.bounding_box()['height']
+    assert 60 < h1 - h0 < 100, (h0, h1)
+    page.locator('#layers-splitter').dblclick()
+    assert not errors, errors
+
+
 def t_persist(page, errors):
     page.wait_for_function('document.getElementById("save-status")?.textContent.includes("已保存")', timeout=15000)
     page.reload()
@@ -278,7 +323,7 @@ def t_persist(page, errors):
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
-         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel),
+         ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
          ('刷新后数据还在', t_persist)]
 
 

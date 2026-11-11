@@ -27,6 +27,8 @@ function createProgram(gl, vs, fs) {
 
 const IDENTITY = m4.identity();
 const FADE_TYPES = { linear: 1, mirror: 2, radial: 3, solid: 4 };
+// 卡片投影的不透明度：shadowHidden = 在「设计」页把投影整个关掉了（各项数值保留）
+const shadowAlpha = st => (st.shadowHidden ? 0 : st.shadowOpacity);
 
 // 渐隐遮罩参数（见 style/schema.js）；开始位置大于结束位置时对调，效果不变
 function setFade(gl, L, st, aspect) {
@@ -47,7 +49,7 @@ function cullBoxes(scene) {
   const n = scene.items.length;
   const boxes = new Float32Array(n * 4);
   const mvp = new Float32Array(16);
-  const shadow = st.shadowOpacity > 0.001 ? st.shadowBlur + Math.abs(st.shadowY || 0) : 0;
+  const shadow = shadowAlpha(st) > 0.001 ? st.shadowBlur + Math.abs(st.shadowY || 0) : 0;
   const pad = SLIDE_PAD + shadow;
   const dofPad = scene.depthFx ? scene.depthFx.dofPad : 0;
   for (let i = 0; i < n; i++) {
@@ -183,7 +185,7 @@ export class Renderer {
     gl.uniform1f(L.uBorder, st.borderWidth);
     gl.uniform3f(L.uBorderColor, ...hexToRgb(st.borderColor));
     gl.uniform1f(L.uBlur, st.shadowBlur);
-    gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), st.shadowOpacity);
+    gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), shadowAlpha(st));
     // 远处渐隐 / 景深（桌面类版式）：按卡片离镜头的远近逐像素计算
     const fx = scene.depthFx;
     gl.uniform1i(L.uDepthMode, fx ? (scene.ortho ? 1 : 2) : 0);
@@ -193,7 +195,7 @@ export class Renderer {
       gl.uniform2f(L.uDepthRange, fx.far, fx.near);
     }
 
-    const hasShadow = st.shadowOpacity > 0.001;
+    const hasShadow = shadowAlpha(st) > 0.001;
     const visible = this.visibleItems(scene, tile);
     const mvp = this.mvp;
     let lastTex = null;
@@ -263,7 +265,7 @@ export class Renderer {
           gl.drawArrays(gl.TRIANGLES, 0, 6);
         }
         gl.uniform1f(L.uBlur, st.shadowBlur);
-        gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), st.shadowOpacity);
+        gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), shadowAlpha(st));
       };
       for (const it of visible) {
         drawFloors(it.stack);

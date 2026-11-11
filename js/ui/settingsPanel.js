@@ -1,6 +1,6 @@
 import { layouts, getLayout } from '../layouts/index.js';
 import { selectionOf } from '../state.js';
-import { styleSchema } from '../style/schema.js';
+import { styleSchema, FADE_PRESETS } from '../style/schema.js';
 import { buildControls } from './controls.js';
 import { wheelModeSchema } from './wheel.js';
 import { el, section, isCollapsed, setCollapsed } from './dom.js';
@@ -14,39 +14,28 @@ const store_ = {
 };
 
 /**
- * 右侧面板：左边竖排图标栏切换页面（参照 Screen Studio），每页独立滚动。
- *   设计：跟随选择（类似 Figma）——选中图层时是图层属性，选中卡片时是卡片的裁切 / 位置，
- *         什么都没选时是当前画板的版式参数和构图
+ * 右侧面板：顶部一排标签切换页面（设计 / 版式 / 样机，右边是偏好），每页独立滚动。
+ *   设计：跟随选择（类似 Figma）——选中图层时是图层属性，选中卡片时是卡片的裁切 / 位置；
+ *         什么都没选时是当前画板的设置，从上到下一组一组排开：版式参数、卡片、构图、背景、投影、渐隐遮罩。
+ *         投影、渐隐遮罩的标题上有开关，一键关掉 / 打开（设置保留）
  *   版式：内置 / 我的版式（只负责选版式，不会误点）
- *   设计：版式参数、卡片样式（圆角、描边等）、构图
- *   背景 / 投影 / 渐隐遮罩：画板样式，各自一页（与选择无关，随时可调）
- *   图层：当前画板的图层列表
  *   样机：把幻灯片放进笔记本 / 显示器 / 平板 / 投影幕（添加为样机图层）
- *   偏好：滚轮等操作习惯（图标栏底部）
+ *   偏好：滚轮等操作习惯
+ * 图层列表不在这里：在左栏下方单独一组（见 main.js、ui/inspector.js）。
  */
 export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null, layoutPreview = null }) {
   root.innerHTML = '';
   root.classList.add('right-panel');
 
   /* ================= 顶层标签 ================= */
-  // 左侧竖排的图标栏切换页面，右边是页面标题 + 内容
-  const TITLES = { params: '设计', layouts: '版式', bg: '背景', shadow: '投影', fade: '渐隐遮罩', layers: '图层', mockup: '样机', prefs: '偏好' };
-  // 样式页对应 style/schema.js 里的分组（「卡片」分组放在设计页里，见下）
-  const STYLE_PAGES = { bg: '背景', shadow: '投影', fade: '渐隐遮罩' };
-  const layerCount = el('span', { class: 'tab-count' });
-  const tab = (k, ic, ...extra) => el('button', { class: 'rp-tab', role: 'tab', title: TITLES[k], 'aria-label': TITLES[k] }, icon(ic, 18), ...extra);
+  const TITLES = { params: '设计', layouts: '版式', mockup: '样机', prefs: '偏好' };
+  const tab = k => el('button', { class: 'rp-tab', role: 'tab', 'data-tab': k }, TITLES[k]);
   const mainTabs = {
-    params: tab('params', 'sliders-horizontal'),
-    layouts: tab('layouts', 'layout-grid'),
-    bg: tab('bg', 'paint-bucket'),
-    shadow: tab('shadow', 'sun-dim'),
-    fade: tab('fade', 'fade'),
-    layers: tab('layers', 'layers', layerCount),
-    mockup: tab('mockup', 'laptop'),
-    prefs: tab('prefs', 'cog'),
+    params: tab('params'),
+    layouts: tab('layouts'),
+    mockup: tab('mockup'),
+    prefs: el('button', { class: 'icon-btn visible rp-prefs', role: 'tab', 'data-tab': 'prefs', title: '偏好（滚轮等操作习惯）', 'aria-label': '偏好' }, icon('cog', 16)),
   };
-  mainTabs.prefs.classList.add('rp-bottom');
-  const pageTitle = el('div', { class: 'rp-title' });
   const panes = Object.fromEntries(Object.keys(TITLES).map(k => [k, el('div', { class: 'rp-pane', role: 'tabpanel' })]));
   function showMain(name) {
     for (const k of Object.keys(panes)) {
@@ -54,7 +43,6 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       mainTabs[k].classList.toggle('active', k === name);
       mainTabs[k].setAttribute('aria-selected', String(k === name));
     }
-    pageTitle.textContent = TITLES[name];
     store_.set(MAIN_TAB_KEY, name);
   }
   for (const k of Object.keys(mainTabs)) mainTabs[k].addEventListener('click', () => showMain(k));
@@ -63,12 +51,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const multiBanner = el('div', { class: 'multi-banner', hidden: true },
     icon('frame', 14), multiText,
     el('button', { class: 'btn ghost small', title: '只保留当前画板，退出批量编辑', onclick: () => actions.setActiveBoard(store.get().activeBoard) }, '只编辑当前'));
-  const sep = () => el('span', { class: 'rp-sep' });
   const t = mainTabs;
   root.append(
-    el('div', { class: 'rp-tabs rp-rail', role: 'tablist', 'aria-orientation': 'vertical' },
-      t.layouts, t.params, sep(), t.bg, t.shadow, t.fade, sep(), t.layers, t.mockup, t.prefs),
-    el('div', { class: 'rp-main' }, pageTitle, multiBanner, ...Object.values(panes)),
+    el('div', { class: 'rp-top' },
+      el('div', { class: 'rp-tabs', role: 'tablist' }, t.params, t.layouts, t.mockup),
+      t.prefs),
+    el('div', { class: 'rp-main' }, multiBanner, ...Object.values(panes)),
   );
 
   /* ================= 版式悬停预览 ================= */
@@ -209,9 +197,6 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const designFooter = el('div', { class: 'rp-footer design-footer' });
   panes.params.classList.add('has-footer');
   panes.params.append(el('div', { class: 'design-body' }, selectionSlot, boardBox), designFooter);
-  // 图层页
-  const layersSlot = el('div', { class: 'inspector' });
-  panes.layers.append(layersSlot);
   // 样机页（ui/mockupPanel.js 填充）
   const mockupSlot = el('div', { class: 'page-body' });
   panes.mockup.append(mockupSlot);
@@ -223,22 +208,39 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
 
   // 卡片样式（style/schema.js 的「卡片」分组）
   const cardStyleBox = el('div');
-  boardBox.append(section('卡片', cardStyleBox));
+  const cardSection = section('卡片', cardStyleBox);
+  boardBox.append(cardSection);
 
   // 构图：没有可调的参数，只在用构图工具调整过之后出现（显示调整了什么 + 复位）
   const cameraNote = el('p', { class: 'note compact' });
   const cameraSection = section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度、投影）', () => actions.resetCamera()));
   boardBox.append(cameraSection);
 
-  // 样式各页：直接放这一组的参数（页面标题就是分组名）
-  const styleBoxes = {};
-  for (const k of Object.keys(STYLE_PAGES)) {
-    styleBoxes[k] = el('div');
-    panes[k].append(el('div', { class: 'page-body' }, styleBoxes[k]));
+  // 画板样式：背景、投影、渐隐遮罩各一组，接在构图后面。投影、渐隐遮罩可以用标题上的开关整个关掉（设置保留）
+  const fadeOn = st => !!st.fadeType && st.fadeType !== 'none' && !st.fadeHidden;
+  const STYLE_GROUPS = {
+    背景: {},
+    投影: { isOn: st => !st.shadowHidden, set: on => actions.setStyle('shadowHidden', !on) },
+    渐隐遮罩: {
+      isOn: fadeOn,
+      // 打开：还没选过类型时先用「底部渐隐」；关掉：只是隐藏（类型、范围都保留）
+      set: on => {
+        const st = store.get().style;
+        if (!on) actions.patchStyle({ fadeHidden: true });
+        else if (!st.fadeType || st.fadeType === 'none') actions.patchStyle({ ...FADE_PRESETS.find(p => p.id === 'bottom').patch, fadeHidden: false });
+        else actions.patchStyle({ fadeHidden: false });
+      },
+    },
+  };
+  const styleBoxes = {}, styleSections = {};
+  for (const [name, g] of Object.entries(STYLE_GROUPS)) {
+    styleBoxes[name] = el('div');
+    styleSections[name] = section(name, styleBoxes[name], null, `section:style:${name}`, { onSwitch: g.set || null });
+    boardBox.append(styleSections[name]);
   }
   // 偏好页
   const prefsBox = el('div');
-  panes.prefs.append(el('div', { class: 'page-body' }, prefsBox));
+  panes.prefs.append(section('操作习惯', prefsBox, null, 'section:prefs'));
 
   const saved = store_.get(MAIN_TAB_KEY);
   showMain(saved in panes ? saved : 'params');
@@ -251,10 +253,13 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     const j = styleSchema.findIndex((d, k) => k > i && d.group);
     return styleSchema.slice(i + 1, j < 0 ? undefined : j);
   };
-  const styleUpdaters = Object.entries(STYLE_PAGES).map(([k, name]) =>
-    buildControls(styleBoxes[k], groupItems(name), s0.style, actions.setStyle, imageCtx));
+  const styleUpdaters = Object.keys(STYLE_GROUPS).map(name =>
+    buildControls(styleBoxes[name], groupItems(name), s0.style, actions.setStyle, imageCtx));
   styleUpdaters.push(buildControls(cardStyleBox, groupItems('卡片'), s0.style, actions.setStyle, imageCtx));
-  const updateStyle = st => styleUpdaters.forEach(u => u(st));
+  const updateStyle = st => {
+    styleUpdaters.forEach(u => u(st));
+    for (const [name, g] of Object.entries(STYLE_GROUPS)) if (g.isOn) styleSections[name].setOn(g.isOn(st));
+  };
   const updatePrefs = buildControls(prefsBox, wheelModeSchema, s0, actions.setPref);
   let updateParams = () => {};
   let currentLayout = null;
@@ -265,10 +270,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       const layout = getLayout(currentLayout);
       updateParams = buildControls(paramsBox, layout.params, s.params[currentLayout], actions.setParam, { albums: () => store.get().albums, markChanged: true, seeds: seedsOf(currentLayout) });
       diceBtn.hidden = !layout.params.some(d => d.type === 'seed');
-      layoutButtons.forEach((b, id) => b.classList.toggle('active', id === currentLayout));
+      // 已并入其他版式的旧版式：只有当前画板还在用时才显示在列表里
+      layoutButtons.forEach((b, id) => { b.classList.toggle('active', id === currentLayout); b.hidden = !!getLayout(id).legacy && id !== currentLayout; });
       curIcon.innerHTML = layout.icon;
       curName.textContent = layout.name;
-      curMeta.textContent = `${layout.category === '3d' ? '3D 透视' : '平面'}版式${layout.long ? ' · 支持长图' : ''}`;
+      curMeta.textContent = layout.legacy ? `已并入「${getLayout(layout.legacy).name}」` : `${layout.category === '3d' ? '3D 透视' : '平面'}版式${layout.long ? ' · 支持长图' : ''}`;
+      curMeta.title = layout.legacy ? `这个旧版式和「${getLayout(layout.legacy).name}」是同一种，版式列表里只保留了后者；这个画板照常显示` : '';
     }
     const cam = s.camera || {};
     const changed = [
@@ -294,12 +301,16 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   }
   update(s0);
 
-  // 打开某个样式页（工具条背景 / 遮罩面板的「更多设置」）
+  // 定位到设计页的某一组（工具条背景 / 遮罩面板的「更多设置」、图层列表里点渐隐遮罩）：展开、滚动到那里、闪一下。
+  // 设计页正在显示选中对象的属性时，调用的一方先取消选择（main.js）
   function revealStyleGroup(name) {
-    const page = Object.keys(STYLE_PAGES).find(k => STYLE_PAGES[k] === name) || (name === '卡片' ? 'params' : 'bg');
-    showMain(page);
-    panes[page].classList.add('flash');
-    setTimeout(() => panes[page].classList.remove('flash'), 900);
+    const sec = styleSections[name] || (name === '卡片' ? cardSection : styleSections.背景);
+    onBoardRequest?.();
+    showMain('params');
+    sec.expand();
+    sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    sec.classList.add('flash');
+    setTimeout(() => sec.classList.remove('flash'), 900);
   }
 
   return {
@@ -311,13 +322,12 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     designFooter,
     mockupSlot,
     selectionSlot,
-    layersSlot,
     currentTab: () => Object.keys(panes).find(k => !panes[k].hidden),
     // 设计页显示选中对象的属性（true）还是画板设置（false）
     setSelectionMode(on) { selectionSlot.hidden = !on; boardBox.hidden = on; designFooter.hidden = on; },
-    setLayerCount: n => { layerCount.textContent = n ? String(n) : ''; },
     // 打开「版式」页的某个子标签（导入版式文件时用）
     showTab: name => { showMain('layouts'); showLayoutTab(name); },
+    tabBar: root.querySelector('.rp-top'),
     showMain,
     setPresetCount: n => { mineCount.textContent = n ? String(n) : ''; },
   };

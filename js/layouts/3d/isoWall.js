@@ -5,6 +5,7 @@ import { fillGrid, svg } from '../helpers.js';
 export default {
   id: 'isoWall',
   name: '倾斜墙面',
+  legacy: 'isoStage', // 等于「等距展台」不翻起卡片（翻起数量 0）：不再出现在版式列表里，用过它的画板照常显示
   category: '3d',
   icon: svg(`
     <polygon points="4,17 14,11 22,15 12,21"/><polygon points="15,10.5 25,4.5 33,8.5 23,14.5"/>

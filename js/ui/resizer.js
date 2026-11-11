@@ -8,8 +8,8 @@ import { icon } from './icons.js';
  * 宽度和折叠状态保存到 localStorage。
  */
 const KEY = 'slidegrid:panels:v1';
-const DEFAULTS = { left: 248, right: 340, leftHidden: false, rightHidden: false };
-const LIMITS = { left: [180, 560], right: [300, 640] }; // 右栏含左侧 56px 的图标栏
+const DEFAULTS = { left: 248, right: 312, leftHidden: false, rightHidden: false };
+const LIMITS = { left: [200, 560], right: [264, 640] };
 const MIN_STAGE = 360;
 
 function load() {

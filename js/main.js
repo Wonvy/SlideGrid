@@ -18,7 +18,7 @@ import { createResizeHandles } from './ui/resizeHandles.js';
 import { createPresetsPanel } from './ui/presetsPanel.js';
 import { initResizers } from './ui/resizer.js';
 import { toast } from './ui/toast.js';
-import { el } from './ui/dom.js';
+import { el, isCollapsed, setCollapsed } from './ui/dom.js';
 import { setWheelMode } from './ui/wheel.js';
 import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
@@ -199,28 +199,57 @@ const albumBar = createAlbumBar($('album-bar'), {
   },
 });
 
-// 图集和图片列表之间的分隔条：上下拖动调整图集区域的高度（记住；双击恢复）
+// 左栏从上到下三块：图集、图片列表、图层。两条分隔条上下拖动调整图集 / 图层区域的高度（记住；双击恢复默认），
+// 中间的图片列表占剩下的空间；拖动时至少给图片列表留 MIN_LIST 的高度。点「图层」标题收起 / 展开这一组
 {
-  const bar = $('album-bar'), split = $('album-splitter'), KEY = 'slidegrid:album-h';
-  const setH = h => { if (h) bar.style.setProperty('--album-h', `${h}px`); else bar.style.removeProperty('--album-h'); };
-  try { setH(Number(localStorage.getItem(KEY)) || 0); } catch { /* 忽略 */ }
-  split.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    split.setPointerCapture(e.pointerId);
-    const y0 = e.clientY, h0 = bar.getBoundingClientRect().height;
-    const max = () => $('slides-panel').getBoundingClientRect().height * 0.7;
-    document.body.classList.add('resizing-v');
-    const move = ev => setH(Math.round(Math.max(64, Math.min(max(), h0 + ev.clientY - y0))));
-    const up = () => {
-      split.removeEventListener('pointermove', move);
-      document.body.classList.remove('resizing-v');
-      try { localStorage.setItem(KEY, String(Math.round(bar.getBoundingClientRect().height))); } catch { /* 忽略 */ }
+  const MIN_LIST = 96;
+  const listEl = document.querySelector('#slides-panel .slides-scroll');
+  const saved = k => { try { return Number(localStorage.getItem(k)) || 0; } catch { return 0; } };
+  const save = (k, v) => { try { if (v) localStorage.setItem(k, String(Math.round(v))); else localStorage.removeItem(k); } catch { /* 忽略 */ } };
+  // grow：往下拖是变高（图集，在分隔条上面）还是变矮（图层，在分隔条下面）
+  function splitter(split, target, { key, cssVar, min, grow }) {
+    const setH = h => {
+      target.classList.toggle('sized', h > 0);
+      if (h > 0) target.style.setProperty(cssVar, `${h}px`); else target.style.removeProperty(cssVar);
     };
-    split.addEventListener('pointermove', move);
-    split.addEventListener('pointerup', up, { once: true });
-    split.addEventListener('pointercancel', up, { once: true });
-  });
-  split.addEventListener('dblclick', () => { setH(0); try { localStorage.removeItem(KEY); } catch { /* 忽略 */ } });
+    setH(saved(key));
+    split.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      split.setPointerCapture(e.pointerId);
+      const y0 = e.clientY, h0 = target.getBoundingClientRect().height;
+      const max = h0 + Math.max(0, listEl.getBoundingClientRect().height - MIN_LIST); // 最多把图片列表压到 MIN_LIST
+      document.body.classList.add('resizing-v');
+      split.classList.add('active');
+      const move = ev => setH(Math.round(Math.max(min, Math.min(max, h0 + (ev.clientY - y0) * grow))));
+      const up = () => {
+        split.removeEventListener('pointermove', move);
+        split.removeEventListener('pointerup', up);
+        split.removeEventListener('pointercancel', up);
+        document.body.classList.remove('resizing-v');
+        split.classList.remove('active');
+        if (target.classList.contains('sized')) save(key, target.getBoundingClientRect().height);
+      };
+      split.addEventListener('pointermove', move);
+      split.addEventListener('pointerup', up);
+      split.addEventListener('pointercancel', up);
+    });
+    split.addEventListener('dblclick', () => { setH(0); save(key, 0); });
+  }
+  splitter($('album-splitter'), $('album-bar'), { key: 'slidegrid:album-h', cssVar: '--album-h', min: 64, grow: 1 });
+  const dock = $('dock-layers'), head = $('layers-head');
+  splitter($('layers-splitter'), dock, { key: 'slidegrid:layers-h', cssVar: '--layers-h', min: 96, grow: -1 });
+  const DOCK_KEY = 'dock:layers';
+  const applyDock = () => {
+    const c = isCollapsed(DOCK_KEY);
+    dock.classList.toggle('collapsed', c);
+    head.setAttribute('aria-expanded', String(!c));
+    $('layers-splitter').hidden = c;
+  };
+  const toggleDock = () => { setCollapsed(DOCK_KEY, !isCollapsed(DOCK_KEY)); applyDock(); };
+  head.addEventListener('click', toggleDock);
+  head.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDock(); } });
+  applyDock();
 }
 
 // 左栏顶部：当前画板的图片来源（跟随图集 / 单独设置）
@@ -299,7 +328,7 @@ const settings = createSettingsPanel($('settings-panel'), {
   onBoardRequest: () => { clearSelection(); layerTools?.clear(); },
   layoutPreview: exporting.layoutPreview,
 });
-document.querySelector('#settings-panel .rp-tabs').append(panels.collapseButton('right'));
+settings.tabBar.append(panels.collapseButton('right'));
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
   store, actions, snapshot: exporting.snapshot, toast, download: exporting.download, footer: settings.presetsFooter, saveFooter: settings.designFooter,
   onCount: n => settings.setPresetCount(n),
@@ -427,7 +456,7 @@ function refreshUsed(s = store.get()) {
   slidesPanel.markUsed(new Set(visibleOf(scene).filter(it => !it.slide.placeholder).map(it => it.slide.id)));
 }
 // 检查器：「设计」页里选中对象的属性、「图层」页的图层列表
-const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: settings.layersSlot }, {
+const inspector = createInspector({ selectionSlot: settings.selectionSlot, layersSlot: $('layers-slot') }, {
   store, actions, ui, is3D, setTool,
   cardParams: () => getLayout(store.get().layoutId).cardParams || null,
   onDeviceImage: l => mockups.pickImage(l),
@@ -472,7 +501,7 @@ const contextBar = createContextBar(toolbar.ctxSlot, {
 const syncInspector = (s = store.get()) => {
   inspector.update(s);
   settings.setSelectionMode(inspector.hasSelection());
-  settings.setLayerCount((s.layers || []).length);
+  $('layer-count').textContent = (s.layers || []).length || '';
   const ctx = contextBar.update(s);
   toolbar.bgSlot.hidden = ctx !== 'board'; // 画板背景、遮罩只在没有选择时显示
 };

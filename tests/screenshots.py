@@ -67,7 +67,7 @@ def main():
             export(page, OUT / 'mockups.png')
 
             # 4. 样机页 + 画板上的样机
-            page.click('.rp-rail [aria-label="样机"]')
+            page.click('.rp-top [data-tab="mockup"]')
             page.wait_for_timeout(400)
             page.screenshot(path=str(OUT / 'mockup-panel.png'))
             print(f'已生成 {(OUT / "mockup-panel.png").relative_to(ROOT)}')

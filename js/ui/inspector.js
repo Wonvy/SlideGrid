@@ -9,7 +9,7 @@ import { showContextMenu } from './contextMenu.js';
 /**
  * 检查器（类似 Figma 右侧的设计面板），分两处：
  *   设计页（selectionSlot）：选中图层时显示图层属性；选中卡片时显示卡片的裁切和位置 / 旋转 / 缩放
- *   图层页（layersSlot）：新建文字 / 形状 / 路径，以及当前画板的图层列表（上面的在上层）——
+ *   图层列表（layersSlot，左栏下方单独一组）：当前画板的图层（上面的在上层）——
  *     点击选中（Shift / ⌘ 多选）、显示 / 隐藏、锁定、双击改名；拖动调整前后（选中多个时一起拖）；右键菜单。
  *     幻灯片作为一组列在中间：组里是渐隐遮罩（开启时）和画板里看得见的每张卡片（上面的在前）；
  *     图层可以拖过这一组（放到幻灯片下面）；平面版式里卡片也能拖动调整前后
@@ -21,14 +21,6 @@ import { showContextMenu } from './contextMenu.js';
  * 返回 hasSelection()：设计页是否在显示选中对象（否则显示画板设置）
  */
 const TYPE_ICONS = { rect: 'square', ellipse: 'circle', text: 'type', path: 'pen-tool', image: 'image', device: 'laptop' };
-const ADD_TOOLS = [
-  { tool: 'text', icon: 'type', label: '文字', key: 'T' },
-  { tool: 'rect', icon: 'square', label: '矩形', key: 'M' },
-  { tool: 'ellipse', icon: 'circle', label: '椭圆', key: 'L' },
-  { tool: 'line', icon: 'slash', label: '直线', key: '\\' },
-  { tool: 'pen', icon: 'pen-tool', label: '钢笔', key: 'P' },
-];
-
 export function createInspector({ selectionSlot, layersSlot }, { store, actions, ui, selectLayers, getCards, placeLayers, slidesId = '__slides__', menus, clearAll, setTool, is3D, cardParams = () => null, cards, onFade = () => {}, notify = () => {}, onDeviceImage = () => {}, onDeviceQuad = () => {} }) {
   /* ---------- 设计页：选中对象的标题栏 ---------- */
   const selTitle = el('span', { class: 'sel-title' });
@@ -88,13 +80,10 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   selectionSlot.append(selBar, propsSection, raiseSection, cropSection, cardSection);
 
   /* ---------- 图层页 ---------- */
-  const addRow = el('div', { class: 'layer-add' }, ADD_TOOLS.map(t =>
-    el('button', { class: 'btn small', title: `${t.label}（${t.key}）`, onclick: () => setTool(t.tool) }, icon(t.icon, 13), t.label)));
   const list = el('div', { class: 'layer-list' });
   const dropLine = el('div', { class: 'layer-drop', hidden: true }); // 拖动时的插入位置
-  const empty = el('p', { class: 'note' }, '用上面的按钮或左侧工具栏添加文字、形状，或用钢笔绘制路径。图层默认在幻灯片上面，拖到「幻灯片」下面就放到卡片后面。');
-  const hint = el('p', { class: 'note layer-hint' }, '拖动调整前后顺序 · 右键更多操作 · 双击改名');
-  layersSlot.append(section('图层', el('div', {}, addRow, empty, list, hint), null, 'section:layer-list'));
+  const empty = el('p', { class: 'note layer-empty-note' }, '还没有图层。用画布左边的工具添加文字、形状、路径，或粘贴图片 / SVG。');
+  layersSlot.append(empty, list);
 
   // 修改选中的图层（文字会重新测量尺寸，路径作用在锚点上）
   const setProp = (key, value) => actions.updateLayers(ui.layerSel, l => applyLayerProp(l, key, value));
@@ -285,7 +274,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
       out.push(el('div', { class: 'layer-row layer-child layer-empty' },
         el('span', { class: 'layer-name' }, cardParams?.() ? '3D 版式：前后由空间位置决定，可选中卡片在「设计」页抬起 / 放平' : '3D 版式：卡片前后由空间位置决定，不能调整前后')));
     }
-    if (!total) out.push(el('div', { class: 'layer-row layer-child layer-empty' }, el('span', { class: 'layer-name' }, '左侧导入图片后显示在这里')));
+    if (!total) out.push(el('div', { class: 'layer-row layer-child layer-empty' }, el('span', { class: 'layer-name' }, '导入图片后显示在这里')));
     return out;
   }
 
@@ -308,7 +297,6 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     const above = layers.filter(l => !l.under).reverse();
     const below = layers.filter(l => l.under).reverse();
     list.replaceChildren(...above.map(layerRow), ...slidesGroup(s, cardList), ...below.map(layerRow), dropLine);
-    hint.hidden = !layers.length && !cardList.length;
   }
 
   /* ---------- 拖动调整前后 ----------

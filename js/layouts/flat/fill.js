@@ -1,10 +1,11 @@
 import { fillGrid, svg } from '../helpers.js';
 
-// 铺满画布的错位网格；图片不够时循环重复。
-function makeFillLayout({ id, name, icon, defaults }) {
+// 铺满画布的网格（可以错位、旋转）；图片不够时循环重复。
+function makeFillLayout({ id, name, icon, defaults, legacy }) {
   return {
     id,
     name,
+    legacy,
     category: 'flat',
     icon,
     params: [
@@ -24,7 +25,7 @@ function makeFillLayout({ id, name, icon, defaults }) {
 
 export const staggered = makeFillLayout({
   id: 'staggered',
-  name: '错位铺满',
+  name: '铺满网格',
   icon: svg(`
     <rect x="3" y="-3" width="9" height="9" rx="1.2"/><rect x="3" y="9" width="9" height="9" rx="1.2"/><rect x="3" y="21" width="9" height="9" rx="1.2"/>
     <rect x="14" y="3" width="9" height="9" rx="1.2"/><rect x="14" y="15" width="9" height="9" rx="1.2"/>
@@ -36,6 +37,7 @@ export const staggered = makeFillLayout({
 export const tilted = makeFillLayout({
   id: 'tilted',
   name: '倾斜铺满',
+  legacy: 'staggered', // 和「铺满网格」是同一种版式（只是默认带旋转）：不再出现在版式列表里，用过它的画板照常显示
   icon: svg(`<g transform="rotate(-20 24 15)">
     <rect x="-2" y="2" width="12" height="7" rx="1"/><rect x="12" y="-2" width="12" height="7" rx="1"/><rect x="26" y="2" width="12" height="7" rx="1"/><rect x="40" y="-2" width="12" height="7" rx="1"/>
     <rect x="-2" y="11" width="12" height="7" rx="1"/><rect x="12" y="7" width="12" height="7" rx="1"/><rect x="26" y="11" width="12" height="7" rx="1"/><rect x="40" y="7" width="12" height="7" rx="1"/>

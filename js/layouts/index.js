@@ -39,5 +39,6 @@ const D = withDepthFx;
 export const layouts = [grid, hero, staggered, tilted, scatter, fan, D(isoWall), D(corridor), D(cylinder), D(cascade, { dof: 0.35 }), D(carousel),
   D(floating), isoStage, isoGroups, D(tumble, { dof: 0.4 }), pile];
 
+// legacy：已并入另一个版式（值是那个版式的 id）的旧版式——版式列表里不再列出，用过它的画板、保存的版式照常使用
 const byId = new Map(layouts.map(l => [l.id, l]));
 export const getLayout = id => byId.get(id);

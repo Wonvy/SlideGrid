@@ -30,13 +30,19 @@ export function setCollapsed(key, value) {
   } catch { /* 忽略 */ }
 }
 
-/** 可折叠的面板区块：点击标题折叠 / 展开，状态会记住 */
-export function section(title, body, action, key = `section:${title}`, { collapsed: byDefault = false } = {}) {
+/**
+ * 可折叠的面板区块：点击标题折叠 / 展开，状态会记住。
+ * opts.onSwitch(on)：标题上加一个开关（投影、渐隐遮罩这类可以整个关掉的效果）；关掉时内容收起、设置保留。
+ * 返回的节点上带 setOn(on)（同步开关）、expand()（展开，用于「定位到这一组」）。
+ */
+export function section(title, body, action, key = `section:${title}`, { collapsed: byDefault = false, onSwitch = null } = {}) {
   const toggle = el('button', { class: 'section-toggle', 'aria-expanded': 'true', title: '折叠 / 展开' }, el('h3', {}, title));
   const content = el('div', { class: 'section-body' }, body);
-  // 标题在左，操作按钮和折叠箭头在右（展开时箭头朝上）
-  const head = el('div', { class: 'section-head', title: '点击折叠 / 展开' }, toggle, action, el('span', { class: 'section-chevron' }, icon('chevron-down', 16)));
-  const sec = el('section', { class: 'panel-section' }, head, content);
+  const sw = onSwitch ? el('input', { type: 'checkbox', class: 'switch small', title: `开启 / 关闭「${title}」（设置保留）`, 'aria-label': `开启「${title}」` }) : null;
+  sw?.addEventListener('change', () => onSwitch(sw.checked));
+  // 标题在左，操作按钮、开关和折叠箭头在右（展开时箭头朝上）
+  const head = el('div', { class: 'section-head', title: '点击折叠 / 展开' }, toggle, action, sw, el('span', { class: 'section-chevron' }, icon('chevron-down', 16)));
+  const sec = el('section', { class: `panel-section${sw ? ' has-switch' : ''}` }, head, content);
   const apply = c => {
     sec.classList.toggle('collapsed', c);
     toggle.setAttribute('aria-expanded', String(!c));
@@ -46,9 +52,12 @@ export function section(title, body, action, key = `section:${title}`, { collaps
   head.addEventListener('click', e => {
     const other = e.target.closest('button, input, select, a, label');
     if (other && other !== toggle && !toggle.contains(other)) return;
+    if (sec.classList.contains('off')) return; // 关掉的效果没有内容可展开
     const c = !sec.classList.contains('collapsed');
     setCollapsed(key, c);
     apply(c);
   });
+  sec.setOn = on => { if (sw) sw.checked = !!on; sec.classList.toggle('off', !!sw && !on); };
+  sec.expand = () => { setCollapsed(key, false); apply(false); };
   return sec;
 }

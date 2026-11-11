@@ -24,7 +24,7 @@ function defaultText(def) {
 /**
  * 根据 schema 自动生成控件。
  * schema 项：{ key, label, type: 'range'|'select'|'number'|'toggle'|'color'|'seed'|'image'|'textarea'|'font'|'albumGroups', default, show?(values), ... }
- *          或 { group: '分组标题' }
+ *          或 { group: '分组标题', switch?: { key, invert? } }（switch：标题上的开关，关掉时组内参数收起、设置保留；invert：key 为真 = 关）
  * label 可以是函数 (values) => 文本。
  * ctx（可选）：image 控件需要 { imageThumb(id) → canvas|null, pickImage(key), dropTarget }；
  *   wheelImmediate：鼠标悬停就能用滚轮调（不需要停留激活，用于顶部工具条）
@@ -44,15 +44,16 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
 
   for (const def of schema) {
     if (def.group) {
-      // 分组标题：点击折叠 / 展开组内参数
+      // 分组标题：点击折叠 / 展开组内参数；带 switch 的分组（投影、空间效果…）标题上有一个开关，一键关掉 / 打开整组
       const key = `${ctx.collapseKey || 'ctrl'}:${def.group}`;
-      const node = el('button', { class: 'ctrl-group', title: '折叠 / 展开' }, el('span', {}, def.group), icon('chevron-down', 16));
-      node.addEventListener('click', () => {
-        setCollapsed(key, !isCollapsed(key));
-        update(lastValues);
-      });
+      const sw = def.switch ? el('input', { type: 'checkbox', class: 'switch small', title: `开启 / 关闭「${def.group}」（设置保留）`, 'aria-label': `开启「${def.group}」` }) : null;
+      const node = el('div', { class: `ctrl-group${sw ? ' has-switch' : ''}`, role: 'button', tabindex: '0', title: '折叠 / 展开' }, el('span', {}, def.group), sw, icon('chevron-down', 16));
+      const toggle = () => { setCollapsed(key, !isCollapsed(key)); update(lastValues); };
+      node.addEventListener('click', e => { if (e.target !== sw) toggle(); });
+      node.addEventListener('keydown', e => { if (e.target === node && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } });
+      sw?.addEventListener('change', () => onChange(def.switch.key, def.switch.invert ? !sw.checked : sw.checked));
       container.append(node);
-      rows.push({ def, node, groupKey: key });
+      rows.push({ def, node, groupKey: key, sw });
       group = key;
       continue;
     }
@@ -392,9 +393,18 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
   let lastValues = values;
   const update = vals => {
     lastValues = vals;
+    const off = new Set(); // 用开关关掉的分组
     for (const r of rows) {
-      if (r.groupKey) { r.node.classList.toggle('collapsed', isCollapsed(r.groupKey)); continue; }
-      r.node.hidden = !!(r.def.show && !r.def.show(vals)) || (r.group && isCollapsed(r.group));
+      if (r.groupKey) {
+        const on = !r.sw || !!vals?.[r.def.switch.key] !== !!r.def.switch.invert;
+        if (r.sw) r.sw.checked = on;
+        if (!on) off.add(r.groupKey);
+        r.node.classList.toggle('collapsed', isCollapsed(r.groupKey));
+        r.node.classList.toggle('off', !on);
+        r.node.hidden = !!(r.def.show && !r.def.show(vals));
+        continue;
+      }
+      r.node.hidden = !!(r.def.show && !r.def.show(vals)) || (r.group && (isCollapsed(r.group) || off.has(r.group)));
       if (r.setValue && r.def.key) r.setValue(vals[r.def.key]);
       if (r.reset) {
         const changed = !sameValue(vals?.[r.def.key] ?? r.def.default, r.def.default);

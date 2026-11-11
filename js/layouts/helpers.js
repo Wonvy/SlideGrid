@@ -168,8 +168,12 @@ export function tableReach({ tilt, persp, W, H, s = 1, cap = Infinity }) {
  * 桌面类版式（等距展台、分组展台、满铺堆叠）的远近效果参数：
  *   farFade 远处渐隐（远处的卡片淡出到背景，也让铺满型网格的远端不会突然断掉）、dof 景深模糊、focusMode / focus 对焦（抬起的卡片 / 手动：0 = 最远，1 = 最近）、
  *   floorShadow 抬起的卡片投在桌面上的影子（抬得越高越淡、越散）
+ * 参数面板里是「空间效果」一组，标题上有开关（fxOff）。
  */
 export const tableFxParams = ({ farFade = 0, dof = 0, focus = 0.5, floorShadow = 0.5, focusLabel = '抬起的卡片' } = {}) => [
+  // 这几项单独一组，标题上的开关一键关掉 / 打开（fxOff：关掉时效果都不画，各项的数值保留）
+  { group: '空间效果', switch: { key: 'fxOff', invert: true } },
+  { key: 'fxOff', label: '关闭空间效果', type: 'toggle', default: false, show: () => false },
   { key: 'farFade', label: '远处渐隐', type: 'range', min: 0, max: 1, step: 0.01, default: farFade },
   { key: 'dof', label: '景深模糊', type: 'range', min: 0, max: 1, step: 0.01, default: dof },
   {
@@ -183,7 +187,7 @@ export const tableFxParams = ({ farFade = 0, dof = 0, focus = 0.5, floorShadow =
   ...(floorShadow == null ? [] : [{ key: 'floorShadow', label: '桌面投影', type: 'range', min: 0, max: 1, step: 0.01, default: floorShadow }]),
 ];
 // focus：'auto' = 对焦在抬起的卡片上（没有抬起的卡片时在中间）
-export const tableFx = p => ({
+export const tableFx = p => (p.fxOff ? { depthFx: { fade: 0, dof: 0, focus: 'auto' }, floorShadow: 0 } : {
   depthFx: { fade: p.farFade || 0, dof: p.dof || 0, focus: p.focusMode === 'manual' ? p.focus ?? 0.5 : 'auto' },
   floorShadow: p.floorShadow ?? 0,
 });

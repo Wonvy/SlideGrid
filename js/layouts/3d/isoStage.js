@@ -2,6 +2,7 @@ import { DEG } from '../../core/utils.js';
 import { fillGrid, svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableReach, tableFxParams, tableFx } from '../helpers.js';
 
 // 等距展台：卡片平铺在地面上（等距视角，也可以加透视），中间几张翻起或浮起，像桌面上摊开的名片 / 网页样机。
+// 翻起数量设为 0 就是一整面倾斜的卡片墙（原来的「倾斜墙面」版式，已并入这里）。
 // 翻起：以卡片下边为轴立起来；浮起：整张抬高。翻起的角度依次变化（全角度 → 平放浮起 → 六成角度…）显得错落。
 // 也可以选中任意卡片，在「设计」页单独设置抬起 / 放平、角度、高度、翻起的轴和倾斜（cardParams）。
 export default {
@@ -14,14 +15,14 @@ export default {
     <polygon points="28,11 38,6 46,10 36,15" opacity=".45"/><polygon points="30,25 40,20 48,24 38,29" opacity=".45"/>
     <polygon points="14,12 22,8 24,0 16,4"/><polygon points="24,17 32,13 40,17 32,21" opacity=".85"/>`),
   params: [
-    { key: 'cols', label: '列数', type: 'range', min: 3, max: 10, default: 5 },
+    { key: 'cols', label: '列数', type: 'range', min: 3, max: 12, default: 5 },
     { key: 'gap', label: '间距', type: 'range', min: 0, max: 120, default: 34 },
     { key: 'offset', label: '错位', type: 'range', min: 0, max: 1, step: 0.01, default: 0 },
     { key: 'raise', label: '翻起数量', type: 'range', min: 0, max: 8, default: 3, format: v => (v > 0 ? `${Math.round(v)} 张` : '不翻起') },
     { key: 'angle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°' },
     { key: 'height', label: '浮起高度', type: 'range', min: 0, max: 300, default: 36 },
     { key: 'edge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES },
-    { key: 'tilt', label: '俯视角度', type: 'range', min: 20, max: 80, default: 45, unit: '°' },
+    { key: 'tilt', label: '俯视角度', type: 'range', min: 0, max: 80, default: 45, unit: '°' },
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },
     PERSP_PARAM,
     { key: 'zoom', label: '缩放', type: 'range', min: 0.5, max: 3, step: 0.01, default: 1.1 },
