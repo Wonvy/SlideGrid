@@ -26,7 +26,7 @@ import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
 import { placeholders, slidesOf, hasRealSlides, is3D, isPerspective, getAdjust, nextLift } from './app/boards.js';
 import { ui, setUi, setSelection, clearSelection, resetCardState, onUiChange } from './app/uiState.js';
-import { activeCardScene, visibleCards, stackCards, canStack, canPlaceCards, placeCards, resetStack, stackChanged } from './app/cardOrder.js';
+import { activeCardScene, visibleCards, stackCards, canStack, canPlaceCards, dropCards, setCardsHidden, releaseCards, placeCards, resetStack, stackChanged } from './app/cardOrder.js';
 import { createWorkspace } from './app/workspace.js';
 import { createImporting } from './app/importing.js';
 import { createExporting } from './app/exporting.js';
@@ -460,6 +460,13 @@ const visibleOf = scene => {
   if (!v) { v = visibleCards(scene); cardListCache.set(scene, v); }
   return v;
 };
+// 图层列表里的卡片：看得见的 + 隐藏的（可以再显示）
+const layerCardCache = new WeakMap();
+const layerCardsOf = scene => {
+  let v = layerCardCache.get(scene);
+  if (!v) { v = [...visibleOf(scene), ...(scene.hidden || [])]; layerCardCache.set(scene, v); }
+  return v;
+};
 let usedScene = null;
 function refreshUsed(s = store.get()) {
   const scene = activeCardScene(s);
@@ -484,11 +491,16 @@ const inspector = createInspector({ selectionSlot: settings.selectionSlot, layer
   clearAll: () => { clearSelection(); layerTools.clear(); },
   // 图层列表里的「幻灯片」一组：画板里看得见的卡片（按场景缓存）
   cards: {
-    list: () => visibleOf(activeCardScene()),
+    list: () => layerCardsOf(activeCardScene()),
     select: orders => { layerTools.clear(); setSelection(orders); },
     canStack,
-    canDrag: canPlaceCards,
-    place: placeCards,
+    // 卡片能不能拖：卡片不太多（可以在卡片之间排），或者有图层（可以拖到图层之间）
+    canDrag: () => canPlaceCards() || (store.get().layers || []).length > 0,
+    canPlace: canPlaceCards,
+    hasLayers: () => (store.get().layers || []).length > 0,
+    drop: dropCards,
+    hide: (orders, hidden) => { setCardsHidden(orders, hidden); if (hidden) setSelection(ui.selection.filter(o => !orders.includes(o))); },
+    release: releaseCards,
     resetStack,
     stackChanged,
     hover: order => setUi('hover', order),
@@ -770,5 +782,5 @@ window.SlideGrid = {
   deleteBoards: boards.deleteBoards,
   layers: layerTools,
   applyLayerProp,
-  cards: { visible: () => visibleOf(activeCardScene()), stack: stackCards },
+  cards: { visible: () => visibleOf(activeCardScene()), all: () => activeCardScene().items, stack: stackCards },
 };

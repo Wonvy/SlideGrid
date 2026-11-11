@@ -1,19 +1,21 @@
 import { store, actions } from '../state.js';
-import { cachedScene } from '../render/scene.js';
+import { cachedScene, PULL_BACK } from '../render/scene.js';
 import { itemCornersNdc } from '../render/picking.js';
-import { sceneInput, is3D } from './boards.js';
+import { sceneInput } from './boards.js';
 
 /**
- * 卡片的前后顺序（平面版式）：上移一层 / 下移一层 / 置于顶层 / 置于底层。
- * 前后由卡片的 lift（手动调整里的「抬高」，z = lift × 20）决定：重新排好后按名次写回每张卡片的 lift。
- * 版式本身给的 z（扇形、散落有一点点前后差）不超过 40，所以每一名相差 3（= 60 个世界单位）足以盖过它。
- * 3D 版式的前后由空间位置决定，不能调。
+ * 卡片的前后顺序：上移一层 / 下移一层 / 置于顶层 / 置于底层，图层列表里拖动。
+ * 前后记在卡片的 lift（手动调整）里：重新排好后按名次写回每张卡片的 lift。
+ *   平面版式：lift 把卡片抬高一点（z = lift × 20），按远近自然叠在上面。版式本身给的 z（扇形、散落有一点点前后差）
+ *             不超过 40，所以每一名相差 3（= 60 个世界单位）足以盖过它
+ *   3D 版式：不动位置，只改绘制的先后（没调过的卡片仍按远近；「恢复版式默认的前后」回到全部按远近）
+ * 另外两项也记在手动调整里：hidden（隐藏这张卡片）、above（拖出「幻灯片」一组，画在某个图层上面）。
  */
 const LIFT_STEP = 3;
 const MANY = 150; // 卡片太多（铺满型版式）时只调选中的卡片
 
 export const activeCardScene = (s = store.get()) => cachedScene(sceneInput(s));
-export const canStack = () => !is3D();
+export const canStack = () => true;
 
 // 卡片在画板上的范围：四个角（NDC）+ 包围盒
 function boxOf(scene, it) {
@@ -90,8 +92,8 @@ function writeRanks(list, next) {
   return true;
 }
 
-/** 图层列表里能不能拖动卡片调整前后（平面版式，卡片不太多） */
-export const canPlaceCards = () => canStack() && activeCardScene().items.length <= MANY;
+/** 图层列表里能不能在卡片之间拖动调整前后：都可以（铺满型版式上千张卡片时，只在画板里看得见的那些之间排） */
+export const canPlaceCards = () => true;
 
 /**
  * 把卡片放到 target 这张卡片的上面 / 下面（图层列表里拖动）。place：'above'（盖住它）| 'below'。返回是否有变化。
@@ -107,6 +109,71 @@ export function placeCards(orders, target, place) {
   next.splice(place === 'above' ? at + 1 : at, 0, ...list.filter(o => sel.has(o)));
   return writeRanks(list, next);
 }
+
+/**
+ * 图层列表里把卡片拖到某一行的上面 / 下面。drop：{ kind: 'card' | 'layer' | 'slides', id, place: 'above' | 'below' }
+ *   拖到组里的卡片旁边：调整前后（原来拖出去的回到组里）
+ *   拖到「幻灯片」这一行：回到组里，放在最上面
+ *   拖到图层旁边：拖出组，画在那个位置（紧贴「幻灯片」一组的上面 = 组里的最上面）
+ *   拖到已经拖出去的卡片旁边：和它在同一个位置，按上 / 下排
+ * 返回是否有变化。
+ */
+export function dropCards(orders, drop) {
+  if (!orders.length) return false;
+  const s = store.get();
+  const scene = activeCardScene(s);
+  const layers = s.layers || [];
+  const stack = [...layers.filter(l => l.under), ...layers.filter(l => !l.under)]; // 从下到上
+  const valid = id => (id === PULL_BACK || layers.some(l => l.id === id) ? id : null);
+  const adjust = s.adjust[s.layoutId] || {};
+  const anchorOf = o => valid(adjust[o]?.above);
+  const sel = new Set(orders);
+  let anchor = null, rel = null;
+  if (drop.kind === 'card') {
+    if (sel.has(drop.id)) return false;
+    anchor = anchorOf(drop.id);
+    rel = drop;
+  } else if (drop.kind === 'layer') {
+    const i = stack.findIndex(l => l.id === drop.id);
+    if (i < 0) return false;
+    if (drop.place === 'above') anchor = drop.id;
+    else if (stack[i].under) anchor = i > 0 ? stack[i - 1].id : PULL_BACK;
+    else anchor = i > 0 && !stack[i - 1].under ? stack[i - 1].id : null; // 最下面那个图层的下面 = 回到组里最上面
+  }
+  // 只在图层列表里列出来的卡片（画板里看得见的）之间排：铺满型版式画板外还有成百上千张，不用管它们
+  const list = visibleCards(scene).map(it => it.order).reverse(); // 从下到上
+  const listed = new Set(list);
+  const moving = list.filter(o => sel.has(o));
+  if (!moving.length) return false;
+  const patches = new Map(moving.map(o => [o, { above: anchor || undefined }]));
+  const put = (o, patch) => patches.set(o, { ...patches.get(o), ...patch });
+  if (rel) {
+    const next = list.filter(o => !sel.has(o));
+    const at = next.indexOf(rel.id);
+    if (at < 0) return false;
+    next.splice(rel.place === 'above' ? at + 1 : at, 0, ...moving);
+    if (next.some((o, k) => o !== list[k])) {
+      // 名次接在画板外那些卡片的后面
+      const base = Math.max(0, ...Object.entries(adjust).filter(([o]) => !listed.has(+o)).map(([, a]) => a.lift || 0));
+      next.forEach((o, rank) => put(o, { lift: base + (rank + 1) * LIFT_STEP }));
+    }
+  } else {
+    // 放到那个位置的最上面
+    let top = Math.max(0, ...Object.values(adjust).map(a => a.lift || 0));
+    for (const o of moving) put(o, { lift: (top += LIFT_STEP) });
+  }
+  const changed = [...patches].some(([o, p]) => Object.entries(p).some(([k, v]) => (adjust[o]?.[k] ?? undefined) !== v));
+  if (!changed) return false;
+  actions.setItemAdjusts([...patches].map(([order, patch]) => ({ order, patch })));
+  return true;
+}
+
+/** 隐藏 / 显示卡片；把拖出去的卡片放回「幻灯片」一组 */
+export const setCardsHidden = (orders, hidden) => actions.setItemAdjusts(orders.map(order => ({ order, patch: { hidden: hidden || undefined } })));
+export const releaseCards = orders => actions.setItemAdjusts(orders.map(order => ({ order, patch: { above: undefined } })));
+
+/** 图层列表用的卡片：画板里看得见的（从上到下）+ 隐藏的（排在最后，可以再显示） */
+export const listCards = (scene = activeCardScene()) => [...visibleCards(scene), ...(scene.hidden || [])];
 
 /** 有没有调过卡片的前后 / 恢复版式默认的前后 */
 export const stackChanged = (s = store.get()) => Object.values(s.adjust[s.layoutId] || {}).some(a => a.lift);

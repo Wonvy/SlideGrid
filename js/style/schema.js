@@ -127,6 +127,13 @@ export const styleSchema = [
   { key: 'cardAspectW', label: '宽', type: 'number', min: 1, max: 100, step: 1, default: 16, half: true, show: s => s.cardAspect === 'custom' },
   { key: 'cardAspectH', label: '高', type: 'number', min: 1, max: 100, step: 1, default: 9, half: true, show: s => s.cardAspect === 'custom' },
   { key: 'radius', label: '圆角', type: 'range', min: 0, max: 60, default: 10 },
+  // 厚度：卡片向背面延伸成一块板（转动视角、3D 版式里看得到侧边）。侧边的颜色取图片最靠边的颜色，或者自己指定
+  { key: 'thickness', label: '厚度', type: 'range', min: 0, max: 80, default: 0, title: '卡片的厚度：3D 版式、或者用右上角的立方体转动视角后看得到侧边' },
+  {
+    key: 'sideMode', label: '侧边颜色', type: 'select', default: 'edge', show: s => s.thickness > 0,
+    options: [{ value: 'edge', label: '延伸图片边缘' }, { value: 'color', label: '指定颜色' }],
+  },
+  { key: 'sideColor', label: '侧边', type: 'color', default: '#d9dbe0', show: s => s.thickness > 0 && s.sideMode === 'color' },
   { key: 'borderWidth', label: '描边', type: 'range', min: 0, max: 30, default: 0 },
   { key: 'borderColor', label: '描边颜色', type: 'color', default: '#ffffff', show: s => s.borderWidth > 0 },
 

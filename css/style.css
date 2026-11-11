@@ -1839,3 +1839,6 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .storage-note { font-size: 12px; color: var(--faint); line-height: 1.5; }
 .storage-clean { align-self: flex-start; }
 @media (max-width: 720px) { .storage-box { display: none; } }
+/* 图层列表：隐藏的卡片变淡；拖出「幻灯片」一组的卡片和图层并排（左边一条细线表示它是卡片） */
+.layer-card.is-hidden .layer-thumb { opacity: .35; }
+.layer-card.pulled { box-shadow: inset 2px 0 0 rgba(124, 140, 255, .55); }

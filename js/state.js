@@ -534,18 +534,19 @@ export const actions = {
     store.set(s => ({ exportOpts: { ...s.exportOpts, [key]: value } }));
   },
   // 调整某个位置的卡片（patch 中的数值为绝对值）
+  // patch 里值为 undefined 的项 = 去掉这一项
   setItemAdjust(order, patch) {
-    store.set(s => {
-      const cur = s.adjust[s.layoutId] || {};
-      const next = { ...cur[order], ...patch };
-      return { adjust: { ...s.adjust, [s.layoutId]: { ...cur, [order]: next } } };
-    });
+    actions.setItemAdjusts([{ order, patch }]);
   },
   // 一次调整多张卡片（多选移动 / 对齐 / 分布），作为一步撤销
   setItemAdjusts(list) {
     store.set(s => {
       const cur = { ...(s.adjust[s.layoutId] || {}) };
-      for (const { order, patch } of list) cur[order] = { ...cur[order], ...patch };
+      for (const { order, patch } of list) {
+        const next = { ...cur[order], ...patch };
+        for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+        if (Object.keys(next).length) cur[order] = next; else delete cur[order];
+      }
       return { adjust: { ...s.adjust, [s.layoutId]: cur } };
     });
   },

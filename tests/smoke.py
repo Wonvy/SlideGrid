@@ -340,7 +340,54 @@ def t_layer_panel(page, errors):
     cards.first.click(button='right')
     page.click('.ctx-menu .menu-item:has-text("置于底层")')
     assert names() == before, (before, names())
-    page.evaluate("""() => { const S = SlideGrid; S.actions.setLayers(S.store.get().layers.filter(l => !l.id.startsWith('l_p'))); S.layers.clear(); }""")
+
+    # 卡片拖出「幻灯片」一组、放到图层上面：导出的图里它盖在那个图层上（图层铺满整个画板、不透明）
+    page.evaluate("""() => { const S = SlideGrid; S.actions.updateLayers(['l_pc'], { x: 0, y: 0, w: 1920, h: 1080 }); }""")
+    adj = lambda: page.evaluate("(() => { const s = SlideGrid.store.get(); return s.adjust[s.layoutId] || {}; })()")
+    probe = """async order => {
+      const S = SlideGrid, s = S.store.get();
+      const it = S.cards.visible().find(x => x.order === order) || S.cards.all().find(x => x.order === order);
+      const { blob, width, height } = await S.renderToBlob({ longSide: 480, preview: true });
+      const bmp = await createImageBitmap(blob), c = new OffscreenCanvas(width, height), g = c.getContext('2d');
+      g.drawImage(bmp, 0, 0);
+      const r = S.itemRects().find(x => x.order === order)?.rect, b = S.boardLocalRect(s.activeBoard);
+      if (!r) return null;
+      const x = ((r.l + r.r) / 2 - b.l) / (b.r - b.l) * width, y = ((r.t + r.b) / 2 - b.t) / (b.b - b.t) * height;
+      return [...g.getImageData(Math.round(x), Math.round(y), 1, 1).data];
+    }"""
+    card = cards.nth(2)
+    cid = int(card.get_attribute('data-id'))
+    page.evaluate('SlideGrid.fitBoard(); SlideGrid.render()')
+    white = page.evaluate(probe, cid)
+    assert white and white[:3] == [255, 255, 255], white  # 图层在上面：卡片被盖住
+    drag(card, row('l_pc'), 'above')
+    assert adj()[str(cid)].get('above') == 'l_pc', adj()
+    assert page.locator(f'.layer-list .layer-card.pulled[data-id="{cid}"]').count() == 1
+    page.evaluate('SlideGrid.render()')
+    shown = page.evaluate(probe, cid)
+    assert shown and shown[:3] != [255, 255, 255], shown  # 拖出去以后盖在图层上面
+    # 眼睛按钮：隐藏 / 显示这张卡片
+    n_items = lambda: page.evaluate('SlideGrid.cards.all().length')
+    total = n_items()
+    pulled = page.locator(f'.layer-list .layer-card[data-id="{cid}"]')
+    pulled.hover()
+    pulled.locator('.layer-btn[title="隐藏这张卡片"]').click()
+    assert n_items() == total - 1 and adj()[str(cid)].get('hidden') is True
+    pulled = page.locator(f'.layer-list .layer-card.is-hidden[data-id="{cid}"]')
+    pulled.hover()
+    pulled.locator('.layer-btn[title="显示这张卡片"]').click()
+    assert n_items() == total and 'hidden' not in adj()[str(cid)]
+    # 右键「放回幻灯片一组」
+    page.locator(f'.layer-list .layer-card.pulled[data-id="{cid}"]').click(button='right')
+    page.click('.ctx-menu .menu-item:has-text("放回")')
+    assert 'above' not in adj().get(str(cid), {}) and page.locator('.layer-list .layer-card.pulled').count() == 0
+    # 3D 版式里也能拖动调整卡片的前后
+    page.evaluate("SlideGrid.actions.setLayout('isoStage')")
+    before = names()
+    drag(cards.nth(3), cards.first, 'above')  # 铺满型版式卡片很多：只在画板里看得见的卡片之间排
+    after = names()
+    assert after[0] == before[3] and after[1:4] == before[:3] and after[4:] == before[4:], (before[:6], after[:6])
+    page.evaluate("""() => { const S = SlideGrid; S.actions.setLayout('scatter'); S.actions.setLayers(S.store.get().layers.filter(l => !l.id.startsWith('l_p'))); S.layers.clear(); }""")
     assert not errors, errors
 
 
@@ -410,6 +457,39 @@ def t_card_aspect(page, errors):
     }""")
     assert abs(r['auto'] - r['image']) < 0.02 and abs(r['back'] - r['image']) < 0.02, r
     assert abs(r['portrait'] - 0.75) < 0.02 and abs(r['custom'] - 2) < 0.03 and r['inputs'] == 2 and r['exported'] == 300, r
+    assert not errors, errors
+
+
+def t_thickness(page, errors):
+    # 卡片厚度：3D 版式里导出的图和没有厚度时不一样（多了侧边）；侧边可以用指定颜色；平面正视时看不到侧边、图不变
+    r = page.evaluate("""async () => {
+      const S = SlideGrid;
+      const shot = async () => {
+        const { blob, width, height } = await S.renderToBlob({ longSide: 320, preview: true });
+        const bmp = await createImageBitmap(blob), c = new OffscreenCanvas(width, height), g = c.getContext('2d');
+        g.drawImage(bmp, 0, 0);
+        return g.getImageData(0, 0, width, height).data;
+      };
+      const diff = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 24) n++; return n; };
+      const count = (a, [r, g, b]) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - r) + Math.abs(a[i + 1] - g) + Math.abs(a[i + 2] - b) < 90) n++; return n; };
+      const out = {};
+      S.actions.setLayout('isoStage');
+      const flat0 = await shot();
+      S.actions.setStyle('thickness', 40);
+      const edge = await shot();
+      out.sides = diff(flat0, edge);
+      S.actions.patchStyle({ sideMode: 'color', sideColor: '#ff00ff' });
+      const colored = await shot();
+      out.magentaBefore = count(edge, [200, 0, 200]);
+      out.magenta = count(colored, [200, 0, 200]);
+      S.actions.setLayout('grid');
+      const gridThick = await shot();
+      S.actions.patchStyle({ thickness: 0, sideMode: 'edge' });
+      out.gridSame = diff(gridThick, await shot());
+      document.querySelector('.rp-top [data-tab="params"]').click();
+      return out;
+    }""")
+    assert r['sides'] > 200 and r['magenta'] > r['magentaBefore'] + 100 and r['gridSame'] == 0, r
     assert not errors, errors
 
 
@@ -487,7 +567,7 @@ def t_persist(page, errors):
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
          ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('画板右键菜单 / Delete 删除画板', t_board_menu), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
          ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
-         ('卡片比例', t_card_aspect), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
+         ('卡片比例', t_card_aspect), ('卡片厚度', t_thickness), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
 
 

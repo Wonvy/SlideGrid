@@ -3,6 +3,7 @@ import * as m4 from './math.js';
 import { hexToRgb } from '../core/utils.js';
 
 const SLIDE_PAD = 4;
+const SIDE_SEG = 6; // 厚度的侧边：每个圆角分几段
 
 function compile(gl, type, src) {
   const sh = gl.createShader(type);
@@ -55,7 +56,7 @@ function cullBoxes(scene) {
   for (let i = 0; i < n; i++) {
     const it = scene.items[i];
     m4.multiplyInto(mvp, scene.viewProj, it.model);
-    const extra = pad + dofPad * Math.max(it.w, it.h);
+    const extra = pad + dofPad * Math.max(it.w, it.h) + Math.max(0, +st.thickness || 0);
     const hw = it.w / 2 + extra, hh = it.h / 2 + extra;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let c = 0; c < 4; c++) {
@@ -89,7 +90,8 @@ export class Renderer {
     this.program = createProgram(gl, VERT, FRAG);
     const names = ['uMVP', 'uTile', 'uSize', 'uPad', 'uOffset', 'uRadius', 'uMode', 'uTex', 'uUV',
       'uBorder', 'uBorderColor', 'uBlur', 'uShadowColor', 'uOpacity', 'uHLColor', 'uHLFill', 'uHLRing',
-      'uFade', 'uFadeDir', 'uFadeAspect', 'uFadeParams', 'uDepthMode', 'uDofPad', 'uDepthFx', 'uDepthRange', 'uFixedZ'];
+      'uFade', 'uFadeDir', 'uFadeAspect', 'uFadeParams', 'uDepthMode', 'uDofPad', 'uDepthFx', 'uDepthRange', 'uFixedZ',
+      'uThick', 'uZ', 'uNormalM', 'uSideMode', 'uSideColor'];
     this.loc = Object.fromEntries(names.map(n => [n, gl.getUniformLocation(this.program, n)]));
 
     this.vao = gl.createVertexArray();
@@ -104,10 +106,37 @@ export class Renderer {
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
+    // 厚度的侧边：圆角矩形外形上的一圈四边形（每个角分 SIDE_SEG 段，四个角首尾相连）
+    const ring = [];
+    for (const [sx, sy, a0] of [[1, 1, 0], [-1, 1, Math.PI / 2], [-1, -1, Math.PI], [1, -1, Math.PI * 1.5]]) {
+      for (let i = 0; i <= SIDE_SEG; i++) {
+        const a = a0 + (Math.PI / 2) * (i / SIDE_SEG);
+        ring.push([sx, sy, Math.cos(a), Math.sin(a)]);
+      }
+    }
+    const side = [];
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i], q = ring[(i + 1) % ring.length];
+      for (const [v, back] of [[p, 0], [q, 0], [q, 1], [p, 0], [q, 1], [p, 1]]) side.push(...v, back);
+    }
+    this.sideCount = side.length / 5;
+    this.sideVao = gl.createVertexArray();
+    gl.bindVertexArray(this.sideVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(side), gl.STATIC_DRAW);
+    for (const [name, size, offset] of [['aCorner', 2, 0], ['aNormal', 2, 8], ['aBack', 1, 16]]) {
+      const loc = gl.getAttribLocation(this.program, name);
+      if (loc < 0) continue;
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 20, offset);
+    }
+    gl.bindVertexArray(this.vao);
+
     this.aniso = gl.getExtension('EXT_texture_filter_anisotropic');
     this.maxAniso = this.aniso ? gl.getParameter(this.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 1;
     this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     this.mvp = new Float32Array(16);
+    this.normalM = new Float32Array(9);
     this.boxes = new WeakMap(); // scene → 每张卡片的 NDC 包围盒
     const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
     this.maxViewport = Math.min(vp[0], vp[1], gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
@@ -199,6 +228,14 @@ export class Renderer {
     const visible = this.visibleItems(scene, tile);
     const mvp = this.mvp;
     let lastTex = null;
+    // 卡片厚度：向背面延伸。侧边单独画一遍（uMode 4）；投影落在背面那一层
+    const thick = Math.max(0, +st.thickness || 0);
+    gl.uniform1f(L.uThick, thick);
+    gl.uniform1f(L.uZ, 0);
+    gl.uniform1i(L.uSideMode, st.sideMode === 'color' ? 1 : 0);
+    gl.uniform3f(L.uSideColor, ...hexToRgb(st.sideColor || '#d9dbe0'));
+    const nm = this.normalM;
+    let facing = true; // 当前这张卡片正面朝向镜头
 
     // 每张卡片只设置会变的 uniform；每一遍（投影 / 幻灯片）不变的值在遍开始时设置一次
     const setItem = it => {
@@ -207,16 +244,46 @@ export class Renderer {
       gl.uniform2f(L.uSize, it.w, it.h);
       gl.uniform1f(L.uOpacity, it.opacity);
       if (fx) gl.uniform1f(L.uFixedZ, it.fxDepth ?? -1e30);
+      if (thick > 0) {
+        // 正面朝不朝镜头：卡片平面上三个点投影后的绕向（左下 → 右下 → 左上，朝向镜头时逆时针）
+        const w0 = mvp[15], x0 = mvp[12] / w0, y0 = mvp[13] / w0;
+        const w1 = mvp[3] + w0, w2 = mvp[7] + w0;
+        facing = !(w0 > 1e-6 && w1 > 1e-6 && w2 > 1e-6)
+          || ((mvp[0] + mvp[12]) / w1 - x0) * ((mvp[5] + mvp[13]) / w2 - y0) - ((mvp[1] + mvp[13]) / w1 - y0) * ((mvp[4] + mvp[12]) / w2 - x0) >= 0;
+      }
     };
     const shadowPass = () => {
       gl.uniform1i(L.uMode, 1);
       gl.uniform1f(L.uPad, st.shadowBlur + SLIDE_PAD);
       gl.uniform2f(L.uOffset, 0, -st.shadowY);
+      if (thick > 0) gl.uniform1f(L.uZ, thick);
     };
     const slidePass = () => {
       gl.uniform1i(L.uMode, 0);
       gl.uniform1f(L.uPad, SLIDE_PAD);
       gl.uniform2f(L.uOffset, 0, 0);
+      if (thick > 0) gl.uniform1f(L.uZ, 0);
+    };
+    // 厚度的侧边：画在这张卡片的图片之前（朝向镜头的那几面露在图片外面，背对的被图片盖住）
+    const drawSide = it => {
+      const t = this.textures.get(it.slide.id);
+      if (!t) return;
+      // 正对着镜头（正交）时侧边缩成一条线，不用画
+      if (scene.ortho && Math.abs(mvp[8]) + Math.abs(mvp[9]) < 1e-7) return;
+      const m = it.model;
+      const sx = Math.hypot(m[0], m[1], m[2]) || 1, sy = Math.hypot(m[4], m[5], m[6]) || 1, sz = Math.hypot(m[8], m[9], m[10]) || 1;
+      nm[0] = m[0] / sx; nm[1] = m[1] / sx; nm[2] = m[2] / sx;
+      nm[3] = m[4] / sy; nm[4] = m[5] / sy; nm[5] = m[6] / sy;
+      nm[6] = m[8] / sz; nm[7] = m[9] / sz; nm[8] = m[10] / sz;
+      gl.uniformMatrix3fv(L.uNormalM, false, nm);
+      if (t.tex !== lastTex) { gl.bindTexture(gl.TEXTURE_2D, t.tex); lastTex = t.tex; }
+      gl.uniform4f(L.uUV, it.uv[0], it.uv[1], it.uv[2], it.uv[3]);
+      gl.uniform1i(L.uMode, 4);
+      gl.uniform2f(L.uOffset, 0, 0);
+      gl.bindVertexArray(this.sideVao);
+      gl.drawArrays(gl.TRIANGLES, 0, this.sideCount);
+      gl.bindVertexArray(this.vao);
+      gl.uniform1i(L.uMode, 0);
     };
     // 远处渐隐时卡片是半透明的：有前后遮挡的版式先把卡片下面擦掉再画，前面的卡片不会透出后面的
     const erase = !scene.coplanar && !!fx && fx.fade > 0;
@@ -232,7 +299,9 @@ export class Renderer {
       }
       if (t.tex !== lastTex) { gl.bindTexture(gl.TEXTURE_2D, t.tex); lastTex = t.tex; }
       gl.uniform4f(L.uUV, it.uv[0], it.uv[1], it.uv[2], it.uv[3]);
+      if (thick > 0 && !facing) gl.uniform1f(L.uZ, thick); // 背对镜头：图片画在背面那一层（离镜头最近的面）
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+      if (thick > 0 && !facing) gl.uniform1f(L.uZ, 0);
     };
 
     if (scene.coplanar) {
@@ -242,7 +311,7 @@ export class Renderer {
         for (const it of visible) { setItem(it); gl.drawArrays(gl.TRIANGLES, 0, 6); }
       }
       slidePass();
-      for (const it of visible) { setItem(it); drawSlide(it); }
+      for (const it of visible) { setItem(it); if (thick > 0) drawSide(it); drawSlide(it); }
     } else {
       // 有前后关系：画家算法，由远及近（同一张卡片的投影和幻灯片共用矩阵）
       // 抬起的卡片投在桌面上的影子（floors，按 stack 排好）：画在比它低一层的卡片之后、抬起的卡片之前
@@ -272,12 +341,14 @@ export class Renderer {
         setItem(it);
         if (hasShadow) { shadowPass(); gl.drawArrays(gl.TRIANGLES, 0, 6); }
         slidePass();
+        if (thick > 0) drawSide(it);
         drawSlide(it, erase);
       }
       drawFloors(Infinity);
     }
 
     if (!overlays.length) return;
+    gl.uniform1f(L.uZ, 0);
     gl.uniform1i(L.uMode, 2);
     gl.uniform1f(L.uPad, SLIDE_PAD);
     gl.uniform2f(L.uOffset, 0, 0);

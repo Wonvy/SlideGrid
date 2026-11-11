@@ -7,11 +7,12 @@ import { drawDevice } from './devices.js';
  * assets：图片素材 { [id]: { preview } }（工作区用预览图，导出时传入按输出尺寸读取的原图）
  * slideImage(n)：画板第 n 张幻灯片（从 1 开始）的图片，设备样机的屏幕用
  * under：true 只画「在幻灯片下面」的图层（l.under），false 只画在上面的，不传画全部
+ * afterLayer(l)：每画完一个图层（隐藏的图层也算）调用一次——工作区用它把「拖到这个图层上面的卡片」插进来画
  */
-export function drawLayers(ctx, layers, { skip = null, assets = {}, slideImage = () => null, under } = {}) {
+export function drawLayers(ctx, layers, { skip = null, assets = {}, slideImage = () => null, under, afterLayer = null } = {}) {
   for (const l of layers || []) {
-    if (l.hidden || l.id === skip) continue;
     if (under !== undefined && !!l.under !== under) continue;
+    if (l.hidden || l.id === skip) { afterLayer?.(l); continue; }
     ctx.save();
     ctx.globalAlpha *= l.opacity ?? 1;
     if (l.type !== 'path' && l.rotation) {
@@ -25,6 +26,7 @@ export function drawLayers(ctx, layers, { skip = null, assets = {}, slideImage =
     else if (l.type === 'device') drawDevice(ctx, l, l.imageId ? assets[l.imageId]?.preview : slideImage(l.slide || 1), assets[l.frameAssetId]?.preview);
     else drawShape(ctx, l);
     ctx.restore();
+    afterLayer?.(l);
   }
 }
 

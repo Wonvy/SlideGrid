@@ -4,7 +4,7 @@ import { is3D } from './boards.js';
 import { hasAdjust } from '../render/scene.js';
 import { BOOLEAN_OPS } from '../layers/boolean.js';
 import { setSelection, setUi } from './uiState.js';
-import { stackCards, canStack, stackChanged, resetStack } from './cardOrder.js';
+import { stackCards, setCardsHidden, releaseCards, canStack, stackChanged, resetStack } from './cardOrder.js';
 import { toast } from '../ui/toast.js';
 import { getLayout } from '../layouts/index.js';
 import { askText } from '../ui/dialogs.js';
@@ -90,7 +90,16 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
           { label: '选中，调整角度…', icon: 'mouse-pointer-2', action: () => { setTool('select'); setSelection(orders, card.order); } },
         ];
       })() : []),
-      ...(canStack() ? (() => {
+      { sep: true },
+      // 隐藏 / 显示；拖出「幻灯片」一组的卡片可以放回去
+      card.hidden
+        ? { label: '显示这张卡片', icon: 'eye', action: () => setCardsHidden([card.order], false) }
+        : (() => {
+          const orders = ui.selection.includes(card.order) ? [...ui.selection] : [card.order];
+          return { label: orders.length > 1 ? `隐藏这 ${orders.length} 张卡片` : '隐藏这张卡片', icon: 'eye-off', action: () => { setCardsHidden(orders, true); setSelection([]); toast('已隐藏，可以在左栏「图层」页里再显示'); } };
+        })(),
+      adj?.above && { label: '放回「幻灯片」一组', icon: 'corner-down-left', action: () => releaseCards(ui.selection.includes(card.order) ? [...ui.selection] : [card.order]) },
+      ...(canStack() && !card.hidden ? (() => {
         // 右键点到的卡片在选中的卡片里：一起调；否则只调这一张
         const orders = ui.selection.includes(card.order) ? [...ui.selection] : [card.order];
         const run = (dir, toEnd) => () => { if (!stackCards(orders, dir, toEnd)) toast(dir > 0 ? '已经在最上面了' : '已经在最下面了'); };

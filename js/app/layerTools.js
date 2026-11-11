@@ -9,6 +9,7 @@ import { booleanLayers, canBoolean } from '../layers/boolean.js';
 import { toast } from '../ui/toast.js';
 import { iconCursor, iconPaths } from '../ui/icons.js';
 import { withAngle } from '../layers/devices.js';
+import { PULL_BACK } from '../render/scene.js';
 import { ui, setUi } from './uiState.js';
 
 /**
@@ -67,13 +68,19 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     return list.map(l => m.get(l.id) || l);
   };
 
-  // 点中的最上层图层（锁定 / 隐藏的跳过）。幻灯片下面的图层（under）在卡片后面：那里有卡片时点中的是卡片
-  function layerAt(p, list = layersOf(), t = tol(), cardHit = () => false) {
+  // 点中的最上层图层（锁定 / 隐藏的跳过）。那里有卡片、卡片又在这个图层前面时，点中的是卡片：
+  //   幻灯片下面的图层（under）在所有组里的卡片后面；拖出组的卡片（pulled）在它所在的图层和更下面的图层前面
+  // cardAt()：那个位置的卡片（场景里的 item），没有时为 null
+  function layerAt(p, list = layersOf(), t = tol(), cardAt = () => null) {
     const ordered = [...list.filter(l => l.under), ...list.filter(l => !l.under)];
     for (let i = ordered.length - 1; i >= 0; i--) {
       const l = ordered[i];
       if (l.locked || !hitLayer(l, p, t)) continue;
-      return l.under && cardHit() ? null : l;
+      const card = cardAt();
+      if (!card) return l;
+      const at = card.pulled ? ordered.findIndex(x => x.id === card.pulled) : -2; // 拖出组的卡片在第几个图层上面
+      const cardAbove = card.pulled === PULL_BACK ? false : at >= 0 ? at >= i : l.under; // 图层不在了的 = 还在组里
+      return cardAbove ? null : l;
     }
     return null;
   }
@@ -87,7 +94,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       const bi = ws.boardInfo(id);
       if (!bi) continue;
       const list = id === s.activeBoard ? layersOf() : boards.find(b => b.id === id)?.settings.layers || [];
-      const hit = list.length ? layerAt(toBoard([lx, ly], bi), list, PICK_TOL / bi.zoom, () => !!ws.pickLocal(id, lx, ly)) : null;
+      const hit = list.length ? layerAt(toBoard([lx, ly], bi), list, PICK_TOL / bi.zoom, () => ws.pickLocal(id, lx, ly)) : null;
       if (hit) return { board: id, layer: hit };
     }
     return null;

@@ -155,7 +155,8 @@ function assignSlides(raw, n, mode, project, aspect) {
 export function buildScene({ slides, layout, params, style, aspect, camera, adjust = null, pool = null, albums = null }) {
   const { W, H, long, px } = resolveCanvas({ slides, layout, params, aspect, style });
   const n = slides.length;
-  const empty = { W, H, long, px, items: [], viewProj: m4.identity(), coplanar: true, style };
+  const empty = { W, H, long, px, items: [], viewProj: m4.identity(), coplanar: true, style, hidden: [], pulled: [] };
+  empty.main = empty;
   if (!n) return empty;
 
   const slideAspect = cardAspect(style, slides); // 卡片的宽高比：跟随图片，或画板样式里固定的比例
@@ -163,6 +164,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   // cards：每张卡片的手动调整（版式可以读取自己的单卡设置，例如等距展台的「抬起」）；albums：分组版式按图集取图
   const result = layout.compute({ n: cardCount(params, n, long), aspect: slideAspect, W, H, p: params, long, cards: adjust || {}, albums: albums || [] }) || {};
   // 手动调整（移动 / 旋转工具）按位置序号叠加在版式结果上
+  const flatLayout = layout.category !== '3d';
   const raw = (result.items || []).filter(it => it.w > 0 && it.h > 0).map((it, order) => {
     const a = adjust?.[order];
     if (!a || !hasAdjust(a)) return it;
@@ -174,7 +176,9 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
       w: it.w * k,
       h: it.h * k,
       rz: (it.rz || 0) + (a.rz || 0),
-      z: (it.z || 0) + (a.lift || 0) * 20, // 调整过的卡片按操作顺序叠在上面
+      // 调整过前后的卡片：平面版式抬高一点（z），按远近自然叠在上面；3D 版式不动位置，只改绘制的先后（rank）
+      z: (it.z || 0) + (flatLayout ? (a.lift || 0) * 20 : 0),
+      rank: flatLayout ? 0 : a.lift || 0,
       adjusted: true,
       crop: a,
     };
@@ -197,7 +201,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   const indexById = new Map(slides.map((x, i) => [x.id, i]));
   const extraSlides = new Map(); // 不在这个画板列表里的图片（渲染前要上传贴图）
   const albumById = new Map((albums || []).map(a => [a.id, a.slides.filter(x => !x.placeholder)]));
-  const items = raw.map((it, order) => {
+  let items = raw.map((it, order) => {
     const pinned = adjust?.[order]?.slide;
     const inList = pinned != null && indexById.has(pinned);
     // 分组版式：卡片指定了图集（album）和图集里的第几张（ai）
@@ -223,13 +227,21 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
     // order：在版式结果中的序号（同一版式下稳定，用于悬停/拖放定位）
     // slideIndex：对应第几张幻灯片（铺满型版式中会重复出现）
     return {
-      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0, lifted: !!it.floor, fxDepth,
+      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0, rank: it.rank || 0, lifted: !!it.floor, fxDepth,
       opacity: it.opacity ?? 1,
+      // 图层列表里的操作：hidden 隐藏这张卡片；pulled 把它拖出「幻灯片」一组，画在某个图层的上面（值为图层 id，或 PULL_BACK = 最底下）
+      hidden: !!adjust?.[order]?.hidden, pulled: adjust?.[order]?.above || null,
       uv: it.crop?.fit === 'contain' ? [1, 1, 0, 0] : cropUV(imgAspect, w / h, it.crop),
     };
   });
   // 由远及近绘制；版式给了 stack（叠放层级，例如桌面上一堆卡片谁压着谁）时先按 stack，同一层再按远近
-  items.sort((a, b) => (a.stack - b.stack) || (a.depth - b.depth) || (a.order - b.order));
+  // 拖出组的卡片排在后面（画在图层之间，比组里的卡片靠前；拖到最底下的排在前面），点选时也就先点中它们
+  const tier = it => (it.pulled === PULL_BACK ? -1 : it.pulled ? 1 : 0);
+  // 3D 版式里手动调过前后的（rank）优先于版式自己的叠放层级（stack）；没调过的 rank 都是 0，照旧按 stack、远近
+  const sorted = items.sort((a, b) => (tier(a) - tier(b)) || (a.rank - b.rank) || (a.stack - b.stack) || (a.depth - b.depth) || (a.order - b.order));
+  // 隐藏的卡片不画、点不中（图层列表里还列着，可以再显示）
+  const hiddenItems = sorted.filter(it => it.hidden);
+  if (hiddenItems.length) items = sorted.filter(it => !it.hidden);
 
   // 抬起的卡片在桌面上的影子（版式给了 floorShadow 强度，卡片带 floor：竖直投到桌面上的形状）
   // 光从左上方略偏后：抬得越高，影子越淡、越散，也往右前方挪得越多（从卡片旁边露出来）
@@ -284,11 +296,22 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   const z0 = raw[0]?.z || 0;
   const coplanar = raw.every(it => (it.z || 0) === z0 && !it.rx && !it.ry);
 
-  return {
-    W, H, long, px, items, viewProj, coplanar: coplanar && !floors.length, style, groupM, floors, depthFx,
+  const scene = {
+    W, H, long, px, items, viewProj, coplanar: coplanar && !floors.length && items.every(it => !it.rank), style, groupM, floors, depthFx,
     extraSlides: [...extraSlides.values()], ortho: effectiveCamera(result.camera, camera || {}).type !== 'perspective', layoutCamera: result.camera || { type: 'ortho' },
+    hidden: hiddenItems,
   };
+  // 拖出「幻灯片」一组的卡片：主场景（main）里不画它们，按所在的位置各自成一个小场景（pulled），
+  // 由工作区 / 导出在画图层的过程中插进去画。scene.items 仍是全部看得见的卡片（点选、列表、对齐都用它）
+  const groups = new Map();
+  for (const it of items) if (it.pulled) (groups.get(it.pulled) || groups.set(it.pulled, []).get(it.pulled)).push(it);
+  scene.pulled = [...groups].map(([anchor, list]) => ({ anchor, scene: { ...scene, items: list, floors: [], coplanar: false, hidden: [], pulled: [] } }));
+  scene.main = groups.size ? { ...scene, items: items.filter(it => !it.pulled), pulled: [] } : scene;
+  return scene;
 }
+
+// 卡片「拖到所有图层下面」时的位置标记（adjust[版式][位置].above 的特殊值）
+export const PULL_BACK = '__back__';
 
 /**
  * 估算导出时每张图需要的纹理分辨率（长边像素），避免把所有原图都按原尺寸塞进显存。

@@ -6,6 +6,7 @@ import { exportSize } from './schema.js';
 import { nextFrame } from '../core/utils.js';
 import { tileMatrix } from '../render/math.js';
 import { drawLayers } from '../layers/draw.js';
+import { PULL_BACK } from '../render/scene.js';
 
 const MAX_TILE = 2048;
 
@@ -124,22 +125,51 @@ export async function renderToCanvas(input, { longSide, scale = null, fill = nul
   const hasLayers = !!input.layers?.length;
   const images = hasLayers ? await layerImages(input, k, preview) : {};
   const screens = hasLayers ? await deviceImages(input, k, preview) : new Map();
-  const paintLayers = under => {
-    if (!input.layers?.some(l => !!l.under === under && !l.hidden)) return;
+  const paintLayers = list => {
+    if (!list.some(l => !l.hidden)) return;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, pxW, pxH);
     ctx.clip();
     ctx.setTransform(pxW / scene.W, 0, 0, k, 0, 0);
-    drawLayers(ctx, input.layers, { under, assets: images, slideImage: n => screens.get(n)?.img });
+    drawLayers(ctx, list, { assets: images, slideImage: n => screens.get(n)?.img });
     ctx.restore();
   };
+  // 拖出「幻灯片」一组的卡片：按所在的图层分组，画完那个图层后单独渲染一遍贴上去；图层已经不在了的放回组里画
+  const layerIds = new Set((input.layers || []).map(l => l.id));
+  const pulled = new Map(), orphans = [];
+  for (const g of scene.pulled || []) {
+    if (g.anchor === PULL_BACK || layerIds.has(g.anchor)) pulled.set(g.anchor, g.scene); else orphans.push(g.scene);
+  }
   try {
-    paintLayers(true); // 放在幻灯片下面的图层
-
     // 预览共用一个渲染器（WebGL 上下文和预览纹理都留着复用）；正式导出每次新建，用完释放显存
     const renderer = preview ? previewRenderer() : new Renderer(document.createElement('canvas'), { preserveDrawingBuffer: true });
     const glCanvas = renderer.canvas;
+    // 把一个场景分块渲染出来贴到输出画布上
+    const T = Math.min(MAX_TILE, renderer.maxViewport);
+    const cols = Math.ceil(pxW / T), rows = Math.ceil(pxH / T);
+    const pass = async (sc, progress = null) => {
+      for (let ty = 0; ty < rows; ty++) {
+        for (let tx = 0; tx < cols; tx++) {
+          const x0 = tx * T, y0 = ty * T;
+          const tw = Math.min(T, pxW - x0), th = Math.min(T, pxH - y0);
+          renderer.setSize(tw, th);
+          renderer.render(sc, tileMatrix(x0, y0, tw, th, pxW, pxH));
+          ctx.drawImage(glCanvas, x0, y0);
+          progress?.((ty * cols + tx + 1) / (rows * cols));
+          if (!preview) await nextFrame();
+        }
+      }
+    };
+    // 一组图层：没有卡片夹在中间时一次画完，否则一个个画、中间插进卡片
+    const paintGroup = async under => {
+      const list = (input.layers || []).filter(l => !!l.under === under);
+      if (!list.some(l => pulled.has(l.id))) { paintLayers(list); return; }
+      for (const l of list) {
+        paintLayers([l]);
+        if (pulled.has(l.id)) await pass(pulled.get(l.id));
+      }
+    };
     try {
       const slides = [...new Map(scene.items.map(it => [it.slide.id, it.slide])).values()];
       if (preview) {
@@ -158,24 +188,15 @@ export async function renderToCanvas(input, { longSide, scale = null, fill = nul
         }
       }
 
-      const T = Math.min(MAX_TILE, renderer.maxViewport);
-      const cols = Math.ceil(pxW / T), rows = Math.ceil(pxH / T);
-      for (let ty = 0; ty < rows; ty++) {
-        for (let tx = 0; tx < cols; tx++) {
-          const x0 = tx * T, y0 = ty * T;
-          const tw = Math.min(T, pxW - x0), th = Math.min(T, pxH - y0);
-          renderer.setSize(tw, th);
-          renderer.render(scene, tileMatrix(x0, y0, tw, th, pxW, pxH));
-          ctx.drawImage(glCanvas, x0, y0);
-          onProgress?.(0.7 + (0.25 * (ty * cols + tx + 1)) / (rows * cols));
-          if (!preview) await nextFrame();
-        }
-      }
+      // 从下到上：最底下的卡片 → 幻灯片下面的图层 → 幻灯片 → 上面的图层（文字、形状、路径、图片），按画板坐标缩放到输出尺寸
+      if (pulled.has(PULL_BACK)) await pass(pulled.get(PULL_BACK));
+      await paintGroup(true);
+      await pass(scene.main || scene, t => onProgress?.(0.7 + 0.25 * t));
+      for (const sc of orphans) await pass(sc);
+      await paintGroup(false);
     } finally {
       if (!preview) renderer.dispose();
     }
-    // 其他图层（文字、形状、路径、图片）画在幻灯片上面，按画板坐标缩放到输出尺寸
-    paintLayers(false);
   } finally {
     for (const { preview: img, temp } of Object.values(images)) if (temp) img.close?.();
     for (const { img, temp } of screens.values()) if (temp) img.close?.();

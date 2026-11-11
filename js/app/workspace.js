@@ -1,7 +1,7 @@
 import { store, boardsOf, selectionOf } from '../state.js';
 import { aspectLabel } from '../config.js';
 import { Renderer } from '../render/renderer.js';
-import { cachedScene, cachedCanvas } from '../render/scene.js';
+import { cachedScene, cachedCanvas, PULL_BACK } from '../render/scene.js';
 import { tileMatrix } from '../render/math.js';
 import { pickItem, itemCenterNdc, itemCornersNdc, ndcDeltaToLayout } from '../render/picking.js';
 import { paintBackground } from '../render/background.js';
@@ -107,6 +107,29 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
     get avg() { return this.frames.reduce((a, b) => a + b, 0) / (this.frames.length || 1); },
   };
 
+  // 拖出「幻灯片」一组的卡片：用另一个小渲染器画到离屏画布，再贴进 2D 画布（夹在图层之间）。
+  // 只有用到时才创建；贴图按用到的图片各传一份
+  let side = null, sideUsed = new Set();
+  function drawPulled(ctx, info, anchor) {
+    const part = info?.pulled?.get(anchor);
+    if (!part) return;
+    try {
+      side ||= new Renderer(new OffscreenCanvas(2, 2), { preserveDrawingBuffer: true });
+    } catch (err) {
+      console.warn('无法单独绘制拖出的卡片：', err);
+      info.pulled.delete(anchor);
+      return;
+    }
+    const [x, y, w, h] = info.rect;
+    side.setSize(w, h);
+    for (const it of part.scene.items) { side.setTexture(it.slide.id, it.slide.preview); sideUsed.add(it.slide.id); }
+    side.render(part.scene, info.tile, part.overlays);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(side.canvas, x, y);
+    ctx.restore();
+  }
+
   function render() {
     const t0 = performance.now();
     renderFrame();
@@ -165,15 +188,37 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       } else {
         bgCtx.drawImage(boardBackground(b.id, b.settings.style, input.background, W, H, Math.max(px.w, px.h)), px.x, px.y, px.w, px.h);
       }
+      // 场景和这个画板在画布上的可见范围（下面画「拖出幻灯片组的卡片」和 WebGL 都要用）
+      const vx0 = Math.max(0, Math.floor(px.x)), vy0 = Math.max(0, Math.floor(px.y));
+      const vx1 = Math.min(CW, Math.ceil(px.x + px.w)), vy1 = Math.min(CH, Math.ceil(px.y + px.h));
+      const inView = vx1 > vx0 && vy1 > vy0;
+      if (inView) {
+        info.scene = cachedScene(input);
+        info.tile = tileMatrix(vx0 - px.x, vy0 - px.y, vx1 - vx0, vy1 - vy0, px.w, px.h);
+        info.rect = [vx0, vy0, vx1 - vx0, vy1 - vy0];
+        // 拖出「幻灯片」一组的卡片，按它们所在的图层分组；图层已经不在了的（删掉了）放回组里画
+        const layerIds = new Set((b.settings.layers || []).map(l => l.id));
+        const overlays = active ? buildOverlays(info.scene) : [];
+        info.pulled = new Map();
+        info.orphans = [];
+        for (const g of info.scene.pulled || []) {
+          const part = { scene: g.scene, overlays: overlays.filter(o => o.item && g.scene.items.includes(o.item)) };
+          if (g.anchor === PULL_BACK || layerIds.has(g.anchor)) info.pulled.set(g.anchor, part); else info.orphans.push(part);
+        }
+        info.overlays = info.pulled.size ? overlays.filter(o => !o.item || ![...info.pulled.values()].some(p => p.scene.items.includes(o.item))) : overlays;
+      }
       // 放在幻灯片下面的图层：画在背景上（按画板裁切），幻灯片再盖在上面
-      if (b.settings.layers?.some(l => l.under && !l.hidden)) {
+      if (b.settings.layers?.some(l => l.under && !l.hidden) || info.pulled?.size) {
         bgCtx.save();
         bgCtx.beginPath();
         bgCtx.rect(px.x, px.y, px.w, px.h);
         bgCtx.clip();
         bgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, sx * d, sy * d);
         const list = boardSlides(b.settings.slides);
-        drawLayers(bgCtx, b.settings.layers, { under: true, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
+        drawPulled(bgCtx, info, PULL_BACK);
+        drawLayers(bgCtx, b.settings.layers, {
+          under: true, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview, afterLayer: l => drawPulled(bgCtx, info, l.id),
+        });
         bgCtx.restore();
       }
       // 选中的画板描边；当前画板描边更粗。画板本身被选中（点了名称等，Delete 可以删除）时只有一个画板也描边
@@ -185,17 +230,13 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       }
 
       // WebGL：只画画板在视野内的部分（用裁切矩阵，放大很多时也不会超出 WebGL 视口上限）
-      const vx0 = Math.max(0, Math.floor(px.x)), vy0 = Math.max(0, Math.floor(px.y));
-      const vx1 = Math.min(CW, Math.ceil(px.x + px.w)), vy1 = Math.min(CH, Math.ceil(px.y + px.h));
-      if (vx1 <= vx0 || vy1 <= vy0) continue;
+      if (!inView) continue;
       for (const slide of input.slides) renderer.setTexture(slide.id, slide.preview); // 同一来源不会重复上传
-      info.scene = cachedScene(input);
       for (const slide of info.scene.extraSlides || []) renderer.setTexture(slide.id, slide.preview); // 单张卡片用了别的图集的图片
       if (active) lastScene = info.scene;
-      const tile = tileMatrix(vx0 - px.x, vy0 - px.y, vx1 - vx0, vy1 - vy0, px.w, px.h);
-      renderer.render(info.scene, tile, active ? buildOverlays(info.scene) : [], {
-        viewport: [vx0, CH - vy1, vx1 - vx0, vy1 - vy0], clear: false,
-      });
+      const viewport = [vx0, CH - vy1, vx1 - vx0, vy1 - vy0];
+      renderer.render(info.scene.main || info.scene, info.tile, info.overlays, { viewport, clear: false });
+      for (const part of info.orphans) renderer.render(part.scene, info.tile, part.overlays, { viewport, clear: false });
     }
     // 图层：单独一遍画在最上面，不按画板裁切（画板外的部分也能看到、点选，类似 Illustrator；导出时才裁切）。
     // 画板本身不在视野里时，伸进视野的图层也照样画
@@ -205,9 +246,13 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
       fgCtx.save();
       fgCtx.setTransform(view.zoom * d, 0, 0, view.zoom * d, sx * d, sy * d);
       const list = boardSlides(b.settings.slides);
-      drawLayers(fgCtx, b.settings.layers, { under: false, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
+      const info = boardInfo.get(b.id);
+      drawLayers(fgCtx, b.settings.layers, {
+        under: false, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview, afterLayer: l => drawPulled(fgCtx, info, l.id),
+      });
       fgCtx.restore();
     }
+    if (side && sideUsed.size) { side.prune(sideUsed); sideUsed = new Set(); }
     // 当前画板的选框、手柄、锚点（不裁切，可以超出画板）
     if (boardInfo.get(s.activeBoard)) {
       fgCtx.setTransform(1, 0, 0, 1, 0, 0);

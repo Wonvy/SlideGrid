@@ -3,6 +3,16 @@
 
 export const VERT = `#version 300 es
 in vec2 aPos;            // 单位四边形 [-0.5, 0.5]
+// 厚度的侧边（uMode == 4）：圆角矩形外形上的一圈四边形。每个顶点：在哪个角（±1, ±1）、外形的法线方向、是正面一圈还是背面一圈
+in vec2 aCorner;
+in vec2 aNormal;
+in float aBack;
+uniform highp int uMode;
+uniform float uRadius;
+uniform float uThick;    // 厚度（世界单位，向卡片背面延伸）
+uniform float uZ;        // 这一遍画在卡片平面后面多远（背对镜头的厚卡片：图片画在背面那一层）
+uniform mat3 uNormalM;   // 卡片的朝向（模型矩阵的旋转部分），侧边按它算明暗
+out vec3 vSideN;
 uniform mat4 uMVP;
 uniform vec2 uSize;      // 幻灯片宽高（世界单位）
 uniform float uPad;      // 四边形外扩，用于抗锯齿和投影
@@ -15,8 +25,17 @@ out vec3 vClip;          // 画板的裁剪坐标（xy、w），用于按画板�
 out float vViewZ;        // 视图空间的 z（越大离镜头越近）
 void main() {
   vec2 local = aPos * (uSize + 2.0 * (uPad + uDofPad * max(uSize.x, uSize.y)));
+  float z = -uZ;
+  vSideN = vec3(0.0, 0.0, 1.0);
+  if (uMode == 4) {
+    vec2 hs = uSize * 0.5;
+    float r = min(uRadius, min(hs.x, hs.y));
+    local = aCorner * (hs - r) + aNormal * r;
+    z = -aBack * uThick;
+    vSideN = uNormalM * vec3(aNormal, 0.0);
+  }
   vLocal = local;
-  vec4 clip = uMVP * vec4(local + uOffset, 0.0, 1.0);
+  vec4 clip = uMVP * vec4(local + uOffset, z, 1.0);
   vClip = clip.xyw;
   // 正交：ortho(near = -1e5, far = 1e5) 下 z_clip = -z / 1e5；透视：w = -z
   vViewZ = uDepthMode == 2 ? -clip.w : -clip.z * 1e5;
@@ -29,7 +48,10 @@ in vec2 vLocal;
 in vec3 vClip;
 uniform vec2 uSize;
 uniform float uRadius;
-uniform int uMode;           // 0 = 幻灯片, 1 = 投影, 2 = 高亮叠加, 3 = 擦除（配合 blendFunc(ZERO, 1 - srcAlpha)）
+uniform highp int uMode;     // 0 = 幻灯片, 1 = 投影, 2 = 高亮叠加, 3 = 擦除（配合 blendFunc(ZERO, 1 - srcAlpha)）, 4 = 厚度的侧边
+uniform int uSideMode;       // 侧边的颜色：0 = 延伸图片边缘的颜色，1 = 指定颜色
+uniform vec3 uSideColor;
+in vec3 vSideN;
 uniform vec3 uHLColor;
 uniform float uHLFill;       // 高亮填充不透明度
 uniform float uHLRing;       // 高亮描边宽度（像素）
@@ -94,6 +116,23 @@ void main() {
     float b = max(uBlur, 0.5) + blurW;
     float a = 1.0 - smoothstep(-b, b, d);
     outColor = vec4(uShadowColor.rgb, 1.0) * (uShadowColor.a * a * uOpacity * fadeAlpha() * depthA);
+    return;
+  }
+
+  if (uMode == 4) {
+    // 侧边：取图片最靠边那一圈的颜色（稍微取模糊一点，像是把边缘拉出来），或者指定的颜色；有描边时用描边色。
+    // 再按朝向加一点明暗（光从左上前方来），和正面区分开
+    vec2 suv = vLocal / uSize + 0.5;
+    suv.y = 1.0 - suv.y;
+    suv = suv * uUV.xy + uUV.zw;
+    vec2 e = 1.5 / vec2(textureSize(uTex, 0));
+    suv = clamp(suv, uUV.zw + e, uUV.zw + uUV.xy - e);
+    vec4 c = textureLod(uTex, suv, 2.0);
+    if (uSideMode == 1) c = vec4(uSideColor, 1.0);
+    if (uBorder > 0.0) c = vec4(uBorderColor, 1.0);
+    float lit = dot(normalize(vSideN), normalize(vec3(-0.45, 0.75, 0.5)));
+    c.rgb *= 0.56 + 0.3 * (lit * 0.5 + 0.5);
+    outColor = c * (uOpacity * fadeAlpha() * depthA);
     return;
   }
 
