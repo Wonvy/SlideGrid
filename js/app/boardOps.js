@@ -1,5 +1,6 @@
 import { store, actions, boardsOf, selectionOf } from '../state.js';
 import { toast } from '../ui/toast.js';
+import { setUi } from './uiState.js';
 import { boardWorldRect } from './boards.js';
 
 /**
@@ -39,6 +40,7 @@ export function createBoardOps(ws) {
     if (!names.length || !confirm(`删除画板 ${names.join('、')}？`)) return;
     const n = actions.removeArtboards(ids);
     ids.forEach(ws.forgetBoard);
+    setUi('boardPicked', false); // 剩下的画板不算「选中」，再按 Delete 不会接着删
     toast(`已删除 ${n} 个画板`);
   }
 

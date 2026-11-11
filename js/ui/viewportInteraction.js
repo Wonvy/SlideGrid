@@ -4,6 +4,7 @@ import { el } from './dom.js';
 import { iconCursor } from './icons.js';
 import { stackCards } from '../app/cardOrder.js';
 import { snapRect, moveRect, unionRects, intersects } from '../workspace/snap.js';
+import { ui, setUi } from '../app/uiState.js';
 
 const ROTATE_CURSOR = iconCursor('rotate-cw', 'crosshair');
 const ZOOM_IN_CURSOR = iconCursor('zoom-in', 'zoom-in');
@@ -111,7 +112,7 @@ export function attachViewportInteraction(target, opts) {
   };
   const cardTools = new Set(['select', 'rotate', 'scale']);
   const isAdditive = e => e.shiftKey || e.metaKey || e.ctrlKey;
-  const deselectAll = () => { setSelection([]); layers?.clear(); selectBoards([activeBoard()]); };
+  const deselectAll = () => { setSelection([]); layers?.clear(); selectBoards([activeBoard()]); setUi('boardPicked', false); };
 
   /* ---------- 键盘 ---------- */
 
@@ -132,7 +133,7 @@ export function attachViewportInteraction(target, opts) {
       // 卡片工具 + 平面版式：全选当前画板的卡片；否则全选画板
       if (cardTools.has(getTool()) && !is3D() && toolAvailable(getTool())) { setSelection(allCards()); layers?.selectAll(); }
       else if (getTool() === 'select' && layers?.selectAll()) { /* 3D 版式：全选图层 */ }
-      else selectAllBoards();
+      else { selectAllBoards(); setUi('boardPicked', true); }
       return;
     }
     // ⌘D / Ctrl+D：复制所选画板（选中图层时由上面的图层快捷键处理）
@@ -160,7 +161,8 @@ export function attachViewportInteraction(target, opts) {
     if (!e.shiftKey && TOOL_KEYS[key]) { setTool(TOOL_KEYS[key]); updateCursor(); return; }
 
     if (e.key === 'Escape') { deselectAll(); if (getTool() !== 'artboard') setTool('select'); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && getTool() === 'artboard') {
+    // Delete / Backspace 删除画板：画板工具下；或者画板本身被选中（点了画板名称、框选 / 全选画板、选了多个画板），且没有选中卡片
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (getTool() === 'artboard' || ((ui.boardPicked || selectedBoards().length > 1) && !getSelection().length))) {
       e.preventDefault();
       deleteSelectedBoards();
       return;
@@ -251,7 +253,9 @@ export function attachViewportInteraction(target, opts) {
   target.addEventListener('contextmenu', e => {
     e.preventDefault();
     if (drag) return;
-    onContextMenu({ clientX: e.clientX, clientY: e.clientY, board: boardAt(e.clientX, e.clientY) });
+    // 右键画板名称：画板菜单（不带卡片 / 图层的菜单项）
+    const label = labelAt(e.clientX, e.clientY);
+    onContextMenu({ clientX: e.clientX, clientY: e.clientY, board: label || boardAt(e.clientX, e.clientY), onLabel: !!label });
   });
   target.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 
@@ -285,6 +289,8 @@ export function attachViewportInteraction(target, opts) {
       const b = boardAt(e.clientX, e.clientY);
 
       const label = labelAt(e.clientX, e.clientY);
+      // 点画板名称 = 选中画板本身（Delete 可以删除）；点别处取消（框选到画板时在松手时再设上）
+      if (tool !== 'hand' && tool !== 'zoom') setUi('boardPicked', !!label);
       if (tool === 'hand') {
         mode = 'pan';
       } else if (label && tool !== 'zoom') {
@@ -547,7 +553,7 @@ export function attachViewportInteraction(target, opts) {
         if (!drag.additive) selectBoards([activeBoard()]); // 单击空白处：只保留当前画板
       } else {
         const hits = boardsInRect(drag.rect);
-        if (hits.length) selectBoards(drag.additive ? [...new Set([...drag.base, ...hits])] : hits);
+        if (hits.length) { selectBoards(drag.additive ? [...new Set([...drag.base, ...hits])] : hits); setUi('boardPicked', true); }
       }
     }
     if (drag.mode === 'swap' && drag.active) {

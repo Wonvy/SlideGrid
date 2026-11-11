@@ -621,7 +621,7 @@ interaction = attachViewportInteraction(viewport, {
 
 const hint = $('stage-hint');
 const TOOL_HINTS = {
-  select: '选择：拖动移动 · 拖角点缩放 · 拖角外侧旋转 · 空白处框选 · Shift/⌘ 加选 · ⌘A 全选 · 双击卡片复位',
+  select: '选择：拖动移动 · 拖角点缩放 · 拖角外侧旋转 · 空白处框选 · Shift/⌘ 加选 · ⌘A 全选 · 双击卡片复位 · 点画板名称选中画板（Delete 删除，右键重命名）',
   swap: '交换：把卡片拖到另一张上交换图片',
   rotate: '旋转：拖动卡片旋转 · Shift 按 15° 吸附',
   scale: '比例：拖动以中心等比缩放 · Shift 按 5% 吸附',

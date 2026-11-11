@@ -14,6 +14,7 @@ export const ui = {
   layerSel: [],      // 选中的图层 id（当前画板）
   layerHover: null,  // 悬停的图层 id
   browseAlbum: null, // 左栏正在查看的图集 id（null = 当前画板的图集）；只是查看，不会改变画板
+  boardPicked: false, // 画板本身被选中（点了画板名称、右键画板空白处、框选 / 全选画板）：画板描边高亮，Delete 删除所选画板
 };
 
 const listeners = new Set();

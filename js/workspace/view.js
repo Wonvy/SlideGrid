@@ -31,12 +31,13 @@ export function panView(dxPx, dyPx) {
  * 让世界坐标中的矩形完整显示在工作区里并居中。
  * inset：{ top, right, bottom, left } 预留给浮动工具条等的空间
  */
-export function fitRect(rect, stageW, stageH, { pad = 40, top = 56, bottom = 36, maxZoom = 4 } = {}) {
-  const availW = Math.max(50, stageW - pad * 2);
+// left：左边留多少（左侧浮着工具条时要让开它，画板名称才不会被盖住），默认同 pad
+export function fitRect(rect, stageW, stageH, { pad = 40, left = pad, top = 56, bottom = 36, maxZoom = 4 } = {}) {
+  const availW = Math.max(50, stageW - left - pad);
   const availH = Math.max(50, stageH - top - bottom - pad);
   view.zoom = clamp(Math.min(availW / rect.w, availH / rect.h), MIN_ZOOM, maxZoom);
   const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
-  view.x = cx - stageW / 2 / view.zoom;
+  view.x = cx - (left + availW / 2) / view.zoom;
   view.y = cy - (top + (stageH - top - bottom) / 2) / view.zoom;
 }
 

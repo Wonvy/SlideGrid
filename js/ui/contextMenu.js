@@ -46,7 +46,7 @@ export function showContextMenu(x, y, items) {
   // 保持在窗口内
   const r = pop.getBoundingClientRect();
   pop.style.left = `${Math.min(x, window.innerWidth - r.width - 6)}px`;
-  pop.style.top = `${Math.min(y, window.innerHeight - r.height - 6)}px`;
+  pop.style.top = `${Math.max(6, Math.min(y, window.innerHeight - r.height - 6))}px`;
   current = pop;
 }
 

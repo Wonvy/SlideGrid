@@ -176,8 +176,8 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
         drawLayers(bgCtx, b.settings.layers, { under: true, skip, assets: s.assets, slideImage: n => list[n - 1]?.preview });
         bgCtx.restore();
       }
-      // 选中的画板描边；当前画板描边更粗
-      if (s.artboards.length > 1 && (active || selected.has(b.id))) {
+      // 选中的画板描边；当前画板描边更粗。画板本身被选中（点了名称等，Delete 可以删除）时只有一个画板也描边
+      if ((s.artboards.length > 1 || ui.boardPicked) && (active || selected.has(b.id))) {
         const w = (active ? 2 : 1.25) * d;
         bgCtx.strokeStyle = active ? 'rgba(124,140,255,1)' : 'rgba(124,140,255,.7)';
         bgCtx.lineWidth = w;
@@ -231,19 +231,26 @@ export function createWorkspace({ viewport, bgCanvas, glCanvas, fgCanvas }) {
   /* ---------------- 视图（缩放 / 平移 / 适合窗口） ---------------- */
 
   const stageSize = () => [viewport.clientWidth, viewport.clientHeight];
+  // 适合窗口时左边让开浮动的工具条（否则画板左上角的名称被它盖住）
+  const fitInsets = () => {
+    const strip = document.querySelector('.toolstrip');
+    if (!strip || strip.hidden || !strip.offsetWidth) return {};
+    const right = strip.getBoundingClientRect().right - viewport.getBoundingClientRect().left;
+    return { left: Math.max(40, Math.round(right + 20)) };
+  };
   // 最近一次是自动适配（而不是手动平移 / 缩放）时记下来，窗口大小变化后重新适配
   let autoFit = null;
   function fitBoard(id = store.get().activeBoard) {
     const s = store.get();
     const b = boardsOf(s).find(x => x.id === id);
     if (!b) return;
-    fitRect(boardWorldRect(s, b), ...stageSize());
+    fitRect(boardWorldRect(s, b), ...stageSize(), fitInsets());
     autoFit = { id };
     scheduleRender();
   }
   function fitAll() {
     const s = store.get();
-    fitRect(unionRect(boardsOf(s).map(b => boardWorldRect(s, b))), ...stageSize());
+    fitRect(unionRect(boardsOf(s).map(b => boardWorldRect(s, b))), ...stageSize(), fitInsets());
     autoFit = { all: true };
     scheduleRender();
   }

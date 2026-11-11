@@ -3,7 +3,7 @@ import { showContextMenu } from '../ui/contextMenu.js';
 import { is3D } from './boards.js';
 import { hasAdjust } from '../render/scene.js';
 import { BOOLEAN_OPS } from '../layers/boolean.js';
-import { setSelection } from './uiState.js';
+import { setSelection, setUi } from './uiState.js';
 import { stackCards, canStack, stackChanged, resetStack } from './cardOrder.js';
 import { toast } from '../ui/toast.js';
 import { getLayout } from '../layouts/index.js';
@@ -109,10 +109,10 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
   }
   const cardMenu = (clientX, clientY, card) => showContextMenu(clientX, clientY, cardItems(card));
 
-  function onContextMenu({ clientX, clientY, board }) {
+  function onContextMenu({ clientX, clientY, board, onLabel = false }) {
     const s = store.get();
-    // 图层（在卡片上面）：图层菜单
-    const layer = layerTools?.layerAtClient(clientX, clientY); // 图层可能在画板外
+    // 图层（在卡片上面）：图层菜单（右键画板名称时不找图层）
+    const layer = !onLabel && layerTools?.layerAtClient(clientX, clientY); // 图层可能在画板外
     if (layer) { layerMenu(clientX, clientY, layer); return; }
 
     if (!board) {
@@ -129,34 +129,41 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
     }
 
     const inSelection = selectionOf(s).includes(board);
-    const card = ws.pickOn(board, clientX, clientY);
+    const card = onLabel ? null : ws.pickOn(board, clientX, clientY);
     if (board !== s.activeBoard || !inSelection) boards.activateBoard(board, { fit: false, keepSelection: inSelection });
+    // 右键画板名称 / 画板空白处：选中画板本身（之后按 Delete 也能删除）
+    if (!card) { layerTools?.clear(); setUi('boardPicked', true); }
     const sel = selectionOf(store.get());
     const multi = sel.length > 1;
     const b = store.get().artboards.find(x => x.id === board);
     const items = [];
     if (card) items.push(...cardItems(card), { sep: true });
+    const last = s.artboards.length <= 1;
     items.push(
-      { title: multi ? `已选 ${sel.length} 个画板` : b.name },
+      { title: multi ? `已选 ${sel.length} 个画板` : `画板 · ${b.name}` },
+      // 最常用的放前面：重命名、复制、删除
+      !multi && { label: '重命名…', icon: 'pencil', action: () => boards.renameBoard(board) },
+      { label: multi ? `复制所选的 ${sel.length} 个画板` : '复制画板', icon: 'copy', shortcut: `${mod}D`, action: boards.duplicateSelected },
+      {
+        label: last ? '删除画板（至少保留一个）' : multi ? `删除所选的 ${sel.length} 个画板` : '删除画板',
+        icon: 'trash-2', danger: !last, disabled: last, shortcut: last ? null : '⌫', action: () => boards.deleteBoards(sel),
+      },
+      { sep: true },
       !card && { label: '粘贴为图层（图片 / SVG）', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => importing.pasteAsLayers() },
       !multi && { label: '适合窗口', icon: 'scan', shortcut: `${mod}0`, action: () => ws.fitBoard(board) },
-      !multi && { label: '重命名…', icon: 'pencil', action: () => boards.renameBoard(board) },
       { label: '画板背景…', icon: 'images', action: () => bgPicker.open() },
+      { label: multi ? `导出所选的 ${sel.length} 个画板（ZIP）` : '导出此画板', icon: 'download', action: () => exporting.doExport(sel) },
+      !multi && Object.values(store.get().adjust[store.get().layoutId] || {}).some(a => a.slide != null)
+        && { label: '恢复图片顺序（取消所有交换）', icon: 'rotate-ccw', action: () => actions.resetSwaps() },
       // 换图集：当前画板（多选时所选画板）改为跟随另一个图集
       ...(s.albums.length > 1 ? [
+        { sep: true },
         { title: multi ? '所选画板换图集' : '换图集' },
         ...s.albums.map(a => ({
           label: a.name, icon: a.id === albumOf(store.get())?.id && !store.get().slidesOwn ? 'check' : 'images',
           action: () => actions.setBoardAlbum(a.id),
         })),
-        { sep: true },
       ] : []),
-      { label: multi ? `复制所选的 ${sel.length} 个画板` : '复制画板', icon: 'copy', shortcut: `${mod}D`, action: boards.duplicateSelected },
-      !multi && Object.values(store.get().adjust[store.get().layoutId] || {}).some(a => a.slide != null)
-        && { label: '恢复图片顺序（取消所有交换）', icon: 'rotate-ccw', action: () => actions.resetSwaps() },
-      { label: multi ? `导出所选的 ${sel.length} 个画板（ZIP）` : '导出此画板', icon: 'download', action: () => exporting.doExport(sel) },
-      { sep: true },
-      s.artboards.length > 1 && { label: multi ? `删除所选的 ${sel.length} 个画板` : '删除画板', icon: 'trash-2', danger: true, action: () => boards.deleteBoards(sel) },
     );
     showContextMenu(clientX, clientY, items);
   }

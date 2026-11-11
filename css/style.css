@@ -1799,3 +1799,6 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 .project-thumb { position: relative; overflow: hidden; flex: none; }
 .project-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .project-grid { align-items: start; }
+/* 右键菜单很长（卡片 + 画板的菜单项）或窗口很矮时可以滚动，不会超出窗口 */
+.ctx-menu { max-height: calc(100vh - 12px); overflow-y: auto; overscroll-behavior: contain; }
+.menu-item:disabled:hover { background: transparent; }

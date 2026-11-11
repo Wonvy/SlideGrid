@@ -156,6 +156,38 @@ def t_board_dup(page, errors):
     assert page.evaluate('SlideGrid.store.get().artboards.length') == n
 
 
+def t_board_menu(page, errors):
+    # 右键画板名称：画板菜单（重命名、复制、删除在最前面）；点画板名称选中画板后按 Delete 删除
+    n = page.evaluate('SlideGrid.store.get().artboards.length')
+    page.evaluate('SlideGrid.layers.clear(); SlideGrid.duplicateSelected(); SlideGrid.fitAll(); SlideGrid.render()')
+    page.wait_for_function(f'SlideGrid.store.get().artboards.length === {n + 1}')
+    label = page.evaluate("""() => { const S = SlideGrid, id = S.store.get().activeBoard, r = S.boardLocalRect(id);
+      const v = document.getElementById('viewport').getBoundingClientRect(), strip = document.querySelector('.toolstrip').getBoundingClientRect();
+      return { x: v.left + r.l + 16, y: v.top + r.t - 12, id, clear: v.left + r.l > strip.right }; }""")
+    assert label['clear'], '适合窗口后画板名称不应该被左边的工具条盖住'
+    page.mouse.click(label['x'], label['y'], button='right')
+    items = page.eval_on_selector_all('.ctx-menu .menu-item', 'xs => xs.map(x => x.textContent.trim())')
+    assert items[0].startswith('重命名') and items[1].startswith('复制画板') and items[2].startswith('删除画板'), items
+    page.keyboard.press('Escape')
+    page.mouse.click(label['x'], label['y'])
+    assert page.evaluate('SlideGrid.ui.boardPicked')
+    page.evaluate('window.__c = window.confirm; window.confirm = () => true')
+    page.keyboard.press('Delete')
+    page.evaluate('window.confirm = window.__c')
+    ids = page.evaluate('SlideGrid.store.get().artboards.map(b => b.id)')
+    assert len(ids) == n and label['id'] not in ids, ids
+    assert not page.evaluate('SlideGrid.ui.boardPicked')
+    # 点卡片之后 Delete 不删画板
+    page.evaluate('SlideGrid.fitBoard(); SlideGrid.render()')
+    rect = page.evaluate('SlideGrid.itemRects()[0].rect')
+    v = page.evaluate("document.getElementById('viewport').getBoundingClientRect().toJSON()")
+    page.mouse.click(v['x'] + (rect['l'] + rect['r']) / 2, v['y'] + (rect['t'] + rect['b']) / 2)
+    page.keyboard.press('Delete')
+    assert page.evaluate('SlideGrid.store.get().artboards.length') == n
+    page.keyboard.press('Escape')
+    assert not errors, errors
+
+
 def t_mockup(page, errors):
     page.click('.rp-top [data-tab="mockup"]')
     page.click('.mockup-device[aria-label="笔记本"]')
@@ -410,7 +442,7 @@ def t_persist(page, errors):
 
 
 STEPS = [('打开页面', t_load), ('选择图片导入', t_import), ('拖入图片', t_drop), ('图片继承（共用 / 单独设置）', t_inherit),
-         ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
+         ('图集：新建 / 切换', t_album), ('交换两张卡片的图片', t_swap), ('⌘D 复制画板', t_board_dup), ('画板右键菜单 / Delete 删除画板', t_board_menu), ('添加带角度的样机', t_mockup), ('撤销 / 重做', t_undo), ('导出 1600 × 900', t_export),
          ('画板像素 × 倍率导出', t_pixels), ('新版式 / 图层顺序', t_layers), ('图层列表：拖动 / 右键菜单', t_layer_panel), ('一键开关 / 左栏分隔条', t_switches),
          ('卡片比例', t_card_aspect), ('版本号 / 项目菜单 / 新建项目', t_project_ui),
          ('刷新后数据还在', t_persist)]
