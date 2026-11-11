@@ -7,7 +7,7 @@ const DEVICE_KEY = 'slidegrid:mockup-device';
 export const MOCKUP_DRAG_TYPE = 'application/x-slidegrid-mockup';
 
 /**
- * 右栏「样机」页：先选设备（一排图标），再从这种设备的角度（正面 / 左侧 / 右侧 / 俯视）里点一个加到当前画板中间；
+ * 右栏「样机」页：先选设备（一排图标），再从这种设备的角度（正面 / 左侧 / 右侧 / 俯视 / 背面）里点一个加到当前画板中间；
  * 外观（深空灰 / 银色 / 白色）作用于新添加的样机。
  * 也可以上传 PNG 样机（屏幕区域透明），本项目用过的 PNG 样机列在下面，点击再次添加。
  * 缩略图用当前画板的第一张幻灯片绘制，和实际效果一致。
@@ -74,7 +74,7 @@ export function createMockupPanel(container, { onAdd, getSlide, onUpload, onAddC
     uploadBtn, fileInput,
     el('p', { class: 'note pane-hint' }, 'PNG 样机：屏幕区域要是透明的（被外框包围），上传后自动识别屏幕。'),
     customHead, customGrid,
-    el('p', { class: 'note pane-hint' }, '点击把设备加到当前画板中间。把图片或左栏的幻灯片拖到样机上即可更换屏幕内容；选中样机后，可在「设计」页修改。'),
+    el('p', { class: 'note pane-hint' }, '点击把设备加到当前画板中间。选中样机后，拖它下方的圆形手柄可以转动角度（双击手柄回到正面，按住 ⌥ 直接拖样机也可以）。把图片或左栏的幻灯片拖到样机上即可更换屏幕内容；其他属性在「设计」页修改。'),
   );
 
   // 拖动卡片：拖到画板上放下（drop 由 main.js 处理）；拖动时用缩略图做拖影

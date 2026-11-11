@@ -7,7 +7,8 @@ import { snapRect, moveRect, intersects } from '../workspace/snap.js';
 import { createPathTools } from './pathTools.js';
 import { booleanLayers, canBoolean } from '../layers/boolean.js';
 import { toast } from '../ui/toast.js';
-import { iconCursor } from '../ui/icons.js';
+import { iconCursor, iconPaths } from '../ui/icons.js';
+import { withAngle } from '../layers/devices.js';
 import { ui, setUi } from './uiState.js';
 
 /**
@@ -19,18 +20,24 @@ import { ui, setUi } from './uiState.js';
  *     双击路径插入锚点，Delete 删除选中的锚点；选择工具下双击路径也会进入
  *   选择工具：点选图层（在卡片上面优先），Shift / ⌘ 加选，拖动移动（吸附），拖选框的角 / 边缩放（Shift 等比、⌥ 以中心），
  *     拖角外侧旋转（Shift 按 15°）；方向键微调，Delete 删除，⌘D 复制，⌘] / ⌘[ 上移 / 下移一层
+ *   样机：选中后选框下方有一个圆形的「角度」手柄，拖它转动样机（左右 / 俯仰，Shift 按 15°），双击回到正面；
+ *     按住 ⌥ 直接拖样机本身也是转动
  *
  * 和卡片的关系：图层和卡片可以一起选中、一起移动（作为一步撤销）。
  */
 const HANDLE = 5;        // 选框手柄半径（屏幕像素）
 const ROTATE_ZONE = 18;  // 角外侧多大范围内拖动 = 旋转
 const PICK_TOL = 4;      // 点选容差（屏幕像素）
+const ORBIT_R = 11;      // 样机「角度」手柄的半径
+const ORBIT_GAP = 30;    // 「角度」手柄离选框底边的距离
+const ORBIT_SPEED = 0.5; // 拖 1 像素转多少度
 export const SLIDES_ID = '__slides__'; // 图层顺序里代表「幻灯片（所有卡片）」的那一层
 export const LAYER_TOOLS = ['rect', 'ellipse', 'line', 'text', 'pen', 'direct'];
 const ACCENT = '#7c8cff';
 
 export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, snapEnabled, getCardSelection, setCardSelection, cardPatches, onSelectionChange }) {
   let editing = null;    // 正在编辑的文字：{ id, box }
+  let orbiting = false;  // 正在拖样机的角度（手柄高亮，旁边显示角度）
   let lastPointer = null;
 
   /* ---------------- 基础 ---------------- */
@@ -146,11 +153,40 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     return f && { f, list, handles: frameHandles(f) };
   }
 
-  // 屏幕点 → 选框的手柄：{ kind: 'resize', key } | { kind: 'rotate' } | null
+  // 选中一台内置样机时，选框下方的「角度」手柄：{ x, y（屏幕坐标）, layer } | null
+  function orbitHandle(fs) {
+    const l = fs?.list.length === 1 ? fs.list[0] : null;
+    if (!l || l.type !== 'device' || l.device === 'custom') return null;
+    const [sx, sy] = toScreen(fs.handles.s);
+    const a = (fs.f.rotation * Math.PI) / 180;
+    return { x: sx - Math.sin(a) * ORBIT_GAP, y: sy + Math.cos(a) * ORBIT_GAP, layer: l };
+  }
+
+  // 拖动转动样机：左右拖 = 左右转，上下拖 = 俯仰（像抓着设备的正面转）；Shift 按 15° 吸附
+  function orbitHandler(l0) {
+    const all = layersOf();
+    const a = ((l0.rotation || 0) * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+    orbiting = true;
+    ws.scheduleRender();
+    return {
+      move(ev, dx, dy) {
+        // 图层自己有旋转时，把位移转到图层的方向
+        const ux = dx * cos + dy * sin, uy = -dx * sin + dy * cos;
+        let yaw = (l0.yaw || 0) - ux * ORBIT_SPEED, pitch = (l0.pitch || 0) + uy * ORBIT_SPEED;
+        if (ev.shiftKey) { yaw = Math.round(yaw / 15) * 15; pitch = Math.round(pitch / 15) * 15; }
+        setLayers(replace(all, [withAngle(l0, Math.round(yaw), Math.round(pitch))]));
+      },
+      up() { orbiting = false; ws.scheduleRender(); },
+    };
+  }
+
+  // 屏幕点 → 选框的手柄：{ kind: 'resize', key } | { kind: 'rotate' } | { kind: 'orbit', layer } | null
   function handleAt(lx, ly) {
     const fs = frameScreen();
     if (!fs) return null;
     const i = info();
+    const ob = orbitHandle(fs);
+    if (ob && Math.hypot(lx - ob.x, ly - ob.y) <= ORBIT_R + 3) return { kind: 'orbit', layer: ob.layer, fs };
     for (const [key, p] of Object.entries(fs.handles)) {
       const [hx, hy] = toScreen(p, i);
       if (Math.hypot(lx - hx, ly - hy) <= HANDLE + 3) return { kind: 'resize', key, fs };
@@ -173,6 +209,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
   const resizeCursor = (key, rotation) => CURSORS[Math.round(((HANDLE_ANGLE[key] + rotation) % 180 + 180) % 180 / 45) % 4];
 
   function transformHandler(h, e) {
+    if (h.kind === 'orbit') return orbitHandler(h.layer);
     const { f, list } = h.fs;
     const all = layersOf();
     // 点状文字、图片等比缩放；区块文字拖手柄改变框的大小
@@ -452,6 +489,8 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       return true;
     }
     if (!ui.layerSel.includes(hit.id)) { select([hit.id]); setCardSelection([]); }
+    // ⌥ 拖样机：转动角度
+    if (e.altKey && hit.type === 'device' && hit.device !== 'custom') return orbitHandler(hit);
     return moveHandler(e);
   }
 
@@ -462,6 +501,9 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     const p = toBoard([lx, ly], i);
     if (tool === 'direct' && paths.dblclick(e)) return true; // 双击路径：插入锚点
     if (tool !== 'select' && tool !== 'direct') return false;
+    // 双击样机的「角度」手柄：回到正面
+    const h = tool === 'select' ? handleAt(lx, ly) : null;
+    if (h?.kind === 'orbit') { setLayers(replace(layersOf(), [withAngle(h.layer, 0, 0)])); return true; }
     const hit = layerAt(p);
     if (!hit) return false;
     if (hit.type === 'text') { startEdit(hit.id); return true; }
@@ -589,7 +631,7 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
     const [lx, ly] = local(e);
     if (tool === 'select') {
       const h = handleAt(lx, ly);
-      if (h) { setUi('layerHover', null); return h.kind === 'rotate' ? ROTATE_CURSOR : resizeCursor(h.key, h.fs.f.rotation); }
+      if (h) { setUi('layerHover', null); return h.kind === 'orbit' ? ORBIT_CURSOR : h.kind === 'rotate' ? ROTATE_CURSOR : resizeCursor(h.key, h.fs.f.rotation); }
     }
     if (tool === 'direct') {
       const c = paths.hover(e, tool);
@@ -649,16 +691,57 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
           g.beginPath(); pts.forEach(([x, y], k) => (k ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
           g.strokeStyle = ACCENT; g.stroke();
         }
+        const ob = orbitHandle(fs);
+        if (ob) {
+          const [hx, hy] = P(fs.handles.s);
+          g.beginPath(); g.moveTo(hx, hy); g.lineTo(ob.x * d, ob.y * d);
+          g.strokeStyle = ACCENT; g.stroke();
+        }
         for (const p of Object.values(fs.handles)) {
           const [x, y] = P(p), s = HANDLE * d * 0.8;
           g.fillStyle = '#fff'; g.strokeStyle = ACCENT;
           g.fillRect(x - s, y - s, 2 * s, 2 * s);
           g.strokeRect(x - s, y - s, 2 * s, 2 * s);
         }
+        if (ob) drawOrbitHandle(g, d, ob);
       }
     }
     // 锚点、控制柄、钢笔预览
     paths.drawOverlay(g, d, P, tool);
+    g.restore();
+  }
+
+  // 样机的「角度」手柄：圆形按钮 + 3D 旋转图标；拖动时高亮，旁边显示当前角度
+  function drawOrbitHandle(g, d, ob) {
+    const x = ob.x * d, y = ob.y * d, r = ORBIT_R * d;
+    g.save();
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fillStyle = orbiting ? ACCENT : '#fff';
+    g.fill();
+    g.strokeStyle = ACCENT;
+    g.lineWidth = d;
+    g.stroke();
+    g.translate(x - 7 * d, y - 7 * d);
+    g.scale((14 * d) / 24, (14 * d) / 24);
+    g.lineWidth = 2.2;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.strokeStyle = orbiting ? '#fff' : '#4a59d4';
+    for (const p of ORBIT_ICON) g.stroke(p);
+    g.restore();
+    if (!orbiting) return;
+    const l = ob.layer, text = `左右 ${Math.round(l.yaw || 0)}°　俯仰 ${Math.round(l.pitch || 0)}°`;
+    g.save();
+    g.font = `${12 * d}px system-ui, -apple-system, "PingFang SC", sans-serif`;
+    const w = g.measureText(text).width + 16 * d, h = 24 * d, lx = x + r + 8 * d, ly = y - h / 2;
+    g.beginPath();
+    g.roundRect(lx, ly, w, h, 6 * d);
+    g.fillStyle = 'rgba(22, 24, 32, 0.92)';
+    g.fill();
+    g.fillStyle = '#fff';
+    g.textBaseline = 'middle';
+    g.fillText(text, lx + 8 * d, y + d * 0.5);
     g.restore();
   }
 
@@ -699,6 +782,12 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
       const found = layerAtScreen(...local({ clientX: x, clientY: y }));
       return found?.layer.type === 'device' && !found.layer.locked ? found : null;
     },
+    // 样机「角度」手柄在窗口里的位置（没有时为 null；测试用）
+    orbitHandle: () => {
+      const ob = getTool() === 'select' && !editing ? orbitHandle(frameScreen()) : null;
+      const r = viewport.getBoundingClientRect();
+      return ob && { x: ob.x + r.left, y: ob.y + r.top };
+    },
     layerAtClient: (x, y) => {
       const found = layerAtScreen(...local({ clientX: x, clientY: y }));
       return found && found.board === S().activeBoard ? found.layer : null;
@@ -713,4 +802,6 @@ export function createLayerTools({ ws, viewport, getTool, setTool, setGuides, sn
 }
 
 const ROTATE_CURSOR = iconCursor('rotate-cw', 'crosshair');
+const ORBIT_CURSOR = iconCursor('rotate-3d', 'grab');
+const ORBIT_ICON = iconPaths('rotate-3d').map(p => new Path2D(p));
 export { FONTS };

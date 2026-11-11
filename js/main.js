@@ -759,5 +759,6 @@ window.SlideGrid = {
   duplicateSelected: boards.duplicateSelected,
   deleteBoards: boards.deleteBoards,
   layers: layerTools,
+  applyLayerProp,
   cards: { visible: () => visibleOf(activeCardScene()), stack: stackCards },
 };

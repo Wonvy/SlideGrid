@@ -20,7 +20,7 @@
  * 描边：stroke、strokeWidth（0 = 无描边）
  */
 import { GENERIC, fontStack } from './fonts.js';
-import { deviceSize } from './devices.js';
+import { deviceSize, withAngle } from './devices.js';
 
 // 通用字体（字体名也可以是本机安装的任何字体，见 layers/fonts.js）
 export const FONTS = Object.fromEntries(Object.entries(GENERIC).map(([k, v]) => [k, v.stack]));
@@ -335,8 +335,10 @@ export function mapToFrame(l, from, to) {
 const TEXT_METRICS = new Set(['text', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'letterSpacing']);
 export function applyLayerProp(l, key, value) {
   // 设备样机：换设备时保持中心和宽度，高度按新设备的比例；改宽 / 高时保持比例
-  // 换设备 / 改角度：保持中心和宽度，高度按新的比例
-  if (l.type === 'device' && ['device', 'w', 'h', 'yaw', 'pitch'].includes(key)) {
+  // 换设备：保持中心和宽度，高度按新的比例
+  // 改角度：设备的大小和旋转中心的位置不变（withAngle）
+  if (l.type === 'device' && (key === 'yaw' || key === 'pitch')) return withAngle(l, key === 'yaw' ? value : l.yaw || 0, key === 'pitch' ? value : l.pitch || 0);
+  if (l.type === 'device' && ['device', 'w', 'h'].includes(key)) {
     if (key === 'device' && value === 'custom' && !l.frameAssetId) return l; // 没有上传过 PNG
     const next = { ...l, [key]: value };
     const w = key === 'w' ? value : key === 'h' ? (value * l.w) / l.h : l.w;

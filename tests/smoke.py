@@ -162,6 +162,41 @@ def t_mockup(page, errors):
     page.locator('.mockup-card:not([hidden])').nth(1).click()   # 笔记本 · 左侧
     layer = page.evaluate('SlideGrid.store.get().layers.at(-1)')
     assert layer['type'] == 'device' and layer['device'] == 'laptop' and layer['yaw'] != 0, layer
+    # 在画板上直接调角度：拖选框下方的圆形手柄（右拖 = 设备正面向右转，下拖 = 俯视），设备大小不变；双击手柄回到正面
+    dev = 'SlideGrid.store.get().layers.at(-1)'
+    page.evaluate('SlideGrid.fitBoard(); SlideGrid.render()')
+    page.wait_for_timeout(900)  # 连续的修改会合并成一步撤销：等一下，让「加入样机」单独成一步
+    h = page.evaluate('SlideGrid.layers.orbitHandle()')
+    assert h, '选中样机后应该有角度手柄'
+    page.mouse.move(h['x'], h['y'])
+    page.mouse.down()
+    page.mouse.move(h['x'] + 40, h['y'] + 20, steps=4)
+    page.mouse.up()
+    turned = page.evaluate(dev)
+    assert turned['yaw'] == layer['yaw'] - 20 and turned['pitch'] == layer['pitch'] + 10, turned
+    assert turned['w'] != layer['w'], '图层的框应该跟着新的外形变化'
+    h = page.evaluate('SlideGrid.layers.orbitHandle()')
+    page.mouse.dblclick(h['x'], h['y'])
+    front = page.evaluate(dev)
+    assert front['yaw'] == 0 and front['pitch'] == 0, front
+    # 转一圈回到原来的角度，框也回到原样（大小、位置不累积误差）
+    back = page.evaluate('''(() => { const { store, actions } = SlideGrid; const id = store.get().layers.at(-1).id;
+      for (const [k, v] of [['yaw', 170], ['pitch', -40], ['yaw', %s], ['pitch', %s]]) {
+        actions.updateLayers([id], l => SlideGrid.applyLayerProp(l, k, v));
+      }
+      return store.get().layers.at(-1); })()''' % (layer['yaw'], layer['pitch']))
+    for k in ('x', 'y', 'w', 'h'):
+        assert abs(back[k] - layer[k]) < 0.01, (k, back[k], layer[k])
+    # 撤销到加入样机之前，再重做一步：回到刚加入时的状态（后面的测试接着用）
+    count = 'SlideGrid.store.get().layers.length'
+    n = page.evaluate(count)
+    for _ in range(12):
+        if page.evaluate(count) < n:
+            break
+        page.evaluate('SlideGrid.history.undo()')
+    page.evaluate('SlideGrid.history.redo()')
+    again = page.evaluate(dev)
+    assert again['id'] == layer['id'] and again['yaw'] == layer['yaw'] and again['w'] == layer['w'], again
 
 
 def t_undo(page, errors):

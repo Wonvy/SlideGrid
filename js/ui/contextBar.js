@@ -38,7 +38,12 @@ const BARS = {
     fillAlpha: { label: v => (v.fillType === 'linear' ? '起点' : '填充'), show: v => v.fillType !== 'none' },
     opacity: { label: '整体' },
   }),
-  device: pick(['device', 'slide', 'frame'], { slide: { label: '第几张' } }),
+  // 样机：设备、屏幕显示第几张、角度（也可以在画板上拖样机下方的圆形手柄）、外观
+  device: pick(['device', 'slide', 'yaw', 'pitch', 'frame'], {
+    slide: { label: '第几张' },
+    yaw: { type: 'number', label: '左右', min: -180, max: 180, step: 1 },
+    pitch: { type: 'number', label: '俯仰', min: -85, max: 85, step: 1 },
+  }),
   mixed: pick(['opacity'], COMPACT),
 };
 const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ');

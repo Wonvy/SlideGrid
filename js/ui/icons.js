@@ -119,6 +119,9 @@ export function applyIcons(root = document) {
   });
 }
 
+/** 图标的路径数据（在 canvas 上画图标用）：[d, d, …]，24 × 24 的坐标 */
+export const iconPaths = name => [...(ICONS[name] || '').matchAll(/ d="([^"]+)"/g)].map(m => m[1]);
+
 /** 用图标生成鼠标指针（白色描边 + 深色外框，在任何背景上都看得清） */
 export function iconCursor(name, fallback = 'default') {
   const body = ICONS[name];
