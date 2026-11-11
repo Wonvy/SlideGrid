@@ -13,7 +13,10 @@ export const placeholders = createPlaceholders(9);
 export const boardSlides = list => (list?.length ? list : placeholders);
 export const slidesOf = s => boardSlides(s.slides); // 当前画板
 export const hasRealSlides = () => store.get().slides.length > 0;
-export const is3D = () => getLayout(store.get().layoutId).category === '3d';
+// 构图有没有转动过（立方体视图 / 构图工具）
+export const cameraTurned = cam => (!!cam?.q && Math.abs(cam.q[3]) < 0.99999) || Math.abs(cam?.pitch || 0) > 1e-3 || Math.abs(cam?.yaw || 0) > 1e-3;
+// 3D 视图：3D 版式，或者平面版式被立方体视图转动过 / 改成了透视（这时单张卡片的调整先停用，复位视角后恢复）
+export const is3D = (s = store.get()) => getLayout(s.layoutId).category === '3d' || cameraTurned(s.camera) || s.camera?.proj === 'persp';
 
 // 背景图 / 幻灯片模糊背景用到的图片：preview 用于预览，source 用于导出时读取原图
 function bgSourceOf(s, st) {

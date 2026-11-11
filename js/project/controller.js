@@ -3,7 +3,7 @@ import { CURRENT_PROJECT_KEY } from '../persist/db.js';
 import {
   listProjects, getProject, loadProjectSlides, loadProjectAssets, createProject, saveProject,
   renameProject, setProjectThumb, deleteProject, duplicateProject,
-  exportProjectFile, importProjectFile,
+  exportProjectFile, importProjectFile, storageUsage, deleteFiles,
 } from '../persist/projects.js';
 import { createSlides, createAsset } from '../slides/slideFactory.js';
 
@@ -150,16 +150,54 @@ export function createProjectController({ store, actions, placeholders, snapshot
     return copy;
   }
 
+  // 删除项目。删的是当前项目时换到最近的另一个；一个都不剩时新建一个空项目（返回 { created: true }）
   async function remove(id) {
     const wasCurrent = current()?.id === id;
-    if (wasCurrent) { clearTimeout(saveTimer); clearTimeout(thumbTimer); dirty = false; }
-    await deleteProject(id);
     if (wasCurrent) {
-      const next = (await listProjects())[0];
-      if (next) await open(next.id);
-      else await createNew('未命名项目');
+      // 先停掉自动保存、缩略图，再等正在进行的保存结束，删除之后就不会再有东西写回去
+      clearTimeout(saveTimer); clearTimeout(thumbTimer);
+      saveTimer = 0;
+      dirty = false;
+      loading = true;
+    }
+    let created = false;
+    try {
+      await deleteProject(id);
+      if (await getProject(id)) throw new Error('项目没有删除成功，请重试');
+      if (wasCurrent) {
+        const next = (await listProjects())[0];
+        if (next) await open(next.id);
+        else { await createNew('未命名项目'); created = true; }
+      }
+    } finally {
+      if (wasCurrent) loading = false;
     }
     onChange();
+    return { created };
+  }
+
+  /* ---------- 占用空间 / 清理 ---------- */
+
+  // 当前项目先保存一下，数字才是最新的
+  async function usage() {
+    await flush();
+    return storageUsage();
+  }
+  // 清理：what 里可以有 'unused'（用不到的文件）、'empty'（没有内容的项目，当前项目除外）。返回 { files, bytes, projects }
+  async function cleanup(what) {
+    await flush();
+    const u = await storageUsage();
+    const out = { files: 0, bytes: 0, projects: 0 };
+    if (what.includes('unused')) { out.files = await deleteFiles(u.unused.keys); out.bytes = u.unused.bytes; }
+    if (what.includes('empty')) {
+      for (const p of u.empty) {
+        if (p.id === current()?.id) continue;
+        await deleteProject(p.id);
+        out.projects++;
+      }
+    }
+    onChange();
+    return out;
   }
 
   async function exportFile(id) {
@@ -181,7 +219,7 @@ export function createProjectController({ store, actions, placeholders, snapshot
 
   return {
     init, open, createNew, rename, duplicate, remove, exportFile, importFile,
-    markDirty, flush, list: listProjects,
+    markDirty, flush, list: listProjects, usage, cleanup,
     isLoading: () => loading,
   };
 }

@@ -171,9 +171,20 @@ def t_board_menu(page, errors):
     page.keyboard.press('Escape')
     page.mouse.click(label['x'], label['y'])
     assert page.evaluate('SlideGrid.ui.boardPicked')
-    page.evaluate('window.__c = window.confirm; window.confirm = () => true')
+    # 重命名、删除都用应用自己的对话框（不是浏览器自带的 prompt / confirm）
+    page.mouse.click(label['x'], label['y'], button='right')
+    page.click('.ctx-menu .menu-item:has-text("重命名")')
+    page.fill('.ask-modal[open] .ask-input', '要删的画板')
+    page.keyboard.press('Enter')
+    page.wait_for_function("SlideGrid.store.get().artboards.some(b => b.name === '要删的画板') && !document.querySelector('.ask-modal')")
+    page.mouse.click(label['x'], label['y'])
     page.keyboard.press('Delete')
-    page.evaluate('window.confirm = window.__c')
+    page.wait_for_selector('.ask-modal[open]')
+    page.keyboard.press('Escape')  # 取消：不删
+    assert page.evaluate('SlideGrid.store.get().artboards.length') == n + 1
+    page.keyboard.press('Delete')
+    page.click('.ask-modal[open] .btn.primary')
+    page.wait_for_function(f'SlideGrid.store.get().artboards.length === {n}')
     ids = page.evaluate('SlideGrid.store.get().artboards.map(b => b.id)')
     assert len(ids) == n and label['id'] not in ids, ids
     assert not page.evaluate('SlideGrid.ui.boardPicked')
@@ -427,7 +438,39 @@ def t_project_ui(page, errors):
     page.fill('.project-search', '')
     page.click('.projects-modal .project-card:not(.project-add):not(.current)')
     page.wait_for_function(f"SlideGrid.store.get().project?.id === '{orig}' && !document.querySelector('.projects-modal[open]')", timeout=15000)
-    page.evaluate("""async () => { const c = SlideGrid.controller; const t = (await c.list()).find(p => p.name === '竖版项目'); if (t) await c.remove(t.id); }""")
+    # 占用空间：卡片上和左下角都有数字；「清理空间」列出没有内容的项目；删除项目后列表和数据库里都没有了
+    page.click('#project-btn')
+    page.click('.project-menu .menu-item:has-text("全部项目")')
+    page.wait_for_function("/\\d (KB|MB|GB)/.test(document.querySelector('.storage-text')?.textContent || '')", timeout=10000)
+    assert ' KB' in page.inner_text('.projects-modal .project-card.current .project-sub') or ' MB' in page.inner_text('.projects-modal .project-card.current .project-sub')
+    page.click('.storage-clean')
+    page.wait_for_selector('.ask-modal[open] .ask-option')
+    assert '竖版项目' in page.inner_text('.ask-modal[open] .ask-options')
+    page.keyboard.press('Escape')
+    test_card = page.locator('.projects-modal .project-card:not(.project-add):not(.current)')
+    test_card.hover()
+    test_card.locator('.icon-btn[title="删除项目"]').click()
+    page.click('.ask-modal[open] .btn.primary.danger')
+    page.wait_for_function("document.querySelectorAll('.projects-modal .project-card:not(.project-add)').length === 1", timeout=10000)
+    left = page.evaluate("SlideGrid.controller.list().then(l => l.map(p => p.name))")
+    assert '竖版项目' not in left and len(left) == 1, left
+    page.click('.projects-modal .modal-head .icon-btn')
+    # 删除「当前」项目：换到剩下的那个，删掉的不会被自动保存写回来
+    page.evaluate("SlideGrid.controller.createNew('临时项目').then(() => SlideGrid.actions.setStyle('radius', 33))")
+    page.wait_for_function("SlideGrid.store.get().project?.name === '临时项目' && SlideGrid.store.get().style.radius === 33")
+    page.click('#project-btn')
+    page.click('.project-menu .menu-item:has-text("全部项目")')
+    cur = page.locator('.projects-modal .project-card.current')
+    cur.hover()
+    cur.locator('.icon-btn[title="删除项目"]').click()
+    page.click('.ask-modal[open] .btn.primary.danger')
+    page.wait_for_function(f"SlideGrid.store.get().project?.id === '{orig}'", timeout=15000)
+    page.wait_for_timeout(2200)  # 等过自动保存（0.5 秒）和缩略图（1.5 秒）的时间
+    left = page.evaluate("SlideGrid.controller.list().then(l => l.map(p => p.name))")
+    assert '临时项目' not in left and len(left) == 1, left
+    page.click('.projects-modal .modal-head .icon-btn')
+    # 立方体视图：平面版式下也显示
+    assert page.evaluate("(SlideGrid.actions.setLayout('grid'), !document.querySelector('.view-cube').hidden)")
     assert not errors, errors
 
 

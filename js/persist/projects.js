@@ -108,6 +108,54 @@ export const deleteProject = id => serial(async () => {
   await done(tx);
 });
 
+/* ---------------- 占用空间 / 清理 ---------------- */
+
+// 项目里有没有内容（图片、图层）：没有内容的项目可以放心清理
+const isEmptyProject = p => !p.slideCount && !(p.settings?.artboards || []).some(b => (b.settings?.layers || []).length);
+
+/**
+ * 各项目占用的空间（字节）：原图、素材、缩略图和设置。
+ *   sizes：Map(项目 id → 字节)；total：合计
+ *   unused：用不到的文件（不属于任何项目，或项目的图片列表里已经没有它）→ { keys, count, bytes }
+ *   empty：没有图片也没有图层的项目 → [{ id, name }]
+ *   quota：浏览器给这个网站的空间 { usage, quota }（取不到时为 null）
+ */
+export async function storageUsage() {
+  const db = await openDB();
+  const projects = await request(db.transaction('projects').objectStore('projects').getAll());
+  const byId = new Map(projects.map(p => [p.id, p]));
+  const listed = new Map(projects.map(p => [p.id, new Set((p.order || []).filter(x => typeof x === 'string'))]));
+  const sizes = new Map(projects.map(p => [p.id, (p.thumb?.size || 0) + JSON.stringify(p.settings || {}).length * 2]));
+  const unused = { keys: [], count: 0, bytes: 0 };
+  await new Promise((resolve, reject) => {
+    const req = db.transaction('files').objectStore('files').openCursor();
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) { resolve(); return; }
+      const f = c.value, size = f.file?.size || 0;
+      const used = byId.has(f.projectId) && (f.kind === 'asset' || listed.get(f.projectId).has(f.id));
+      if (used) sizes.set(f.projectId, sizes.get(f.projectId) + size);
+      else { unused.keys.push(c.primaryKey); unused.count++; unused.bytes += size; }
+      c.continue();
+    };
+  });
+  let quota = null;
+  try { quota = (await navigator.storage?.estimate?.()) || null; } catch { /* 取不到就不显示 */ }
+  const total = [...sizes.values()].reduce((a, b) => a + b, 0) + unused.bytes;
+  return { sizes, total, unused, empty: projects.filter(isEmptyProject).map(p => ({ id: p.id, name: p.name })), quota };
+}
+
+/** 删除用不到的文件（storageUsage().unused.keys），返回删除的个数 */
+export const deleteFiles = keys => serial(async () => {
+  if (!keys.length) return 0;
+  const db = await openDB();
+  const tx = db.transaction('files', 'readwrite');
+  for (const k of keys) tx.objectStore('files').delete(k);
+  await done(tx);
+  return keys.length;
+});
+
 // 写入一个完整的新项目（复制 / 导入共用）。素材会换新 id，并同步更新设置里的引用。
 async function insertProject({ name, settings, slides, assets = [], thumb = null }) {
   const db = await openDB();

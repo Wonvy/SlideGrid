@@ -63,7 +63,7 @@ export function createTopbarMenus(root, { store, actions, onActivate, onAdd, onD
         n > 1 && n < s.artboards.length ? item('trash-2', `删除所选的 ${n} 个画板`, onDeleteSelected) : null,
         item('check', '全选画板', () => actions.selectAllBoards(), '⌘A'),
         el('button', { class: 'menu-item', onclick: () => { close(); onFitAll(); } },
-          el('span', { class: 'menu-check' }, icon('maximize', 14)), el('span', { class: 'menu-label' }, '查看全部画板'), el('span', { class: 'menu-meta' }, '⌘⌥0')),
+          el('span', { class: 'menu-check' }, icon('fit-all', 14)), el('span', { class: 'menu-label' }, '查看全部画板'), el('span', { class: 'menu-meta' }, '⌘⌥0')),
       );
     },
   });

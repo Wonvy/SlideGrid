@@ -2,6 +2,7 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 import { createMenu } from './menu.js';
 import { aspectValue, isLongAspect } from '../config.js';
+import { askText, askConfirm, askOptions } from './dialogs.js';
 
 function relativeTime(ts) {
   const diff = (Date.now() - ts) / 1000;
@@ -11,6 +12,14 @@ function relativeTime(ts) {
   if (diff < 86400 * 7) return `${Math.floor(diff / 86400)} 天前`;
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 字节 → 易读的大小
+export function formatBytes(n) {
+  if (!(n > 0)) return '0 KB';
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 // 新建项目时可选的画板尺寸（之后可以随时在顶栏修改）
@@ -37,7 +46,8 @@ function sizeShape(id, max = 34) {
  *   菜单（点项目名）：重命名、复制、导出当前项目；新建、导入、全部项目；最近的几个项目（点击打开）
  *   窗口：左边一列切换「新建项目」「全部项目」，下面是「导入项目文件」
  *     新建项目：名称 + 画板尺寸（横版 / 竖版 / 方形 / 长图）
- *     全部项目：搜索、排序，卡片上悬停出现重命名 / 复制 / 导出 / 删除
+ *     全部项目：搜索、排序（最近修改 / 名称 / 占用空间），卡片上显示占用空间，悬停出现重命名 / 复制 / 导出 / 删除
+ *     左下角：占用空间（所有项目合计、浏览器还能用多少）和「清理空间…」（用不到的文件、没有内容的项目）
  * controller：project/controller.js；download(blob, name)；toast(msg, opts)；setAspect(id)：设置新项目的画板尺寸
  */
 export function createProjectDialog({ anchor, store, controller, download, toast, setAspect, clearHistory }) {
@@ -67,9 +77,9 @@ export function createProjectDialog({ anchor, store, controller, download, toast
     if (dialog.open) refresh();
   }
   const current = () => store.get().project;
-  const renameProject = p => {
-    const name = prompt('项目名称', p.name);
-    if (name && name.trim() && name.trim() !== p.name) act(() => controller.rename(p.id, name));
+  const renameProject = async p => {
+    const name = await askText({ title: '重命名项目', label: '项目名称', value: p.name });
+    if (name && name !== p.name) act(() => controller.rename(p.id, name));
   };
   const duplicateProject = p => act(async () => {
     const copy = await controller.duplicate(p.id);
@@ -80,10 +90,14 @@ export function createProjectDialog({ anchor, store, controller, download, toast
     download(blob, filename);
     toast(`已导出「${filename}」`);
   }, '正在打包…');
-  const removeProject = p => {
-    if (confirm(`删除项目「${p.name}」？此操作无法撤销，建议先导出备份。`)) {
-      act(async () => { await controller.remove(p.id); toast(`已删除「${p.name}」`); });
-    }
+  const removeProject = async p => {
+    const ok = await askConfirm({ title: '删除项目', message: `删除项目「${p.name}」和它的全部图片？此操作无法撤销，建议先导出备份。`, okText: '删除', danger: true });
+    if (!ok) return;
+    act(async () => {
+      const { created } = await controller.remove(p.id);
+      // 删掉了最后一个项目：会新建一个空的（不然没有地方放东西），说清楚，免得以为没删掉
+      toast(created ? `已删除「${p.name}」。这是最后一个项目，已新建一个空项目` : `已删除「${p.name}」`);
+    }, '正在删除…');
   };
   const openProject = p => {
     if (p.id === current()?.id) { dialog.close(); return; }
@@ -154,11 +168,11 @@ export function createProjectDialog({ anchor, store, controller, download, toast
 
   /* ---------------- 全部项目 ---------------- */
 
-  let query = '', sort = 'recent', projects = [];
+  let query = '', sort = 'recent', projects = [], usage = null;
   const search = el('input', { type: 'search', class: 'text-input project-search', placeholder: '搜索项目', spellcheck: 'false', 'aria-label': '搜索项目' });
   search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); renderGrid(); });
   search.addEventListener('keydown', e => { if (e.key !== 'Escape') e.stopPropagation(); });
-  const sortBtns = [['recent', '最近修改'], ['name', '名称']].map(([id, label]) => {
+  const sortBtns = [['recent', '最近修改'], ['name', '名称'], ['size', '占用空间']].map(([id, label]) => {
     const b = el('button', { type: 'button', class: 'seg-btn' }, label);
     b.addEventListener('click', () => { sort = id; renderGrid(); });
     return { id, b };
@@ -179,7 +193,9 @@ export function createProjectDialog({ anchor, store, controller, download, toast
     sortBtns.forEach(x => x.b.classList.toggle('active', x.id === sort));
     const currentId = current()?.id;
     const list = projects.filter(p => !query || p.name.toLowerCase().includes(query));
+    const sizeOf = p => usage?.sizes.get(p.id) || 0;
     if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+    else if (sort === 'size') list.sort((a, b) => sizeOf(b) - sizeOf(a));
     else list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     grid.replaceChildren();
     // 第一格：新建项目
@@ -205,7 +221,7 @@ export function createProjectDialog({ anchor, store, controller, download, toast
           action('trash-2', '删除项目', removeProject, true)),
         el('div', { class: 'project-meta' },
           el('div', { class: 'project-name' }, el('span', { class: 'project-name-text' }, p.name), isCurrent ? el('span', { class: 'badge' }, '当前') : null),
-          el('div', { class: 'project-sub' }, `${p.slideCount || 0} 张 · ${relativeTime(p.updatedAt)}`)),
+          el('div', { class: 'project-sub' }, [`${p.slideCount || 0} 张`, usage ? formatBytes(sizeOf(p)) : null, relativeTime(p.updatedAt)].filter(Boolean).join(' · '))),
       );
       card.addEventListener('click', () => openProject(p));
       card.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === card) openProject(p); });
@@ -213,7 +229,56 @@ export function createProjectDialog({ anchor, store, controller, download, toast
     }
     if (query && !list.length) grid.append(el('p', { class: 'note project-empty' }, `没有名称里带「${search.value.trim()}」的项目`));
     countBadge.textContent = projects.length || '';
+    renderStorage();
   }
+
+  /* ---------------- 占用空间 / 清理 ---------------- */
+
+  const storageText = el('div', { class: 'storage-text' });
+  const storageFill = el('span', { class: 'storage-fill' });
+  const storageNote = el('div', { class: 'storage-note' });
+  const cleanBtn = el('button', { type: 'button', class: 'btn small storage-clean', title: '清理用不到的文件和没有内容的项目' }, icon('trash-2', 13), '清理空间…');
+  const storageBox = el('div', { class: 'storage-box' },
+    el('div', { class: 'storage-head' }, el('span', { class: 'storage-title' }, '占用空间'), storageText),
+    el('div', { class: 'storage-bar' }, storageFill),
+    storageNote, cleanBtn);
+  function renderStorage() {
+    if (!usage) { storageText.textContent = '…'; storageNote.textContent = ''; return; }
+    storageText.textContent = formatBytes(usage.total);
+    const q = usage.quota;
+    const ratio = q?.quota ? Math.min(1, (q.usage || usage.total) / q.quota) : 0;
+    storageFill.style.width = `${Math.max(ratio * 100, usage.total ? 2 : 0)}%`;
+    storageFill.classList.toggle('warn', ratio > 0.8);
+    const free = q?.quota ? Math.max(0, q.quota - (q.usage || 0)) : null;
+    const waste = usage.unused.count ? `，其中 ${formatBytes(usage.unused.bytes)} 用不到` : '';
+    storageNote.textContent = `${projects.length} 个项目${waste}${free != null ? ` · 浏览器还可用约 ${formatBytes(free)}` : ''}`;
+  }
+  cleanBtn.addEventListener('click', async () => {
+    const u = usage || await controller.usage();
+    const currentId = current()?.id;
+    const empties = u.empty.filter(p => p.id !== currentId);
+    const picked = await askOptions({
+      title: '清理空间',
+      message: '只清理确定用不到的东西。要腾出更多空间，按「占用空间」排序后删除不需要的项目（建议先导出备份）。',
+      okText: '清理', danger: true,
+      options: [
+        {
+          id: 'unused', label: '用不到的文件', checked: u.unused.count > 0, disabled: !u.unused.count,
+          note: u.unused.count ? `${u.unused.count} 个，${formatBytes(u.unused.bytes)}（不属于任何项目，或项目里已经不用的图片）` : '没有',
+        },
+        {
+          id: 'empty', label: '没有内容的项目', checked: false, disabled: !empties.length,
+          note: empties.length ? `${empties.length} 个：${empties.slice(0, 4).map(p => `「${p.name}」`).join('、')}${empties.length > 4 ? '…' : ''}（没有图片也没有图层；当前项目除外）` : '没有',
+        },
+      ],
+    });
+    if (!picked?.length) return;
+    act(async () => {
+      const r = await controller.cleanup(picked);
+      const parts = [r.files ? `${r.files} 个文件（${formatBytes(r.bytes)}）` : null, r.projects ? `${r.projects} 个空项目` : null].filter(Boolean);
+      toast(parts.length ? `已清理 ${parts.join('、')}` : '没有需要清理的');
+    }, '正在清理…');
+  });
 
   /* ---------------- 窗口 ---------------- */
 
@@ -249,6 +314,7 @@ export function createProjectDialog({ anchor, store, controller, download, toast
         el('div', { class: 'menu-sep' }),
         importBtn,
         el('span', { class: 'bar-spacer' }),
+        storageBox,
         el('p', { class: 'note pm-nav-note' }, '项目保存在这个浏览器里。换电脑、换浏览器请先导出 .slidegrid 文件，再到那边导入。'),
         fileInput),
       el('div', { class: 'pm-main' }, newPage, allPage)),
@@ -258,6 +324,10 @@ export function createProjectDialog({ anchor, store, controller, download, toast
   dialog.addEventListener('close', () => urls.splice(0).forEach(u => URL.revokeObjectURL(u)));
 
   async function refresh() {
+    projects = await controller.list();
+    renderGrid();
+    // 占用空间要读一遍所有文件，稍慢：先把列表显示出来，算好了再补上
+    try { usage = await controller.usage(); } catch (err) { console.warn(err); usage = null; }
     projects = await controller.list();
     renderGrid();
   }

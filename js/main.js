@@ -11,6 +11,7 @@ import { createSettingsPanel } from './ui/settingsPanel.js';
 import { createTopbarMenus } from './ui/topbarMenus.js';
 import { createProjectDialog } from './ui/projectDialog.js';
 import { VERSION, RELEASED } from './version.js';
+import { askConfirm } from './ui/dialogs.js';
 import { attachViewportInteraction } from './ui/viewportInteraction.js';
 import { createToolbar } from './ui/toolbar.js';
 import { createBgPicker } from './ui/bgPicker.js';
@@ -168,17 +169,18 @@ const importing = createImporting({
 });
 document.querySelectorAll('[data-action="pick-files"]').forEach(b => b.addEventListener('click', importing.pickFiles));
 document.querySelectorAll('[data-action="pick-folder"]').forEach(b => b.addEventListener('click', importing.pickFolder));
-$('clear-btn').addEventListener('click', () => {
+$('clear-btn').addEventListener('click', async () => {
   const browsing = browsedAlbum();
   if (browsing) {
-    if (browsing.slides.length && confirm(`清空图集「${browsing.name}」的图片？（用这个图集的画板都会清空）`)) actions.editAlbum(browsing.id, () => []);
+    if (browsing.slides.length && await askConfirm({ title: `清空图集「${browsing.name}」`, message: '清空这个图集的全部图片？用这个图集的画板都会清空。可以撤销。', okText: '清空', danger: true })) actions.editAlbum(browsing.id, () => []);
     return;
   }
   if (!hasRealSlides()) return;
-  const msg = store.get().slidesOwn
-    ? '移除当前画板的全部图片？（这个画板单独设置了图片，其他画板不受影响）'
-    : `清空图集「${albumOf(store.get())?.name}」的图片？（用这个图集的画板都会清空；单独设置过图片的画板不受影响）`;
-  if (confirm(msg)) actions.clearSlides();
+  const own = store.get().slidesOwn;
+  const ok = await askConfirm(own
+    ? { title: '移除全部图片', message: '移除当前画板的全部图片？这个画板单独设置了图片，其他画板不受影响。可以撤销。', okText: '移除', danger: true }
+    : { title: `清空图集「${albumOf(store.get())?.name}」`, message: '清空这个图集的全部图片？用这个图集的画板都会清空；单独设置过图片的画板不受影响。可以撤销。', okText: '清空', danger: true });
+  if (ok) actions.clearSlides();
 });
 
 // 左栏查看的图集：点图集只是查看（列表显示它的图片），不会改变画板；排序 / 删除 / 导入改的是这个图集。
@@ -375,7 +377,7 @@ const SELECT_TOOLS = [...CARD_TOOLS, 'crop']; // 切换到这些工具时保留�
 // 工具是否可用：单张卡片调整（选择 / 旋转 / 比例）只用于平面版式
 function toolAvailability(id) {
   // 选择工具在 3D 版式下仍可用（选图层、移动画板），只是不能单独调整卡片
-  if (CARD_TOOLS.includes(id) && id !== 'select' && is3D()) return { ok: false, reason: '3D 版式暂不支持单张卡片调整，可在平面版式中使用' };
+  if (CARD_TOOLS.includes(id) && id !== 'select' && is3D()) return { ok: false, reason: '3D 视图下不能单独调整卡片：请换成平面版式，或点右上角立方体下面的「复位」回到平面' };
   return { ok: true, reason: '' };
 }
 function setTool(id) {

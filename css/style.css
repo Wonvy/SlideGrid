@@ -1802,3 +1802,40 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 /* 右键菜单很长（卡片 + 画板的菜单项）或窗口很矮时可以滚动，不会超出窗口 */
 .ctx-menu { max-height: calc(100vh - 12px); overflow-y: auto; overscroll-behavior: contain; }
 .menu-item:disabled:hover { background: transparent; }
+
+/* 工具条：第一组前面不画分隔线（前面的「上下文」一组隐藏时，后面那组就是第一组） */
+.toolbar > .tb-group:first-child, .toolbar > .tb-group[hidden] + .tb-group { padding-left: 0; border-left: 0; }
+
+/* ================= 应用自己的对话框（ui/dialogs.js） ================= */
+.ask-modal { width: min(400px, calc(100vw - 32px)); border-radius: 16px; overflow: hidden; }
+.ask-modal .modal-head { padding: 14px 12px 4px 18px; }
+.ask-body { padding: 8px 18px 4px; }
+.ask-message { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.ask-field { display: flex; flex-direction: column; gap: 8px; }
+.ask-label { font-size: 12px; color: var(--muted); }
+.ask-input { width: 100%; height: 38px; padding: 0 12px; border-radius: 10px; font-size: 14px; user-select: text; -webkit-user-select: text; }
+.ask-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 18px 16px; }
+.ask-foot .btn { min-width: 76px; height: 34px; justify-content: center; }
+.btn.primary.danger { background: #e5484d; border-color: #e5484d; }
+.btn.primary.danger:hover { background: #f2555a; }
+.btn.primary:disabled { opacity: .45; cursor: default; }
+.ask-options { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.ask-option { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); cursor: pointer; }
+.ask-option:hover { background: var(--field-hover); }
+.ask-option.disabled { opacity: .5; cursor: default; }
+.ask-check { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.ask-option-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ask-option-label { font-size: 13px; font-weight: 600; }
+.ask-option-note { font-size: 12px; color: var(--faint); line-height: 1.5; }
+
+/* ---------- 项目窗口：占用空间 ---------- */
+.storage-box { display: flex; flex-direction: column; gap: 7px; padding: 10px; margin-bottom: 10px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+.storage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.storage-title { font-size: 12px; color: var(--muted); }
+.storage-text { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.storage-bar { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+.storage-fill { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); transition: width .2s; }
+.storage-fill.warn { background: #e3b341; }
+.storage-note { font-size: 12px; color: var(--faint); line-height: 1.5; }
+.storage-clean { align-self: flex-start; }
+@media (max-width: 720px) { .storage-box { display: none; } }

@@ -2,6 +2,7 @@ import { el } from './dom.js';
 import { icon } from './icons.js';
 import { albumOf, selectionOf } from '../state.js';
 import { showContextMenu } from './contextMenu.js';
+import { askText, askConfirm } from './dialogs.js';
 
 /**
  * 左栏顶部的图集：一排「叠放」（类似 macOS 程序坞的叠放 / 相册）——每个图集用前几张图片叠成一摞，
@@ -69,18 +70,18 @@ export function createAlbumBar(root, { store, actions, toast, browsingId, onBrow
   root.append(strip);
 
   const real = a => a.slides.filter(x => !x.placeholder).length;
-  const rename = a => {
-    const v = prompt('图集名称', a.name)?.trim();
+  const rename = async a => {
+    const v = await askText({ title: '重命名图集', label: '图集名称', value: a.name });
     if (v && v !== a.name) actions.renameAlbum(a.id, v);
   };
-  const remove = a => {
+  const remove = async a => {
     if (store.get().albums.length <= 1) { toast('至少保留一个图集', { error: true }); return; }
-    if (!confirm(`删除图集「${a.name}」？用它的画板会换成别的图集（已单独设置图片的画板不受影响）`)) return;
+    if (!await askConfirm({ title: '删除图集', message: `删除图集「${a.name}」？用它的画板会换成别的图集（已单独设置图片的画板不受影响）。可以撤销。`, okText: '删除', danger: true })) return;
     if (actions.removeAlbum(a.id)) toast(`已删除图集「${a.name}」`);
   };
-  const create = () => {
+  const create = async () => {
     const s = store.get();
-    const v = prompt('图集名称', `图集 ${s.albums.length + 1}`)?.trim();
+    const v = await askText({ title: '新建图集', label: '图集名称', value: `图集 ${s.albums.length + 1}`, okText: '新建', allowEmpty: true });
     if (v == null) return;
     actions.addAlbum(v || undefined);
     toast('已新建图集：把图片或文件夹拖进来；拖入文件夹会自动新建图集');

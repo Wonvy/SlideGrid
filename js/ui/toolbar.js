@@ -40,8 +40,8 @@ export function createToolbar(root, { onTool, availability, onZoomIn, onZoomOut,
     el('button', { class: 'tb-btn', title: '缩小视图（⌘/Ctrl + -）', onclick: onZoomOut }, icon('zoom-out', 16)),
     zoomLabel,
     el('button', { class: 'tb-btn', title: '放大视图（⌘/Ctrl + =）', onclick: onZoomIn }, icon('zoom-in', 16)),
-    el('button', { class: 'tb-btn', title: '适合当前画板（⌘/Ctrl + 0）', onclick: onFit }, icon('scan', 16)),
-    el('button', { class: 'tb-btn', title: '适合全部画板（⌘/Ctrl + ⌥ + 0）', onclick: onFitAll }, icon('maximize', 16)),
+    el('button', { class: 'tb-btn', title: '适合当前画板（⌘/Ctrl + 0）', onclick: onFit }, icon('fit-board', 16)),
+    el('button', { class: 'tb-btn', title: '适合全部画板（⌘/Ctrl + ⌥ + 0）', onclick: onFitAll }, icon('fit-all', 16)),
   );
   const resetAdj = el('button', { class: 'tb-btn tb-text', title: '清除当前画板里所有卡片的移动 / 旋转 / 缩放', onclick: onResetAdjust },
     icon('undo-2', 15), el('span', {}, '重置卡片'));

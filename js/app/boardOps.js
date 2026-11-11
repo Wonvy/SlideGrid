@@ -1,6 +1,7 @@
 import { store, actions, boardsOf, selectionOf } from '../state.js';
 import { toast } from '../ui/toast.js';
 import { setUi } from './uiState.js';
+import { askText, askConfirm } from '../ui/dialogs.js';
 import { boardWorldRect } from './boards.js';
 
 /**
@@ -25,19 +26,23 @@ export function createBoardOps(ws) {
     toast(duplicate ? `已复制为「${board.name}」` : `已新建「${board.name}」`);
   }
 
-  function renameBoard(id) {
+  async function renameBoard(id) {
     const b = store.get().artboards.find(x => x.id === id);
-    const name = prompt('画板名称', b?.name)?.trim();
+    if (!b) return;
+    const name = await askText({ title: '重命名画板', label: '画板名称', value: b.name });
     if (name && name !== b.name) actions.renameArtboard(id, name);
   }
 
   // 删除画板（默认删除所有选中的画板），至少保留一个
-  function deleteBoards(ids = selectionOf(store.get())) {
+  async function deleteBoards(ids = selectionOf(store.get())) {
     const s = store.get();
     if (s.artboards.length <= 1) { toast('至少保留一个画板', { error: true }); return; }
     if (ids.length >= s.artboards.length) ids = ids.filter(id => id !== s.activeBoard); // 保留当前画板
     const names = s.artboards.filter(b => ids.includes(b.id)).map(b => `「${b.name}」`);
-    if (!names.length || !confirm(`删除画板 ${names.join('、')}？`)) return;
+    if (!names.length) return;
+    if (!await askConfirm({ title: names.length > 1 ? `删除 ${names.length} 个画板` : '删除画板', message: `删除画板 ${names.join('、')}？可以撤销。`, okText: '删除', danger: true })) return;
+    ids = ids.filter(id => store.get().artboards.some(b => b.id === id)); // 确认期间可能已经变了
+    if (!ids.length || ids.length >= store.get().artboards.length) return;
     const n = actions.removeArtboards(ids);
     ids.forEach(ws.forgetBoard);
     setUi('boardPicked', false); // 剩下的画板不算「选中」，再按 Delete 不会接着删

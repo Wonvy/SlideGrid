@@ -7,6 +7,7 @@ import { setSelection, setUi } from './uiState.js';
 import { stackCards, canStack, stackChanged, resetStack } from './cardOrder.js';
 import { toast } from '../ui/toast.js';
 import { getLayout } from '../layouts/index.js';
+import { askText } from '../ui/dialogs.js';
 
 /**
  * 工作区右键菜单：
@@ -51,8 +52,8 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
       { label: n > 1 ? `删除 ${n} 个图层` : '删除', icon: 'trash-2', danger: true, shortcut: 'Delete', action: () => layerTools.remove(ids) },
     ]);
   }
-  function renameLayer(layer) {
-    const name = prompt('图层名称', layer.name)?.trim();
+  async function renameLayer(layer) {
+    const name = await askText({ title: '重命名图层', label: '图层名称', value: layer.name });
     if (name && name !== layer.name) actions.updateLayers([layer.id], { name });
   }
 
@@ -122,7 +123,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
         { label: '粘贴为图层（图片 / SVG）', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => importing.pasteAsLayers() },
         { label: '粘贴图片为新幻灯片', icon: 'images', action: () => importing.pasteFromClipboard(null) },
         { sep: true },
-        { label: '适合全部画板', icon: 'maximize', shortcut: `${mod}⌥0`, action: ws.fitAll },
+        { label: '适合全部画板', icon: 'fit-all', shortcut: `${mod}⌥0`, action: ws.fitAll },
         { label: '全选画板', icon: 'check', shortcut: `${mod}A`, action: () => actions.selectAllBoards() },
       ]);
       return;
@@ -150,7 +151,7 @@ export function createContextMenus({ ws, boards, importing, exporting, panels, s
       },
       { sep: true },
       !card && { label: '粘贴为图层（图片 / SVG）', icon: 'clipboard-paste', shortcut: `${mod}V`, action: () => importing.pasteAsLayers() },
-      !multi && { label: '适合窗口', icon: 'scan', shortcut: `${mod}0`, action: () => ws.fitBoard(board) },
+      !multi && { label: '适合窗口', icon: 'fit-board', shortcut: `${mod}0`, action: () => ws.fitBoard(board) },
       { label: '画板背景…', icon: 'images', action: () => bgPicker.open() },
       { label: multi ? `导出所选的 ${sel.length} 个画板（ZIP）` : '导出此画板', icon: 'download', action: () => exporting.doExport(sel) },
       !multi && Object.values(store.get().adjust[store.get().layoutId] || {}).some(a => a.slide != null)

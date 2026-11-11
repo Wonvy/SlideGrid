@@ -2,13 +2,13 @@ import * as m4 from '../render/math.js';
 import { DEG } from '../core/utils.js';
 import { cachedScene } from '../render/scene.js';
 import { cameraRot, mat4ToQuat, slerp, lookFrom, rotationOf, transpose3 } from '../render/orient.js';
-import { sceneInput, is3D } from '../app/boards.js';
+import { sceneInput } from '../app/boards.js';
 import { getLayout } from '../layouts/index.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
 
 /**
- * 立方体视图（3D 版式时显示在画布右上角）：
+ * 立方体视图（一直显示在画布右上角；平面版式也可以转，转了以后按 3D 视图处理，点「复位」回到平面）：
  *   立方体按当前视角转动（前 / 后 / 左 / 右 / 上 / 下 = 版式内容本身的方向；桌面类版式的桌面是「上」，俯视 = 正对卡片）
  *   拖动立方体：旋转视角；点面 = 正视 / 侧视 / 俯视…，点棱 = 45° 视角，点角 = 等轴视角（动画过渡）
  *   「透视 / 正交」切换投影；「复位」回到版式默认视角
@@ -125,14 +125,13 @@ export function createViewCube(host, { store, actions }) {
     const own = sc.layoutCamera?.type === 'perspective' ? 'persp' : 'ortho';
     actions.setCamera({ proj: next === own ? undefined : next }); // 和版式自己的一样时不用记
   });
-  homeBtn.addEventListener('click', () => animateTo(m4.identity()));
+  // 复位：回到版式默认的角度和投影
+  homeBtn.addEventListener('click', () => { if (store.get().camera.proj) actions.setCamera({ proj: undefined }); animateTo(m4.identity()); });
 
   /* ---------- 同步 ---------- */
   let lastKey = '';
   function update(s = store.get()) {
-    const show = is3D() && s.slides.length > 0;
-    root.hidden = !show;
-    if (!show) return;
+    root.hidden = false;
     const sc = scene();
     const fk = getLayout(s.layoutId)?.surface === 'table' ? 'table' : 'wall';
     if (fk !== frameKey) { buildFaces(fk); lastKey = ''; }
@@ -145,7 +144,7 @@ export function createViewCube(host, { store, actions }) {
     projBtn.textContent = sc.ortho ? '正交' : '透视';
     projBtn.title = sc.ortho ? '现在是正交投影（没有近大远小），点击切换为透视' : '现在是透视投影（近大远小），点击切换为正交';
     const custom = (!!s.camera.q && Math.abs(s.camera.q[3]) < 0.99999) || Math.abs(s.camera.pitch || 0) > 1e-3 || Math.abs(s.camera.yaw || 0) > 1e-3;
-    homeBtn.disabled = !custom;
+    homeBtn.disabled = !custom && !s.camera.proj;
   }
   store.subscribe(s => update(s));
   update();

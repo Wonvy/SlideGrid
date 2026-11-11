@@ -3,6 +3,7 @@ import { presetFromState } from '../state.js';
 import { listPresets, putPreset, createPresetRecord, deletePreset, exportPresetsFile, importPresetsFile } from '../persist/presets.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
+import { askText, askConfirm } from './dialogs.js';
 
 const safeName = s => String(s).replace(/[\\/:*?"<>|]/g, '_');
 
@@ -126,14 +127,14 @@ export function createPresetsPanel(container, { store, actions, snapshot, toast,
           el('div', { class: 'preset-sub' }, tags.join(' · '))),
         el('div', { class: 'preset-actions' },
           action('refresh-cw', '用当前设置覆盖此版式', async () => {
-            if (!confirm(`用当前的版式设置覆盖「${p.name}」？`)) return;
+            if (!await askConfirm({ title: '覆盖版式', message: `用当前的版式设置覆盖「${p.name}」？`, okText: '覆盖' })) return;
             const data = presetFromState(store.get(), { includeStyle: !!p.style, includeAspect: !!p.aspect });
             await putPreset({ ...p, ...data, thumb: (await thumb()) || p.thumb, updatedAt: Date.now() });
             toast(`已更新「${p.name}」`);
             refresh();
           }),
           action('pencil', '重命名', async () => {
-            const name = prompt('版式名称', p.name)?.trim();
+            const name = await askText({ title: '重命名版式', label: '版式名称', value: p.name });
             if (!name || name === p.name) return;
             await putPreset({ ...p, name, updatedAt: Date.now() });
             refresh();
@@ -142,7 +143,7 @@ export function createPresetsPanel(container, { store, actions, snapshot, toast,
             download(await exportPresetsFile([p]), `${safeName(p.name)}.slidegrid-layout.json`);
           }),
           action('trash-2', '删除', async () => {
-            if (!confirm(`删除版式「${p.name}」？`)) return;
+            if (!await askConfirm({ title: '删除版式', message: `删除版式「${p.name}」？此操作无法撤销。`, okText: '删除', danger: true })) return;
             await deletePreset(p.id);
             refresh();
           }),
