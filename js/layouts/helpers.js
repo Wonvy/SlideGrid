@@ -76,8 +76,25 @@ export function raiseItem(it, { angle = 0, height = 0, edge = 'bottom', turn = 0
   else if (edge === 'left') Object.assign(out, { x: it.x - it.w / 2 + (it.w / 2) * c, z: out.z + (it.w / 2) * s, ry: -angle });
   else if (edge === 'right') Object.assign(out, { x: it.x + it.w / 2 - (it.w / 2) * c, z: out.z + (it.w / 2) * s, ry: angle });
   else Object.assign(out, { y: it.y - it.h / 2 + (it.h / 2) * c, z: out.z + (it.h / 2) * s, rx: angle });
-  // 叠放层级：抬起的卡片始终压在平放的上面（俯视时近处平放的卡片离镜头更近，不能只按远近排）
-  out.stack = 1 + out.z;
+  // 叠放层级：抬起的卡片始终压在平放的上面（俯视时近处平放的卡片离镜头更近，不能只按远近排）；
+  // 抬起的卡片之间同一层，按离镜头远近排（按抬起高度排会让后面抬得高的那张盖住前面的）
+  // 防止穿插：带「倾斜」（在卡片平面里先转一下）再翻起时，有一个下角会转到桌面下面、插进旁边的卡片——
+  // 算出四个角里最低的高度，整张抬到最低的角刚好贴着桌面（再加上浮起高度）
+  const rz = (out.rz || 0) * DEG, rxa = (out.rx || 0) * DEG, rya = (out.ry || 0) * DEG;
+  let low = Infinity;
+  for (const [cx, cy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const x0 = (cx * it.w) / 2, y0 = (cy * it.h) / 2;
+    const x1 = x0 * Math.cos(rz) - y0 * Math.sin(rz), y1 = x0 * Math.sin(rz) + y0 * Math.cos(rz); // Rz
+    const z2 = -x1 * Math.sin(rya); // Ry（z 原来是 0）
+    const z3 = y1 * Math.sin(rxa) + z2 * Math.cos(rxa); // Rx
+    low = Math.min(low, z3);
+  }
+  const floorZ = (it.z || 0) + height; // 最低的角应该在的高度
+  if (out.z + low < floorZ - 1e-6) out.z = floorZ - low;
+  out.stack = 1;
+  // 竖直投到桌面上的形状（桌面投影用）：绕上下边翻起时高度方向变短，绕左右边时宽度方向变短
+  const flat = Math.max(0.02, Math.abs(c));
+  out.floor = edge === 'left' || edge === 'right' ? { sx: flat, sy: 1 } : { sx: 1, sy: flat };
   return out;
 }
 
@@ -146,3 +163,27 @@ export function tableReach({ tilt, persp, W, H, s = 1, cap = Infinity }) {
   }
   return Math.min(cap, far / s);
 }
+
+/**
+ * 桌面类版式（等距展台、分组展台、满铺堆叠）的远近效果参数：
+ *   farFade 远处渐隐（远处的卡片淡出到背景，也让铺满型网格的远端不会突然断掉）、dof 景深模糊、focusMode / focus 对焦（抬起的卡片 / 手动：0 = 最远，1 = 最近）、
+ *   floorShadow 抬起的卡片投在桌面上的影子（抬得越高越淡、越散）
+ */
+export const tableFxParams = ({ farFade = 0, dof = 0, focus = 0.5, floorShadow = 0.5 } = {}) => [
+  { key: 'farFade', label: '远处渐隐', type: 'range', min: 0, max: 1, step: 0.01, default: farFade },
+  { key: 'dof', label: '景深模糊', type: 'range', min: 0, max: 1, step: 0.01, default: dof },
+  {
+    key: 'focusMode', label: '对焦', type: 'select', default: 'auto', show: v => v.dof > 0,
+    options: [{ value: 'auto', label: '抬起的卡片' }, { value: 'manual', label: '手动' }],
+  },
+  {
+    key: 'focus', label: '对焦位置', type: 'range', min: 0, max: 1, step: 0.01, default: focus, show: v => v.dof > 0 && v.focusMode === 'manual',
+    format: v => (v <= 0.02 ? '最远处' : v >= 0.98 ? '最近处' : `${Math.round(v * 100)}%（远 → 近）`),
+  },
+  { key: 'floorShadow', label: '桌面投影', type: 'range', min: 0, max: 1, step: 0.01, default: floorShadow },
+];
+// focus：'auto' = 对焦在抬起的卡片上（没有抬起的卡片时在中间）
+export const tableFx = p => ({
+  depthFx: { fade: p.farFade || 0, dof: p.dof || 0, focus: p.focusMode === 'manual' ? p.focus ?? 0.5 : 'auto' },
+  floorShadow: p.floorShadow ?? 0,
+});

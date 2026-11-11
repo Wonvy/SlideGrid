@@ -1,5 +1,5 @@
 import { DEG, mulberry32 } from '../../core/utils.js';
-import { svg } from '../helpers.js';
+import { svg, tableFxParams, tableFx } from '../helpers.js';
 
 // 满铺堆叠：大量卡片随机转角、层层叠叠铺满桌面（略带俯视透视），中间一张主卡片抬起来压在最上面——
 // 像一堆撒开的名片 / 印刷品。卡片铺满画板，图片不够时循环；疏密用「密度」调。
@@ -27,6 +27,7 @@ export default {
     { key: 'zoom', label: '缩放', type: 'range', min: 0.5, max: 2.5, step: 0.01, default: 1 },
     { key: 'seed', label: '随机种子', type: 'seed', default: 5 },
     { key: 'fov', label: '透视强度', type: 'range', min: 10, max: 70, default: 30, unit: '°' },
+    ...tableFxParams(),
   ],
   compute({ aspect, W, H, p }) {
     const rnd = mulberry32(p.seed);
@@ -56,7 +57,7 @@ export default {
       const s = p.heroSize;
       // 抬高是沿桌面的法线方向，俯视时画面上会往上移：在桌面上往下挪一点抵消，主卡片保持在画面中间
       const lift = 20 + p.heroLift;
-      items.push({ i: k++, x: 0, y: -lift * Math.tan(p.tilt * DEG), z: lift, rz: p.heroTurn, w: w * s, h: h * s, stack: 1e6 });
+      items.push({ i: k++, x: 0, y: -lift * Math.tan(p.tilt * DEG), z: lift, rz: p.heroTurn, w: w * s, h: h * s, stack: 1e6, floor: { sx: 1, sy: 1 } });
     }
     // 桌面上的卡片按高度叠放（俯视时近处的卡片离镜头更近，不能按远近排）
     for (const card of cards) items.push({ i: k++, ...card, w, h, stack: card.z });
@@ -64,6 +65,7 @@ export default {
       items,
       group: { rx: -p.tilt, rz: p.turn, s: p.zoom },
       camera: { type: 'perspective', fov: p.fov },
+      ...tableFx(p),
     };
   },
 };

@@ -202,6 +202,8 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
       it.x || 0, it.y || 0, it.z || 0, (it.rx || 0) * DEG, (it.ry || 0) * DEG, (it.rz || 0) * DEG, 1,
     ));
     const depth = m4.multiply(view, model)[14]; // 视图空间中心点的 z
+    // 抬起的卡片：远近效果（渐隐、景深）按它下面那块桌面算，整张一样——不然抬向镜头的卡片会比周围更「近」，被模糊掉
+    const fxDepth = it.floor ? m4.transformVec4(m4.multiply(view, groupM), [it.x || 0, it.y || 0, 0, 1])[2] : null;
     const imgAspect = slide.aspect || slideAspect;
     let w = it.w, h = it.h;
     if (it.crop?.fit === 'contain') {
@@ -211,7 +213,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
     // order：在版式结果中的序号（同一版式下稳定，用于悬停/拖放定位）
     // slideIndex：对应第几张幻灯片（铺满型版式中会重复出现）
     return {
-      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0,
+      slide, slideIndex, model, w, h, order, depth, adjusted: !!it.adjusted, stack: it.stack ?? 0, lifted: !!it.floor, fxDepth,
       opacity: it.opacity ?? 1,
       uv: it.crop?.fit === 'contain' ? [1, 1, 0, 0] : cropUV(imgAspect, w / h, it.crop),
     };
@@ -219,10 +221,57 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   // 由远及近绘制；版式给了 stack（叠放层级，例如桌面上一堆卡片谁压着谁）时先按 stack，同一层再按远近
   items.sort((a, b) => (a.stack - b.stack) || (a.depth - b.depth) || (a.order - b.order));
 
+  // 抬起的卡片在桌面上的影子（版式给了 floorShadow 强度，卡片带 floor：竖直投到桌面上的形状）
+  // 光从左上方略偏后：抬得越高，影子越淡、越散，也往右前方挪得越多（从卡片旁边露出来）
+  const floors = [];
+  const fs = Number(result.floorShadow) || 0;
+  if (fs > 0) {
+    for (const it of raw) {
+      if (!it.floor) continue;
+      const elev = Math.max(0, it.z || 0);
+      const size = Math.min(it.w, it.h);
+      floors.push({
+        model: m4.multiplyAll(groupM, m4.translation((it.x || 0) + elev * 0.45, (it.y || 0) - elev * 0.4, 0),
+          m4.scaling(it.floor.sx ?? 1, it.floor.sy ?? 1, 1), m4.rotationZ((it.rz || 0) * DEG)),
+        w: it.w, h: it.h,
+        blur: size * 0.04 + elev * 0.4,
+        alpha: Math.min(1, fs * 0.85 / (1 + elev / (size * 0.9))),
+        stack: it.floor.stack ?? (it.stack ?? 0) - 0.5,
+      });
+    }
+    floors.sort((a, b) => a.stack - b.stack);
+  }
+
+  // 远处渐隐 / 景深：画板里看得见的卡片（中心在画板内）的远近范围
+  let depthFx = null;
+  const fx = result.depthFx;
+  if (fx && (fx.fade > 0 || fx.dof > 0)) {
+    let far = Infinity, near = -Infinity;
+    const up = []; // 画板里抬起的卡片（自动对焦用）
+    for (const it of items) {
+      const c = m4.transformVec4(viewProj, [it.model[12], it.model[13], it.model[14], 1]);
+      if (c[3] <= 1e-6 || Math.abs(c[0] / c[3]) > 1 || Math.abs(c[1] / c[3]) > 1) continue;
+      const d = it.fxDepth ?? it.depth;
+      far = Math.min(far, d); near = Math.max(near, d);
+      if (it.lifted) up.push(d);
+    }
+    if (near > far) {
+      let focus = typeof fx.focus === 'number' ? fx.focus : 0.5;
+      if (fx.focus === 'auto') {
+        // 对焦在抬起的卡片上（等距展台 / 分组展台抬起的卡片、满铺堆叠的主卡片）
+        if (up.length) focus = Math.min(1, Math.max(0, (up.reduce((a, d) => a + d, 0) / up.length - far) / (near - far)));
+      }
+      depthFx = { fade: +fx.fade || 0, dof: +fx.dof || 0, focus, far, near, dofPad: (+fx.dof || 0) * 0.035 };
+    }
+  }
+
   const z0 = raw[0]?.z || 0;
   const coplanar = raw.every(it => (it.z || 0) === z0 && !it.rx && !it.ry);
 
-  return { W, H, long, px, items, viewProj, coplanar, style, groupM, extraSlides: [...extraSlides.values()], ortho: (result.camera || {}).type !== 'perspective' };
+  return {
+    W, H, long, px, items, viewProj, coplanar: coplanar && !floors.length, style, groupM, floors, depthFx,
+    extraSlides: [...extraSlides.values()], ortho: (result.camera || {}).type !== 'perspective',
+  };
 }
 
 /**

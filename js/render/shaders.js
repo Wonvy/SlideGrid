@@ -8,13 +8,18 @@ uniform vec2 uSize;      // 幻灯片宽高（世界单位）
 uniform float uPad;      // 四边形外扩，用于抗锯齿和投影
 uniform vec2 uOffset;    // 投影偏移（幻灯片局部平面内）
 uniform mat4 uTile;      // 分块 / 局部渲染的裁切矩阵（uMVP 是整个画板的投影）
+uniform int uDepthMode;  // 远近效果：0 关，1 正交相机，2 透视相机（从裁剪坐标还原视图空间的 z）
+uniform float uDofPad;   // 景深模糊时边缘会柔化出去：四边形再外扩（占卡片长边的比例）
 out vec2 vLocal;
 out vec3 vClip;          // 画板的裁剪坐标（xy、w），用于按画板位置计算渐隐遮罩
+out float vViewZ;        // 视图空间的 z（越大离镜头越近）
 void main() {
-  vec2 local = aPos * (uSize + 2.0 * uPad);
+  vec2 local = aPos * (uSize + 2.0 * (uPad + uDofPad * max(uSize.x, uSize.y)));
   vLocal = local;
   vec4 clip = uMVP * vec4(local + uOffset, 0.0, 1.0);
   vClip = clip.xyw;
+  // 正交：ortho(near = -1e5, far = 1e5) 下 z_clip = -z / 1e5；透视：w = -z
+  vViewZ = uDepthMode == 2 ? -clip.w : -clip.z * 1e5;
   gl_Position = uTile * clip;
 }`;
 
@@ -24,7 +29,7 @@ in vec2 vLocal;
 in vec3 vClip;
 uniform vec2 uSize;
 uniform float uRadius;
-uniform int uMode;           // 0 = 幻灯片, 1 = 投影, 2 = 高亮叠加
+uniform int uMode;           // 0 = 幻灯片, 1 = 投影, 2 = 高亮叠加, 3 = 擦除（配合 blendFunc(ZERO, 1 - srcAlpha)）
 uniform vec3 uHLColor;
 uniform float uHLFill;       // 高亮填充不透明度
 uniform float uHLRing;       // 高亮描边宽度（像素）
@@ -39,7 +44,19 @@ uniform int uFade;           // 渐隐遮罩：0 无，1 线性，2 两端，3 �
 uniform vec2 uFadeDir;       // 线性方向（画板坐标，y 向下）
 uniform float uFadeAspect;   // 画板宽高比
 uniform vec4 uFadeParams;    // 开始位置、结束位置、起点不透明度、终点不透明度
+uniform highp int uDepthMode; // 和顶点着色器里的同一个 uniform：精度要一致
+uniform vec3 uDepthFx;       // 远处渐隐强度、景深模糊强度、对焦位置（0 = 最远，1 = 最近）
+uniform vec2 uDepthRange;    // 画板里卡片的视图 z 范围：最远、最近
+uniform float uFixedZ;       // 抬起的卡片：整张用同一个视图 z（它下面那块桌面的）；< -1e29 时逐像素
+in float vViewZ;
 out vec4 outColor;
+
+const float DOF_MAX = 0.035; // 景深最大模糊半径（占卡片宽度）
+
+// 远近：0 = 画板里最远的卡片，1 = 最近的（超出范围的继续往外延伸）
+float depthT() { return ((uFixedZ > -1e29 ? uFixedZ : vViewZ) - uDepthRange.x) / max(uDepthRange.y - uDepthRange.x, 1e-3); }
+float farFade(float t) { return 1.0 - uDepthFx.x * (1.0 - smoothstep(0.0, 0.75, t)); }
+float dofFrac(float t) { return uDepthFx.y * DOF_MAX * smoothstep(0.08, 0.55, abs(clamp(t, 0.0, 1.0) - uDepthFx.z)); }
 
 // 按像素在画板上的位置计算遮罩不透明度（与分块、视图缩放无关，所见即所得）
 float fadeAlpha() {
@@ -69,15 +86,26 @@ void main() {
   float r = min(uRadius, min(hs.x, hs.y));
   float d = sdRoundRect(vLocal, hs, r);
 
+  float t = uDepthMode != 0 ? depthT() : 1.0;
+  float depthA = uDepthMode != 0 ? farFade(t) : 1.0;
+  float blurW = uDepthMode != 0 ? dofFrac(t) * uSize.x : 0.0; // 景深模糊半径（世界单位）
+
   if (uMode == 1) {
-    float b = max(uBlur, 0.5);
+    float b = max(uBlur, 0.5) + blurW;
     float a = 1.0 - smoothstep(-b, b, d);
-    outColor = vec4(uShadowColor.rgb, 1.0) * (uShadowColor.a * a * uOpacity * fadeAlpha());
+    outColor = vec4(uShadowColor.rgb, 1.0) * (uShadowColor.a * a * uOpacity * fadeAlpha() * depthA);
     return;
   }
 
   float aa = max(fwidth(d), 1e-4);
-  float cover = 1.0 - smoothstep(-0.5 * aa, 0.5 * aa, d);
+  float edgeW = max(0.5 * aa, blurW);
+  float cover = 1.0 - smoothstep(-edgeW, edgeW, d);
+
+  if (uMode == 3) {
+    // 擦除：清掉卡片下面已经画了的东西（远处渐隐时卡片半透明，不能透出后面的卡片）
+    outColor = vec4(cover);
+    return;
+  }
 
   if (uMode == 2) {
     // 描边画在边缘内侧，宽度按屏幕像素计算，任何缩放/透视下粗细一致
@@ -94,12 +122,31 @@ void main() {
   vec2 uv = vLocal / uSize + 0.5;
   uv.y = 1.0 - uv.y;
   uv = uv * uUV.xy + uUV.zw;
-  vec4 c = texture(uTex, uv);   // 预乘 alpha
+  vec2 gx = dFdx(uv), gy = dFdy(uv); // 导数要在分支外面算（同一组像素有的走模糊分支、有的不走）
+  vec4 c;
+  if (blurW > 0.0) {
+    // 景深：把两个方向的采样梯度各自放大到至少等于模糊半径（各向异性过滤照常起作用，模糊从 0 开始连续变化，
+    // 不会出现分界线），再在一圈上取 8 个点平均；半径按卡片宽度的比例算，和导出分辨率无关
+    vec2 ts = vec2(textureSize(uTex, 0));
+    vec2 r = vec2(blurW / uSize.x, blurW / uSize.y) * uUV.xy; // 半径（uv）
+    float want = r.x * ts.x * 0.5; // 至少覆盖几个纹素
+    gx *= max(1.0, want / (length(gx * ts) + 1e-6));
+    gy *= max(1.0, want / (length(gy * ts) + 1e-6));
+    vec2 lo = uUV.zw, hi = uUV.zw + uUV.xy;
+    c = textureGrad(uTex, uv, gx, gy) * 2.0;
+    for (int i = 0; i < 8; i++) {
+      float a = float(i) * 0.7853982;
+      c += textureGrad(uTex, clamp(uv + vec2(cos(a), sin(a)) * r * 0.6, lo, hi), gx, gy);
+    }
+    c /= 10.0;
+  } else {
+    c = texture(uTex, uv);   // 预乘 alpha
+  }
 
   if (uBorder > 0.0) {
     float edge = smoothstep(-uBorder - 0.5 * aa, -uBorder + 0.5 * aa, d);
     c = mix(c, vec4(uBorderColor, 1.0), edge);
   }
   if (!gl_FrontFacing) c.rgb *= 0.45;   // 背面（如环形展台后侧）压暗
-  outColor = c * (cover * uOpacity * fadeAlpha());
+  outColor = c * (cover * uOpacity * fadeAlpha() * depthA);
 }`;

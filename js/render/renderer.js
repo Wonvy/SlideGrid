@@ -49,10 +49,12 @@ function cullBoxes(scene) {
   const mvp = new Float32Array(16);
   const shadow = st.shadowOpacity > 0.001 ? st.shadowBlur + Math.abs(st.shadowY || 0) : 0;
   const pad = SLIDE_PAD + shadow;
+  const dofPad = scene.depthFx ? scene.depthFx.dofPad : 0;
   for (let i = 0; i < n; i++) {
     const it = scene.items[i];
     m4.multiplyInto(mvp, scene.viewProj, it.model);
-    const hw = it.w / 2 + pad, hh = it.h / 2 + pad;
+    const extra = pad + dofPad * Math.max(it.w, it.h);
+    const hw = it.w / 2 + extra, hh = it.h / 2 + extra;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (let c = 0; c < 4; c++) {
       const x = c & 1 ? hw : -hw, y = c & 2 ? hh : -hh;
@@ -85,7 +87,7 @@ export class Renderer {
     this.program = createProgram(gl, VERT, FRAG);
     const names = ['uMVP', 'uTile', 'uSize', 'uPad', 'uOffset', 'uRadius', 'uMode', 'uTex', 'uUV',
       'uBorder', 'uBorderColor', 'uBlur', 'uShadowColor', 'uOpacity', 'uHLColor', 'uHLFill', 'uHLRing',
-      'uFade', 'uFadeDir', 'uFadeAspect', 'uFadeParams'];
+      'uFade', 'uFadeDir', 'uFadeAspect', 'uFadeParams', 'uDepthMode', 'uDofPad', 'uDepthFx', 'uDepthRange', 'uFixedZ'];
     this.loc = Object.fromEntries(names.map(n => [n, gl.getUniformLocation(this.program, n)]));
 
     this.vao = gl.createVertexArray();
@@ -182,6 +184,14 @@ export class Renderer {
     gl.uniform3f(L.uBorderColor, ...hexToRgb(st.borderColor));
     gl.uniform1f(L.uBlur, st.shadowBlur);
     gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), st.shadowOpacity);
+    // 远处渐隐 / 景深（桌面类版式）：按卡片离镜头的远近逐像素计算
+    const fx = scene.depthFx;
+    gl.uniform1i(L.uDepthMode, fx ? (scene.ortho ? 1 : 2) : 0);
+    gl.uniform1f(L.uDofPad, fx ? fx.dofPad : 0);
+    if (fx) {
+      gl.uniform3f(L.uDepthFx, fx.fade, fx.dof, fx.focus);
+      gl.uniform2f(L.uDepthRange, fx.far, fx.near);
+    }
 
     const hasShadow = st.shadowOpacity > 0.001;
     const visible = this.visibleItems(scene, tile);
@@ -194,6 +204,7 @@ export class Renderer {
       gl.uniformMatrix4fv(L.uMVP, false, mvp);
       gl.uniform2f(L.uSize, it.w, it.h);
       gl.uniform1f(L.uOpacity, it.opacity);
+      if (fx) gl.uniform1f(L.uFixedZ, it.fxDepth ?? -1e30);
     };
     const shadowPass = () => {
       gl.uniform1i(L.uMode, 1);
@@ -205,9 +216,18 @@ export class Renderer {
       gl.uniform1f(L.uPad, SLIDE_PAD);
       gl.uniform2f(L.uOffset, 0, 0);
     };
-    const drawSlide = it => {
+    // 远处渐隐时卡片是半透明的：有前后遮挡的版式先把卡片下面擦掉再画，前面的卡片不会透出后面的
+    const erase = !scene.coplanar && !!fx && fx.fade > 0;
+    const drawSlide = (it, clearBelow = false) => {
       const t = this.textures.get(it.slide.id);
       if (!t) return;
+      if (clearBelow) {
+        gl.uniform1i(L.uMode, 3);
+        gl.blendFunc(gl.ZERO, gl.ONE_MINUS_SRC_ALPHA);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.uniform1i(L.uMode, 0);
+      }
       if (t.tex !== lastTex) { gl.bindTexture(gl.TEXTURE_2D, t.tex); lastTex = t.tex; }
       gl.uniform4f(L.uUV, it.uv[0], it.uv[1], it.uv[2], it.uv[3]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -223,12 +243,36 @@ export class Renderer {
       for (const it of visible) { setItem(it); drawSlide(it); }
     } else {
       // 有前后关系：画家算法，由远及近（同一张卡片的投影和幻灯片共用矩阵）
+      // 抬起的卡片投在桌面上的影子（floors，按 stack 排好）：画在比它低一层的卡片之后、抬起的卡片之前
+      const floors = scene.floors || [];
+      let fi = 0;
+      const drawFloors = upTo => {
+        if (fi >= floors.length || floors[fi].stack >= upTo) return;
+        gl.uniform1i(L.uMode, 1);
+        gl.uniform2f(L.uOffset, 0, 0);
+        for (; fi < floors.length && floors[fi].stack < upTo; fi++) {
+          const f = floors[fi];
+          m4.multiplyInto(mvp, vp, f.model);
+          gl.uniformMatrix4fv(L.uMVP, false, mvp);
+          gl.uniform2f(L.uSize, f.w, f.h);
+          gl.uniform1f(L.uOpacity, 1);
+          if (fx) gl.uniform1f(L.uFixedZ, -1e30);
+          gl.uniform1f(L.uBlur, f.blur);
+          gl.uniform1f(L.uPad, f.blur + SLIDE_PAD);
+          gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), f.alpha);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+        }
+        gl.uniform1f(L.uBlur, st.shadowBlur);
+        gl.uniform4f(L.uShadowColor, ...hexToRgb(st.shadowColor), st.shadowOpacity);
+      };
       for (const it of visible) {
+        drawFloors(it.stack);
         setItem(it);
         if (hasShadow) { shadowPass(); gl.drawArrays(gl.TRIANGLES, 0, 6); }
         slidePass();
-        drawSlide(it);
+        drawSlide(it, erase);
       }
+      drawFloors(Infinity);
     }
 
     if (!overlays.length) return;

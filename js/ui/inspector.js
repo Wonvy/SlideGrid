@@ -77,7 +77,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     const schema = cardParams?.() || null;
     raiseSection.hidden = !schema || !cards.length || ui.layerSel.length > 0;
     if (raiseSection.hidden) return;
-    if (schema !== raiseSchema) { raiseSchema = schema; updateRaise = buildControls(raiseBox, schema, raiseValues(cards[0]), setCards); }
+    if (schema !== raiseSchema) { raiseSchema = schema; updateRaise = buildControls(raiseBox, schema, raiseValues(cards[0]), setCards, { markChanged: true }); }
     updateRaise(raiseValues(cards[0]));
   }
 
@@ -227,6 +227,10 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
       row.addEventListener('mouseenter', () => cards.hover(order));
       row.addEventListener('mouseleave', () => cards.hover(null));
       out.push(row);
+    }
+    if (total && !stackable) {
+      out.push(el('div', { class: 'layer-row layer-child layer-empty' },
+        el('span', { class: 'layer-name' }, cardParams?.() ? '3D 版式：前后由空间位置决定，可选中卡片在「设计」页抬起 / 放平' : '3D 版式：卡片前后由空间位置决定，不能上移 / 下移')));
     }
     if (!total) out.push(el('div', { class: 'layer-row layer-child layer-empty' }, el('span', { class: 'layer-name' }, '左侧导入图片后显示在这里')));
     return out;

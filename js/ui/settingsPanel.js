@@ -192,7 +192,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     if (s.layoutId !== currentLayout) {
       currentLayout = s.layoutId;
       const layout = getLayout(currentLayout);
-      updateParams = buildControls(paramsBox, layout.params, s.params[currentLayout], actions.setParam, { albums: () => store.get().albums });
+      updateParams = buildControls(paramsBox, layout.params, s.params[currentLayout], actions.setParam, { albums: () => store.get().albums, markChanged: true });
       layoutButtons.forEach((b, id) => b.classList.toggle('active', id === currentLayout));
       curIcon.innerHTML = layout.icon;
       curName.textContent = layout.name;

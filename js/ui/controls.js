@@ -5,6 +5,21 @@ import { createFontPicker } from './fontPicker.js';
 
 const clampTo = (v, def) => Math.min(def.max ?? Infinity, Math.max(def.min ?? -Infinity, v));
 const decimals = step => (String(step).split('.')[1] || '').length;
+const sameValue = (a, b) => (typeof a === 'number' || typeof b === 'number' ? Math.abs(Number(a) - Number(b)) < 1e-9 : JSON.stringify(a) === JSON.stringify(b));
+// 默认值的显示文字（恢复默认按钮的提示）
+function defaultText(def) {
+  const v = def.default;
+  if (def.options) return def.options.find(o => (o.value ?? o) === v)?.label ?? String(v);
+  if (def.format) return def.format(v);
+  if (typeof v === 'boolean') return v ? '开' : '关';
+  if (typeof v === 'number') {
+    const step = def.step ?? 1;
+    if (!def.unit && def.min >= 0 && def.max <= 1 && step < 1) return `${Math.round(v * 100)}%`;
+    return (step < 1 ? v.toFixed(decimals(step)) : String(Math.round(v))) + (def.unit || '');
+  }
+  if (Array.isArray(v)) return v.length ? v.join('、') : '自动';
+  return v === '' ? '空' : String(v);
+}
 
 /**
  * 根据 schema 自动生成控件。
@@ -13,6 +28,7 @@ const decimals = step => (String(step).split('.')[1] || '').length;
  * label 可以是函数 (values) => 文本。
  * ctx（可选）：image 控件需要 { imageThumb(id) → canvas|null, pickImage(key), dropTarget }；
  *   wheelImmediate：鼠标悬停就能用滚轮调（不需要停留激活，用于顶部工具条）
+ *   markChanged：和默认值不同的参数显示「恢复默认」按钮（版式参数、单卡抬起）
  * 可选 wheelStep：滚轮每档的步长（默认等于 step）。
  *
  * 所有控件都支持「鼠标悬停 + 滚轮」调整：向上滚增大，Shift 加速 ×10。
@@ -355,8 +371,17 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
       }, { immediate: !!ctx.wheelImmediate });
     }
 
+    // 面板里：和默认值不同的参数显示「恢复默认」按钮（也就标出了改过哪些参数）
+    let reset = null;
+    if (panel && ctx.markChanged && def.key && def.default !== undefined && !def.noreset) {
+      reset = el('button', { class: 'ctrl-reset', type: 'button' }, icon('rotate-ccw', 13));
+      reset.addEventListener('pointerdown', e => e.stopPropagation()); // 不触发数值条的拖动
+      reset.addEventListener('click', e => { e.stopPropagation(); onChange(def.key, def.default); });
+      label.after(reset);
+    }
+
     container.append(row);
-    rows.push({ def, node: row, label, labelText, group, setValue: v => { current = v; render(v); } });
+    rows.push({ def, node: row, label, labelText, group, reset, setValue: v => { current = v; render(v); } });
   }
 
   let lastValues = values;
@@ -366,6 +391,11 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
       if (r.groupKey) { r.node.classList.toggle('collapsed', isCollapsed(r.groupKey)); continue; }
       r.node.hidden = !!(r.def.show && !r.def.show(vals)) || (r.group && isCollapsed(r.group));
       if (r.setValue && r.def.key) r.setValue(vals[r.def.key]);
+      if (r.reset) {
+        const changed = !sameValue(vals?.[r.def.key] ?? r.def.default, r.def.default);
+        r.node.classList.toggle('changed', changed);
+        if (changed) r.reset.title = `恢复默认（${defaultText(r.def)}）`;
+      }
       if (typeof r.def.label === 'function') r.label.textContent = r.labelText(vals);
     }
     // 并排（half）的两项：只剩一项显示时让它占满整行

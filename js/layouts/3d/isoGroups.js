@@ -1,4 +1,4 @@
-import { svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableProjector } from '../helpers.js';
+import { svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableProjector, tableFxParams, tableFx } from '../helpers.js';
 
 // 分组展台：等距展台的有限网格版，每一列（也可以改成每一行）是一组、用一个图集的图片——
 // 适合分组展示（例如第一列 App 界面、第二列海报、第三列名片）。组与组之间可以多留一点间距；
@@ -31,6 +31,7 @@ export default {
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },
     { ...PERSP_PARAM, default: 35 },
     { key: 'zoom', label: '缩放', type: 'range', min: 0.3, max: 3, step: 0.01, default: 1 },
+    ...tableFxParams(),
   ],
   cardParams: raiseCardParams,
   compute({ aspect, W, H, p, cards = {}, albums = [] }) {
@@ -90,6 +91,7 @@ export default {
       items: scaled,
       group: { x: gx, y: gy, rx: -p.tilt, rz: p.turn },
       camera: tableCamera(p),
+      ...tableFx(p),
     };
   },
 };

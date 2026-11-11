@@ -303,6 +303,15 @@ button { font: inherit; color: inherit; }
 .ctrls .ctrl.stacked { flex-direction: column; align-items: stretch; gap: 6px; min-height: 0; }
 .ctrls .ctrl.stacked .ctrl-label { color: var(--muted); font-size: 13px; }
 .ctrls .ctrl.stacked > :not(.ctrl-label) { width: 100%; }
+/* 改过的参数：名称后面一个「恢复默认」按钮（同时标出哪些参数和默认不同） */
+.ctrl-reset {
+  flex: none; display: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: 6px; background: none; color: var(--accent); cursor: pointer; position: relative;
+}
+.ctrl.changed > .ctrl-reset { display: inline-flex; }
+.ctrl-reset:hover { background: rgba(124, 140, 255, .18); }
+.ctrls .ctrl.stacked { position: relative; }
+.ctrls .ctrl.stacked > .ctrl-reset { position: absolute; right: 0; top: -3px; width: 22px; }
 /* 数值条 */
 .ctrls .ctrl.sfield {
   position: relative; overflow: hidden; height: 40px; padding: 0 14px;
@@ -511,6 +520,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .layer-card.active .layer-name, .layer-card:hover .layer-name { color: var(--text); }
 .layer-mask .layer-type { color: var(--accent); }
 .layer-empty { cursor: default; color: var(--faint); }
+.layer-empty .layer-name { white-space: normal; line-height: 1.45; }
 .layer-group + .layer-row:not(.layer-child), .layer-child + .layer-row:not(.layer-child) { margin-top: 4px; }
 .layer-row.under .layer-type { color: var(--faint); opacity: .8; }
 .num-input { width: 90px; }

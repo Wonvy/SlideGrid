@@ -1,5 +1,5 @@
 import { DEG } from '../../core/utils.js';
-import { fillGrid, svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableReach } from '../helpers.js';
+import { fillGrid, svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableReach, tableFxParams, tableFx } from '../helpers.js';
 
 // 等距展台：卡片平铺在地面上（等距视角，也可以加透视），中间几张翻起或浮起，像桌面上摊开的名片 / 网页样机。
 // 翻起：以卡片下边为轴立起来；浮起：整张抬高。翻起的角度依次变化（全角度 → 平放浮起 → 六成角度…）显得错落。
@@ -23,7 +23,8 @@ export default {
     { key: 'tilt', label: '俯视角度', type: 'range', min: 20, max: 80, default: 45, unit: '°' },
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },
     PERSP_PARAM,
-    { key: 'zoom', label: '缩放', type: 'range', min: 0.5, max: 3, step: 0.01, default: 1.35 },
+    { key: 'zoom', label: '缩放', type: 'range', min: 0.5, max: 3, step: 0.01, default: 1.1 },
+    ...tableFxParams({ farFade: 0.45, dof: 0.4 }),
   ],
   cardParams: raiseCardParams,
   compute({ n, aspect, W, H, p, cards = {} }) {
@@ -46,6 +47,7 @@ export default {
       items,
       group: { rx: -p.tilt, rz: p.turn, s: p.zoom },
       camera: tableCamera(p),
+      ...tableFx(p),
     };
   },
 };
