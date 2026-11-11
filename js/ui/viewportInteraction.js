@@ -39,7 +39,7 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  */
 export function attachViewportInteraction(target, opts) {
   const {
-    getTool, setTool, toolAvailable, is3D, canSwap, getSlide, onTempHand, cardSelectable = () => false,
+    getTool, setTool, toolAvailable, is3D, isPerspective = is3D, canSwap, getSlide, onTempHand, cardSelectable = () => false,
     // 画板与视图
     boardAt, activeBoard, activateBoard, boardRect, deleteSelectedBoards,
     selectedBoards, toggleBoardSelection, selectBoards, selectAllBoards, moveBoards, setMarquee,
@@ -466,7 +466,7 @@ export function attachViewportInteraction(target, opts) {
         break;
       case 'contentPan': {
         // 构图平移：屏幕像素 → 画板世界单位
-        const k = (1 / boardRect(activeBoard()).zoom) * panFactor(drag.cam, is3D());
+        const k = (1 / boardRect(activeBoard()).zoom) * panFactor(drag.cam, isPerspective());
         setCamera({ panX: (drag.cam.panX || 0) + dx * k, panY: (drag.cam.panY || 0) - dy * k });
         break;
       }
@@ -588,7 +588,7 @@ export function attachViewportInteraction(target, opts) {
       const cx = (sx - r.sx - r.sw / 2) / r.zoom;
       const cy = -(sy - r.sy - r.sh / 2) / r.zoom;
       const cam = getCamera();
-      setCamera(zoomAround(cam, is3D(), cx, cy, clamp((cam.zoom || 1) * Math.exp(-e.deltaY * 0.0015), 0.2, 8)));
+      setCamera(zoomAround(cam, isPerspective(), cx, cy, clamp((cam.zoom || 1) * Math.exp(-e.deltaY * 0.0015), 0.2, 8)));
       return;
     }
     let dy = e.deltaY, dx = e.deltaX;

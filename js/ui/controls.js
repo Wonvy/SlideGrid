@@ -308,12 +308,17 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
         break;
       }
       case 'seed': {
+        // 随机种子：「换一组」随机换一种摆法，「上一个」退回之前的（ctx.seeds 记录历史，没有时只在这一行里记）
         const display = el('span', { class: 'ctrl-value' });
-        const btn = el('button', { class: 'btn small' }, icon('shuffle', 13), '换一组');
-        btn.addEventListener('click', () => onChange(def.key, Math.floor(Math.random() * 1e6)));
-        render = v => { display.textContent = `#${v}`; };
+        const local = [];
+        const hist = ctx.seeds || { push: (k, v) => local.push(v), pop: () => local.pop(), size: () => local.length };
+        const back = el('button', { class: 'btn small', title: '退回上一个摆法' }, icon('undo-2', 13), '上一个');
+        const btn = el('button', { class: 'btn small', title: '随机换一种摆法' }, icon('shuffle', 13), '换一组');
+        btn.addEventListener('click', () => { hist.push(def.key, current); onChange(def.key, Math.floor(Math.random() * 1e6)); });
+        back.addEventListener('click', () => { const v = hist.pop(def.key); if (v !== undefined) onChange(def.key, v); });
+        render = v => { display.textContent = `#${v}`; back.disabled = !hist.size(def.key); };
         wheel = (steps, fast) => Math.max(0, current + steps * (fast ? 10 : 1));
-        row.append(el('div', { class: 'ctrl-actions' }, display, btn));
+        row.append(el('div', { class: 'ctrl-actions' }, display, back, btn));
         row.classList.add('inline');
         break;
       }

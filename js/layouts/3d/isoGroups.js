@@ -7,6 +7,7 @@ export default {
   id: 'isoGroups',
   name: '分组展台',
   category: '3d',
+  surface: 'table', // 内容平面是桌面：立方体视图里朝镜头的那面是「上」（俯视 = 正对卡片）
   icon: svg(`
     <polygon points="2,14 10,10 16,13 8,17"/><polygon points="12,9 20,5 26,8 18,12"/><polygon points="22,4 30,0 36,3 28,7"/>
     <polygon points="10,22 18,18 24,21 16,25" opacity=".55"/><polygon points="20,17 28,13 34,16 26,20" opacity=".55"/><polygon points="30,12 38,8 44,11 36,15" opacity=".55"/>

@@ -32,6 +32,14 @@ jobs:
         run: python build.py --check
       - name: 冒烟测试（开发版 + 单文件版）
         run: python tests/smoke.py
+      - name: 版式截图对比
+        run: python tests/visual.py
+      - name: 上传截图对比结果
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-out
+          path: tests/visual-out/
 
   deploy:
     needs: test

@@ -1,5 +1,6 @@
 import * as m4 from './math.js';
 import { DEG } from '../core/utils.js';
+import { cameraRot } from './orient.js';
 import { aspectValue, isLongAspect, parsePixels } from '../config.js';
 
 // 世界坐标：画布高度固定为 1000，宽度 = 1000 × 画布比例，原点在画布中心，y 轴向上。
@@ -38,8 +39,16 @@ export function resolveCanvas({ slides, layout, params, aspect }) {
   return { W, H, long: true };
 }
 
-function makeCamera(cam, user, W, H) {
-  const rot = m4.multiply(m4.rotationX((user.pitch || 0) * DEG), m4.rotationY((user.yaw || 0) * DEG));
+// 实际使用的相机类型：版式给的，或立方体视图里切换的（user.proj：'ortho' 正交 / 'persp' 透视）
+export function effectiveCamera(cam = { type: 'ortho' }, user = {}) {
+  if (user.proj === 'ortho') return { type: 'ortho' };
+  if (user.proj === 'persp') return { type: 'perspective', fov: cam.type === 'perspective' ? cam.fov : 32 };
+  return cam;
+}
+
+function makeCamera(layoutCam, user, W, H) {
+  const cam = effectiveCamera(layoutCam, user);
+  const rot = cameraRot(user); // pitch / yaw（构图工具）+ q（立方体视图）
   const zoom = user.zoom || 1;
   const pan = m4.translation(user.panX || 0, user.panY || 0, 0);
   if (cam.type === 'perspective') {
@@ -248,18 +257,24 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
   if (fx && (fx.fade > 0 || fx.dof > 0)) {
     let far = Infinity, near = -Infinity;
     const up = []; // 画板里抬起的卡片（自动对焦用）
+    let mid = null, midDist = Infinity; // 离画板中心最近的卡片（没有抬起的卡片时对焦在它上面）
     for (const it of items) {
       const c = m4.transformVec4(viewProj, [it.model[12], it.model[13], it.model[14], 1]);
       if (c[3] <= 1e-6 || Math.abs(c[0] / c[3]) > 1 || Math.abs(c[1] / c[3]) > 1) continue;
       const d = it.fxDepth ?? it.depth;
       far = Math.min(far, d); near = Math.max(near, d);
       if (it.lifted) up.push(d);
+      const dist = Math.hypot((c[0] / c[3]) * W / H, c[1] / c[3]);
+      if (dist < midDist) { midDist = dist; mid = d; }
     }
     if (near > far) {
       let focus = typeof fx.focus === 'number' ? fx.focus : 0.5;
       if (fx.focus === 'auto') {
         // 对焦在抬起的卡片上（等距展台 / 分组展台抬起的卡片、满铺堆叠的主卡片）
-        if (up.length) focus = Math.min(1, Math.max(0, (up.reduce((a, d) => a + d, 0) / up.length - far) / (near - far)));
+        // 有主次顺序的版式（纵深层叠、环形展台）：对焦在第一张（最前面 / 主图）上
+        const hero = layout.ordered ? items.find(it => it.order === 0) : null;
+        const at = up.length ? up.reduce((a, d) => a + d, 0) / up.length : hero ? hero.fxDepth ?? hero.depth : mid;
+        if (at != null) focus = Math.min(1, Math.max(0, (at - far) / (near - far)));
       }
       depthFx = { fade: +fx.fade || 0, dof: +fx.dof || 0, focus, far, near, dofPad: (+fx.dof || 0) * 0.035 };
     }
@@ -270,7 +285,7 @@ export function buildScene({ slides, layout, params, style, aspect, camera, adju
 
   return {
     W, H, long, px, items, viewProj, coplanar: coplanar && !floors.length, style, groupM, floors, depthFx,
-    extraSlides: [...extraSlides.values()], ortho: (result.camera || {}).type !== 'perspective',
+    extraSlides: [...extraSlides.values()], ortho: effectiveCamera(result.camera, camera || {}).type !== 'perspective', layoutCamera: result.camera || { type: 'ortho' },
   };
 }
 

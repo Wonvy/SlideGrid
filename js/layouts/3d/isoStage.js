@@ -8,6 +8,7 @@ export default {
   id: 'isoStage',
   name: '等距展台',
   category: '3d',
+  surface: 'table', // 内容平面是桌面：立方体视图里朝镜头的那面是「上」（俯视 = 正对卡片）
   icon: svg(`
     <polygon points="2,18 12,13 20,17 10,22" opacity=".45"/><polygon points="14,24 24,19 32,23 22,28" opacity=".45"/>
     <polygon points="28,11 38,6 46,10 36,15" opacity=".45"/><polygon points="30,25 40,20 48,24 38,29" opacity=".45"/>

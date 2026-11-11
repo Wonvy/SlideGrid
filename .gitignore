@@ -11,3 +11,6 @@ __pycache__/
 
 # 打包输出（python3 build.py 生成）
 dist/
+
+# 版式截图对比的输出（python tests/visual.py）
+tests/visual-out/

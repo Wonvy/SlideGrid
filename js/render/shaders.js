@@ -122,25 +122,24 @@ void main() {
   vec2 uv = vLocal / uSize + 0.5;
   uv.y = 1.0 - uv.y;
   uv = uv * uUV.xy + uUV.zw;
-  vec2 gx = dFdx(uv), gy = dFdy(uv); // 导数要在分支外面算（同一组像素有的走模糊分支、有的不走）
-  vec4 c;
+  // 导数和普通采样都要在分支外面做（同一组像素有的走模糊分支、有的不走，分支里的隐式导数不可靠）
+  vec2 gx = dFdx(uv), gy = dFdy(uv);
+  vec4 c = texture(uTex, uv);   // 预乘 alpha
   if (blurW > 0.0) {
-    // 景深：把两个方向的采样梯度各自放大到至少等于模糊半径（各向异性过滤照常起作用，模糊从 0 开始连续变化，
-    // 不会出现分界线），再在一圈上取 8 个点平均；半径按卡片宽度的比例算，和导出分辨率无关
+    // 景深：把两个方向的采样梯度各自放大到至少等于模糊半径，再在一圈上取 8 个点平均；半径按卡片宽度的比例算，和导出分辨率无关。
+    // 显式梯度的采样在有些显卡上没有各向异性过滤，刚开始模糊的地方会比普通采样「糊一档」——从普通采样渐变过去，不出现分界线
     vec2 ts = vec2(textureSize(uTex, 0));
     vec2 r = vec2(blurW / uSize.x, blurW / uSize.y) * uUV.xy; // 半径（uv）
     float want = r.x * ts.x * 0.5; // 至少覆盖几个纹素
     gx *= max(1.0, want / (length(gx * ts) + 1e-6));
     gy *= max(1.0, want / (length(gy * ts) + 1e-6));
     vec2 lo = uUV.zw, hi = uUV.zw + uUV.xy;
-    c = textureGrad(uTex, uv, gx, gy) * 2.0;
+    vec4 b = textureGrad(uTex, uv, gx, gy) * 2.0;
     for (int i = 0; i < 8; i++) {
       float a = float(i) * 0.7853982;
-      c += textureGrad(uTex, clamp(uv + vec2(cos(a), sin(a)) * r * 0.6, lo, hi), gx, gy);
+      b += textureGrad(uTex, clamp(uv + vec2(cos(a), sin(a)) * r * 0.6, lo, hi), gx, gy);
     }
-    c /= 10.0;
-  } else {
-    c = texture(uTex, uv);   // 预乘 alpha
+    c = mix(c, b / 10.0, smoothstep(0.0, 0.35, blurW / (DOF_MAX * uSize.x)));
   }
 
   if (uBorder > 0.0) {

@@ -22,7 +22,7 @@ import { el } from './ui/dom.js';
 import { setWheelMode } from './ui/wheel.js';
 import { applyIcons, icon } from './ui/icons.js';
 import './core/noPageZoom.js';
-import { placeholders, slidesOf, hasRealSlides, is3D, getAdjust, nextLift } from './app/boards.js';
+import { placeholders, slidesOf, hasRealSlides, is3D, isPerspective, getAdjust, nextLift } from './app/boards.js';
 import { ui, setUi, setSelection, clearSelection, resetCardState, onUiChange } from './app/uiState.js';
 import { activeCardScene, visibleCards, stackCards, canStack } from './app/cardOrder.js';
 import { createWorkspace } from './app/workspace.js';
@@ -39,6 +39,7 @@ import { applyLayerProp, typeName } from './layers/model.js';
 import { createMockups } from './app/mockups.js';
 import { createMemoryGuard } from './app/memory.js';
 import { hasAdjust } from './render/scene.js';
+import { createViewCube } from './ui/viewCube.js';
 
 /**
  * 入口：创建各个模块并把它们连起来。
@@ -296,6 +297,7 @@ const settings = createSettingsPanel($('settings-panel'), {
   },
   // 从工具条「更多背景 / 遮罩设置」跳过来时，先取消选择，回到画板设置
   onBoardRequest: () => { clearSelection(); layerTools?.clear(); },
+  layoutPreview: exporting.layoutPreview,
 });
 document.querySelector('#settings-panel .rp-tabs').append(panels.collapseButton('right'));
 const presetsPanel = createPresetsPanel(settings.presetsContainer, {
@@ -498,11 +500,15 @@ const resizeHandles = createResizeHandles(viewport, {
 
 const onContextMenu = createContextMenus({ ws, boards, importing, exporting, panels, slidesPanel, bgPicker, setTool, layerTools, ui });
 
+// 立方体视图（3D 版式时在画布右上角）：拖动旋转视角、点面切换正视 / 俯视…、透视 / 正交
+createViewCube($('stage'), { store, actions });
+
 interaction = attachViewportInteraction(viewport, {
   getTool: () => ui.tool,
   setTool,
   toolAvailable: id => toolAvailability(id).ok,
   is3D,
+  isPerspective,
   cardSelectable: () => !!getLayout(store.get().layoutId).cardParams,
   canSwap: hasRealSlides,
   getSlide: i => store.get().slides[i],

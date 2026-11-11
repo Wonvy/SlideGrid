@@ -1,6 +1,6 @@
 import { store, boardSettingsOf, libraryOf } from '../state.js';
 import { getLayout } from '../layouts/index.js';
-import { cachedCanvas } from '../render/scene.js';
+import { cachedCanvas, cachedScene } from '../render/scene.js';
 import { createPlaceholders } from '../slides/placeholders.js';
 
 /**
@@ -62,6 +62,8 @@ export function boardInput(s, st) {
 
 // 当前画板的设置在 store 顶层
 export const sceneInput = s => boardInput(s, boardSettingsOf(s));
+// 当前画板实际用的是不是透视相机（版式给的，或立方体视图里切换的）：构图的缩放 / 平移按这个换算
+export const isPerspective = (s = store.get()) => !cachedScene(sceneInput(s)).ortho;
 export const canvasOf = s => cachedCanvas(sceneInput(s));
 
 // 画板在工作区里的世界坐标范围

@@ -24,7 +24,7 @@ const store_ = {
  *   样机：把幻灯片放进笔记本 / 显示器 / 平板 / 投影幕（添加为样机图层）
  *   偏好：滚轮等操作习惯（图标栏底部）
  */
-export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null }) {
+export function createSettingsPanel(root, { store, actions, notify = () => {}, imageCtx = {}, onBoardRequest = null, layoutPreview = null }) {
   root.innerHTML = '';
   root.classList.add('right-panel');
 
@@ -71,6 +71,56 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     el('div', { class: 'rp-main' }, pageTitle, multiBanner, ...Object.values(panes)),
   );
 
+  /* ================= 版式悬停预览 ================= */
+  // 鼠标停在版式上：用当前画板的图片和这个版式现在的参数渲染一张小图，显示在面板左边（不用点进去就知道效果）
+  const preview = (() => {
+    const box = el('div', { class: 'layout-preview', hidden: true });
+    const frame = el('div', { class: 'lp-frame' });
+    const title = el('div', { class: 'lp-title' });
+    const hint = el('div', { class: 'lp-hint' }, '单击应用 · 双击应用并调参数');
+    box.append(frame, el('div', { class: 'lp-foot' }, title, hint));
+    document.body.append(box);
+    const cache = new Map(); // layoutId → { key, canvas }
+    let timer = 0, token = 0;
+    // 影响预览的状态：任何一项变了就重新渲染
+    const keyOf = (s, id) => [s.slides, s.params[id], s.style, s.aspect, s.layers, s.albums, s.adjust[id], s.camera, s.assets];
+    const same = (a, b) => a && a.length === b.length && a.every((x, i) => x === b[i]);
+    const place = anchor => {
+      const r = anchor.getBoundingClientRect();
+      const w = box.offsetWidth, h = box.offsetHeight;
+      box.style.left = `${Math.max(8, r.left - w - 12)}px`;
+      box.style.top = `${Math.min(window.innerHeight - h - 8, Math.max(8, r.top + r.height / 2 - h / 2))}px`;
+    };
+    const show = (l, anchor) => {
+      if (!layoutPreview) return;
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const s = store.get();
+        if (s.aspect === 'long' || !s.slides.length) return;
+        const my = ++token;
+        title.textContent = l.name;
+        const key = keyOf(s, l.id);
+        let hit = cache.get(l.id);
+        if (!hit || !same(hit.key, key)) {
+          frame.replaceChildren(el('div', { class: 'lp-loading' }, '正在生成预览…'));
+          box.hidden = false;
+          place(anchor);
+          let canvas = null;
+          try { canvas = await layoutPreview(l.id); } catch { canvas = null; }
+          if (my !== token) return;
+          if (!canvas) { box.hidden = true; return; }
+          hit = { key, canvas };
+          cache.set(l.id, hit);
+        }
+        frame.replaceChildren(hit.canvas);
+        box.hidden = false;
+        place(anchor);
+      }, 180);
+    };
+    const hide = () => { clearTimeout(timer); token++; box.hidden = true; };
+    return { show, hide };
+  })();
+
   /* ================= 版式页：内置 / 我的版式 ================= */
   const builtin = el('div', { class: 'tab-body' });
   const layoutButtons = new Map();
@@ -84,8 +134,10 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
       const ic = el('span', { class: 'layout-icon' });
       ic.innerHTML = l.icon;
       const btn = el('button', { class: 'layout-btn', title: l.name }, ic, el('span', { class: 'layout-name' }, l.name));
-      btn.addEventListener('click', () => pick(l, false));
+      btn.addEventListener('click', () => { preview.hide(); pick(l, false); });
       btn.addEventListener('dblclick', () => pick(l, true)); // 双击：应用并去调参数
+      btn.addEventListener('mouseenter', () => preview.show(l, btn));
+      btn.addEventListener('mouseleave', () => preview.hide());
       layoutButtons.set(l.id, btn);
       grid.append(btn);
     }
@@ -127,9 +179,28 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
   const curIcon = el('span', { class: 'layout-icon' });
   const curName = el('div', { class: 'cur-name' });
   const curMeta = el('div', { class: 'cur-meta' });
+  // 随机种子的历史（每个版式各记各的）：「换一组」之前的值，「上一个」退回
+  const seedHistory = new Map();
+  const seedsOf = layoutId => {
+    const list = k => {
+      const id = `${layoutId}:${k}`;
+      if (!seedHistory.has(id)) seedHistory.set(id, []);
+      return seedHistory.get(id);
+    };
+    return { push: (k, v) => { const l = list(k); l.push(v); if (l.length > 50) l.shift(); }, pop: k => list(k).pop(), size: k => list(k).length };
+  };
+  // 有随机种子的版式（散落、空中飘落、满铺堆叠）：版式卡片上直接放一个「换一种摆法」
+  const diceBtn = el('button', { class: 'icon-btn visible', title: '随机换一种摆法（「随机种子」里可以退回上一个）', 'aria-label': '随机换一种摆法' }, icon('shuffle', 15));
+  diceBtn.addEventListener('click', () => {
+    const s = store.get(), def = getLayout(s.layoutId).params.find(d => d.type === 'seed');
+    if (!def) return;
+    seedsOf(s.layoutId).push(def.key, s.params[s.layoutId]?.[def.key] ?? def.default);
+    actions.setParam(def.key, Math.floor(Math.random() * 1e6));
+  });
   const current = el('div', { class: 'current-layout' },
     curIcon,
     el('div', { class: 'cur-text' }, curName, curMeta),
+    diceBtn,
     el('button', { class: 'btn ghost small', title: '去「版式」页选择其他版式', onclick: () => showMain('layouts') }, '更换'));
   // 设计页：选中图层 / 卡片时显示它们的属性（ui/inspector.js），否则显示画板设置
   const selectionSlot = el('div', { class: 'inspector', hidden: true });
@@ -156,7 +227,7 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
 
   // 构图：没有可调的参数，只在用构图工具调整过之后出现（显示调整了什么 + 复位）
   const cameraNote = el('p', { class: 'note compact' });
-  const cameraSection = section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度）', () => actions.resetCamera()));
+  const cameraSection = section('构图', cameraNote, resetBtn('复位构图（缩放、平移、3D 角度、投影）', () => actions.resetCamera()));
   boardBox.append(cameraSection);
 
   // 样式各页：直接放这一组的参数（页面标题就是分组名）
@@ -192,7 +263,8 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     if (s.layoutId !== currentLayout) {
       currentLayout = s.layoutId;
       const layout = getLayout(currentLayout);
-      updateParams = buildControls(paramsBox, layout.params, s.params[currentLayout], actions.setParam, { albums: () => store.get().albums, markChanged: true });
+      updateParams = buildControls(paramsBox, layout.params, s.params[currentLayout], actions.setParam, { albums: () => store.get().albums, markChanged: true, seeds: seedsOf(currentLayout) });
+      diceBtn.hidden = !layout.params.some(d => d.type === 'seed');
       layoutButtons.forEach((b, id) => b.classList.toggle('active', id === currentLayout));
       curIcon.innerHTML = layout.icon;
       curName.textContent = layout.name;
@@ -202,10 +274,11 @@ export function createSettingsPanel(root, { store, actions, notify = () => {}, i
     const changed = [
       Math.abs((cam.zoom ?? 1) - 1) > 1e-3 ? `缩放 ${Math.round((cam.zoom ?? 1) * 100)}%` : '',
       Math.abs(cam.panX || 0) > 1e-3 || Math.abs(cam.panY || 0) > 1e-3 ? '平移' : '',
-      Math.abs(cam.yaw || 0) > 1e-3 || Math.abs(cam.pitch || 0) > 1e-3 ? '3D 角度' : '',
+      Math.abs(cam.yaw || 0) > 1e-3 || Math.abs(cam.pitch || 0) > 1e-3 || (cam.q && Math.abs(cam.q[3]) < 0.99999) ? '3D 角度' : '',
+      cam.proj === 'ortho' ? '正交投影' : cam.proj === 'persp' ? '透视投影' : '',
     ].filter(Boolean);
     cameraSection.hidden = !changed.length;
-    cameraNote.textContent = `已调整：${changed.join('、')}（构图工具 O）`;
+    cameraNote.textContent = `已调整：${changed.join('、')}（构图工具 O、画布右上角的立方体视图）`;
     const long = s.aspect === 'long';
     layoutButtons.forEach((b, id) => {
       const off = long && !getLayout(id).long;

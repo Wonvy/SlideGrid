@@ -169,21 +169,36 @@ export function tableReach({ tilt, persp, W, H, s = 1, cap = Infinity }) {
  *   farFade 远处渐隐（远处的卡片淡出到背景，也让铺满型网格的远端不会突然断掉）、dof 景深模糊、focusMode / focus 对焦（抬起的卡片 / 手动：0 = 最远，1 = 最近）、
  *   floorShadow 抬起的卡片投在桌面上的影子（抬得越高越淡、越散）
  */
-export const tableFxParams = ({ farFade = 0, dof = 0, focus = 0.5, floorShadow = 0.5 } = {}) => [
+export const tableFxParams = ({ farFade = 0, dof = 0, focus = 0.5, floorShadow = 0.5, focusLabel = '抬起的卡片' } = {}) => [
   { key: 'farFade', label: '远处渐隐', type: 'range', min: 0, max: 1, step: 0.01, default: farFade },
   { key: 'dof', label: '景深模糊', type: 'range', min: 0, max: 1, step: 0.01, default: dof },
   {
     key: 'focusMode', label: '对焦', type: 'select', default: 'auto', show: v => v.dof > 0,
-    options: [{ value: 'auto', label: '抬起的卡片' }, { value: 'manual', label: '手动' }],
+    options: [{ value: 'auto', label: focusLabel }, { value: 'manual', label: '手动' }],
   },
   {
     key: 'focus', label: '对焦位置', type: 'range', min: 0, max: 1, step: 0.01, default: focus, show: v => v.dof > 0 && v.focusMode === 'manual',
     format: v => (v <= 0.02 ? '最远处' : v >= 0.98 ? '最近处' : `${Math.round(v * 100)}%（远 → 近）`),
   },
-  { key: 'floorShadow', label: '桌面投影', type: 'range', min: 0, max: 1, step: 0.01, default: floorShadow },
+  ...(floorShadow == null ? [] : [{ key: 'floorShadow', label: '桌面投影', type: 'range', min: 0, max: 1, step: 0.01, default: floorShadow }]),
 ];
 // focus：'auto' = 对焦在抬起的卡片上（没有抬起的卡片时在中间）
 export const tableFx = p => ({
   depthFx: { fade: p.farFade || 0, dof: p.dof || 0, focus: p.focusMode === 'manual' ? p.focus ?? 0.5 : 'auto' },
   floorShadow: p.floorShadow ?? 0,
 });
+
+/**
+ * 给其他 3D 版式加上远近效果（远处渐隐、景深模糊）：在参数最后加上这几项，compute 的结果里带上 depthFx。
+ * 没有抬起的卡片时，「自动」对焦在第一张（有主次顺序的版式：纵深层叠、环形展台）或离画板中心最近的那张卡片上。
+ */
+export function withDepthFx(layout, defaults = {}) {
+  return {
+    ...layout,
+    params: [...layout.params, ...tableFxParams({ ...defaults, floorShadow: null, focusLabel: layout.ordered ? '最前面的卡片' : '画面中间的卡片' })],
+    compute(args) {
+      const r = layout.compute(args);
+      return r && { ...r, depthFx: tableFx(args.p).depthFx };
+    },
+  };
+}

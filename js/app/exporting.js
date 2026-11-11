@@ -6,6 +6,7 @@ import { createZip } from '../persist/zip.js';
 import { createExportPopover } from '../ui/exportPopover.js';
 import { toast } from '../ui/toast.js';
 import { boardInput, sceneInput, canvasOf, safeName } from './boards.js';
+import { getLayout } from '../layouts/index.js';
 
 /**
  * 导出图片 / 复制到剪贴板 / 离屏预览。
@@ -166,6 +167,16 @@ export function createExporting({ copyBtn, exportBtn }) {
     doExport,
     doCopy,
     renderToBlob: opts => renderToBlob(sceneInput(store.get()), opts),
+    // 版式预览（版式页悬停时）：当前画板换成这个版式（用它现在的参数）离屏渲染一张小图；长图模式下不预览
+    layoutPreview: async (layoutId, longSide = 420) => {
+      const s = store.get();
+      if (s.aspect === 'long') return null;
+      const layout = getLayout(layoutId);
+      if (!layout) return null;
+      const params = s.params[layoutId] || Object.fromEntries(layout.params.filter(d => d.key).map(d => [d.key, d.default]));
+      const input = { ...sceneInput(s), layout, params, adjust: s.adjust[layoutId] || null };
+      return (await renderToCanvas(input, { longSide, preview: true })).canvas;
+    },
     download: downloadBlob,
   };
 }

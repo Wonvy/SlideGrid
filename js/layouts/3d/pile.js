@@ -7,6 +7,7 @@ export default {
   id: 'pile',
   name: '满铺堆叠',
   category: '3d',
+  surface: 'table', // 内容平面是桌面：立方体视图里朝镜头的那面是「上」（俯视 = 正对卡片）
   icon: svg(`
     <rect x="1" y="2" width="14" height="9" rx="1" transform="rotate(-18 8 6.5)" opacity=".45"/>
     <rect x="32" y="1" width="14" height="9" rx="1" transform="rotate(22 39 5.5)" opacity=".45"/>
