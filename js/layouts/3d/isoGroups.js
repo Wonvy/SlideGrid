@@ -1,5 +1,4 @@
-import { DEG } from '../../core/utils.js';
-import { svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES } from '../helpers.js';
+import { svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableProjector } from '../helpers.js';
 
 // 分组展台：等距展台的有限网格版，每一列（也可以改成每一行）是一组、用一个图集的图片——
 // 适合分组展示（例如第一列 App 界面、第二列海报、第三列名片）。组与组之间可以多留一点间距；
@@ -28,8 +27,9 @@ export default {
     { key: 'angle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°' },
     { key: 'height', label: '浮起高度', type: 'range', min: 0, max: 300, default: 36 },
     { key: 'edge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES },
-    { key: 'tilt', label: '俯视角度', type: 'range', min: 0, max: 80, default: 55, unit: '°' },
+    { key: 'tilt', label: '俯视角度', type: 'range', min: 0, max: 80, default: 40, unit: '°' },
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },
+    { ...PERSP_PARAM, default: 35 },
     { key: 'zoom', label: '缩放', type: 'range', min: 0.3, max: 3, step: 0.01, default: 1 },
   ],
   cardParams: raiseCardParams,
@@ -63,14 +63,20 @@ export default {
         });
       }
     }
-    // 投影后（平面旋转 + 俯视压扁）整个网格放进画板的 88%，再乘「缩放」
-    const t = p.turn * DEG, ct = Math.cos(t), st = Math.sin(t), squash = Math.cos(p.tilt * DEG);
-    let bx = 0, by = 0;
-    for (const [x, y] of [[-gw / 2, -gh / 2], [gw / 2, -gh / 2], [gw / 2, gh / 2], [-gw / 2, gh / 2]]) {
-      bx = Math.max(bx, Math.abs(x * ct - y * st));
-      by = Math.max(by, Math.abs((x * st + y * ct) * squash));
+    // 投影后（平面旋转 + 俯视压扁 + 透视）整个网格放进画板的 88% × 「缩放」，并居中（透视下近处大、远处小，要往回挪）
+    const corners = [[-gw / 2, -gh / 2], [gw / 2, -gh / 2], [gw / 2, gh / 2], [-gw / 2, gh / 2]];
+    let k = Math.min(W, H) / Math.max(gw, gh), gx = 0, gy = 0;
+    for (let iter = 0; iter < 12; iter++) {
+      const proj = tableProjector({ tilt: p.tilt, turn: p.turn, persp: p.persp, H, s: k, gx, gy });
+      const pts = corners.map(([x, y]) => proj(x, y));
+      if (pts.some(q => !q)) { k *= 0.6; continue; } // 有角跑到相机后面：先缩小
+      const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+      const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+      const over = Math.max((Math.max(...xs) - Math.min(...xs)) / (W * 0.88), (Math.max(...ys) - Math.min(...ys)) / Math.max(H * 0.88, 1e-6)) / p.zoom;
+      gx -= cx; gy -= cy;
+      if (Math.abs(over - 1) < 0.002 && Math.abs(cx) + Math.abs(cy) < 0.5) break;
+      k /= p.persp > 0 ? Math.sqrt(over) : over; // 透视下放大不是线性的：慢一点逼近
     }
-    const k = Math.min((W * 0.44) / bx, (H * 0.44) / Math.max(by, 1e-6)) * p.zoom;
     const scaled = items.map(it => ({ ...it, x: it.x * k, y: it.y * k, w: it.w * k, h: it.h * k }));
     // 自动翻起：离中心最近的几张
     const raise = Math.max(0, Math.round(p.raise));
@@ -82,8 +88,8 @@ export default {
     }
     return {
       items: scaled,
-      group: { rx: -p.tilt, rz: p.turn },
-      camera: { type: 'ortho' },
+      group: { x: gx, y: gy, rx: -p.tilt, rz: p.turn },
+      camera: tableCamera(p),
     };
   },
 };

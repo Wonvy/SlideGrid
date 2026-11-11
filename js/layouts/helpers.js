@@ -109,3 +109,40 @@ export function cardRaise(card, p, auto) {
     turn: card.raiseTurn ?? 0,
   };
 }
+
+/**
+ * 桌面视角（等距展台 / 分组展台）：卡片平铺在桌面上，先平面旋转 turn，再俯视 tilt（group: rx = -tilt, rz = turn）。
+ * persp > 0 时用透视相机（视场角 = persp，远处的卡片变小，俯视的压扁读起来像「倒下去」而不是「拉长」）；0 = 正交（等距）。
+ */
+export const PERSP_PARAM = { key: 'persp', label: '透视强度', type: 'range', min: 0, max: 60, default: 30, unit: '°', format: v => (v > 0 ? `${Math.round(v)}°` : '无（等距）') };
+export const tableCamera = p => (p.persp > 0 ? { type: 'perspective', fov: p.persp } : { type: 'ortho' });
+const camDist = (persp, H) => (H / 2) / Math.tan((persp * DEG) / 2); // 相机到 z=0 平面的距离（见 render/scene.js）
+
+/** 桌面上的点（x, y，桌面坐标；s：整组缩放；gx / gy：整组平移）投影到画板上（中心为原点，y 向上）；在相机后面返回 null */
+export function tableProjector({ tilt, turn, persp, H, s = 1, gx = 0, gy = 0 }) {
+  const ct = Math.cos(turn * DEG), st = Math.sin(turn * DEG), cv = Math.cos(tilt * DEG), sv = Math.sin(tilt * DEG);
+  const dist = persp > 0 ? camDist(persp, H) : Infinity;
+  return (x, y) => {
+    const rx = (x * ct - y * st) * s, ry = (x * st + y * ct) * s;
+    const X = rx + gx, Y = ry * cv + gy, Z = -ry * sv; // 往远处（桌面上方）z 变小
+    if (!isFinite(dist)) return [X, Y];
+    if (dist - Z < dist * 0.05) return null;
+    const f = dist / (dist - Z);
+    return [X * f, Y * f];
+  };
+}
+
+/** 画板四个角看到的桌面离中心最远多远（桌面坐标）；透视下看得到地平线时返回 cap */
+export function tableReach({ tilt, persp, W, H, s = 1, cap = Infinity }) {
+  const cv = Math.cos(tilt * DEG), sv = Math.sin(tilt * DEG);
+  if (!(persp > 0)) return Math.hypot(W, H) / 2 / s / Math.max(cv, 0.05);
+  const dist = camDist(persp, H);
+  let far = 0;
+  for (const [sx, sy] of [[-W / 2, -H / 2], [W / 2, -H / 2], [W / 2, H / 2], [-W / 2, H / 2]]) {
+    const den = cv * dist - sv * sy;
+    if (den <= cv * dist * 0.02) return cap;
+    const l = (cv * dist) / den; // 视线 (0, 0, dist) + l·(sx, sy, -dist) 与桌面的交点
+    far = Math.max(far, Math.hypot(l * sx, l * sy, dist * (1 - l)));
+  }
+  return Math.min(cap, far / s);
+}

@@ -1,7 +1,7 @@
 import { DEG } from '../../core/utils.js';
-import { fillGrid, svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES } from '../helpers.js';
+import { fillGrid, svg, raiseItem, raiseCardParams, cardRaise, RAISE_EDGES, PERSP_PARAM, tableCamera, tableReach } from '../helpers.js';
 
-// 等距展台：卡片平铺在地面上（正交、等距视角），中间几张翻起或浮起，像桌面上摊开的名片 / 网页样机。
+// 等距展台：卡片平铺在地面上（等距视角，也可以加透视），中间几张翻起或浮起，像桌面上摊开的名片 / 网页样机。
 // 翻起：以卡片下边为轴立起来；浮起：整张抬高。翻起的角度依次变化（全角度 → 平放浮起 → 六成角度…）显得错落。
 // 也可以选中任意卡片，在「设计」页单独设置抬起 / 放平、角度、高度、翻起的轴和倾斜（cardParams）。
 export default {
@@ -20,13 +20,16 @@ export default {
     { key: 'angle', label: '翻起角度', type: 'range', min: 0, max: 90, default: 58, unit: '°' },
     { key: 'height', label: '浮起高度', type: 'range', min: 0, max: 300, default: 36 },
     { key: 'edge', label: '翻起的轴', type: 'select', default: 'bottom', options: RAISE_EDGES },
-    { key: 'tilt', label: '俯视角度', type: 'range', min: 20, max: 80, default: 55, unit: '°' },
+    { key: 'tilt', label: '俯视角度', type: 'range', min: 20, max: 80, default: 45, unit: '°' },
     { key: 'turn', label: '平面旋转', type: 'range', min: -90, max: 90, default: -30, unit: '°' },
+    PERSP_PARAM,
     { key: 'zoom', label: '缩放', type: 'range', min: 0.5, max: 3, step: 0.01, default: 1.35 },
   ],
   cardParams: raiseCardParams,
   compute({ n, aspect, W, H, p, cards = {} }) {
-    const extent = (Math.hypot(W, H) * 1.5) / p.zoom / Math.max(Math.cos(p.tilt * DEG), 0.3);
+    // 网格要铺满画板能看到的桌面范围（透视下远处看得更远；看得到地平线时最多铺到正交时的 3 倍）
+    const ortho = (Math.hypot(W, H) * 1.5) / p.zoom / Math.max(Math.cos(p.tilt * DEG), 0.3);
+    const extent = p.persp > 0 ? 3 * tableReach({ tilt: p.tilt, persp: p.persp, W, H, s: p.zoom, cap: ortho }) : ortho;
     const items = fillGrid({ n, aspect, W, gap: p.gap, cols: p.cols, offset: p.offset, extent });
     // 离中心最近的几张自动翻起 / 浮起（角度依次变化）；单张卡片的设置优先
     const raise = Math.max(0, Math.round(p.raise));
@@ -42,7 +45,7 @@ export default {
     return {
       items,
       group: { rx: -p.tilt, rz: p.turn, s: p.zoom },
-      camera: { type: 'ortho' },
+      camera: tableCamera(p),
     };
   },
 };
