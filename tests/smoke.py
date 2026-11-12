@@ -352,12 +352,13 @@ def t_layer_panel(page, errors):
     row = lambda i: page.locator(f'.layer-list .layer-row[data-kind="layer"][data-id="{i}"]')
     order = lambda: page.evaluate("SlideGrid.store.get().layers.filter(l => l.id.startsWith('l_p')).map(l => l.name + (l.under ? '↓' : '')).join('')")
 
-    def drag(src, dst, where):  # where：放在 dst 这一行的上半 / 下半
+    def drag(src, dst, where):
         a, b = src.bounding_box(), dst.bounding_box()
+        offset = {'above': 3, 'onto': b['height'] * 0.6, 'below': b['height'] - 3}[where]
         page.mouse.move(a['x'] + 60, a['y'] + a['height'] / 2)
         page.mouse.down()
         page.mouse.move(a['x'] + 60, a['y'] + a['height'] / 2 + 8, steps=2)
-        page.mouse.move(b['x'] + 60, b['y'] + (3 if where == 'above' else b['height'] - 3), steps=4)
+        page.mouse.move(b['x'] + 60, b['y'] + offset, steps=4)
         page.mouse.up()
 
     assert order() == '甲乙丙', order()  # 列表里从上到下是 丙 乙 甲
@@ -433,6 +434,24 @@ def t_layer_panel(page, errors):
     page.locator('.layer-list .layer-row[data-kind="slides"]').click(button='right')
     page.click('.ctx-menu .menu-item:has-text("恢复版式默认的前后")')
     assert names() == before and not adj(), (names()[:5], adj())
+    # 3D 纵深层叠：直接放到最上方的矩形行，就能把组内卡片拉到矩形前面。
+    page.evaluate("SlideGrid.actions.setLayout('cascade'); SlideGrid.fitBoard(); SlideGrid.render()")
+    rect = row('l_pb')
+    page.evaluate("SlideGrid.actions.updateLayers(['l_pb'], { x: 0, y: 0, w: 1920, h: 1080 })")
+    card = page.locator('.layer-list .layer-card.layer-child').nth(1)
+    cid = int(card.get_attribute('data-id'))
+    card.click()
+    white = page.evaluate(probe, cid)
+    assert white and white[:3] == [255, 255, 255], white
+    drag(card, rect, 'onto')
+    assert adj().get(str(cid), {}).get('above') == 'l_pb', adj()
+    pulled = page.locator(f'.layer-list .layer-card.pulled[data-id="{cid}"]')
+    assert pulled.locator('xpath=following-sibling::*[1]').get_attribute('data-id') == 'l_pb'
+    page.evaluate('SlideGrid.render()')
+    shown = page.evaluate(probe, cid)
+    assert shown and shown[:3] != [255, 255, 255], shown
+    drag(pulled, rect, 'below')
+    assert adj().get(str(cid), {}).get('above') == 'l_pc', adj()
     page.evaluate("""() => { const S = SlideGrid; S.actions.setLayout('scatter'); S.actions.setLayers(S.store.get().layers.filter(l => !l.id.startsWith('l_p'))); S.layers.clear(); }""")
     assert not errors, errors
 

@@ -350,7 +350,14 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   function dropAt(d, y) {
     const blocks = blocksFor(d);
     if (!blocks.length) return null;
-    for (const b of blocks) if (y < (b.top + b.bottom) / 2) return { target: b.id, kind: b.kind, place: 'above', y: b.top - 1 };
+    for (const b of blocks) {
+      // 卡片放到图层行上时盖住该图层，只有贴近行底部才放到它下方。
+      if (d.kind === 'card' && b.kind === 'layer' && y >= b.top && y < b.bottom) {
+        const below = y >= b.bottom - 6;
+        return { target: b.id, kind: b.kind, place: below ? 'below' : 'above', y: below ? b.bottom + 1 : b.top - 1 };
+      }
+      if (y < (b.top + b.bottom) / 2) return { target: b.id, kind: b.kind, place: 'above', y: b.top - 1 };
+    }
     const last = blocks[blocks.length - 1];
     return { target: last.id, kind: last.kind, place: 'below', y: last.bottom + 1 };
   }
