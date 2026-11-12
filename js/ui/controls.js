@@ -63,6 +63,11 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
     const labelText = v => (typeof def.label === 'function' ? def.label(v || {}) : def.label);
     const label = el('label', { class: 'ctrl-label', title: '鼠标停留片刻后可用滚轮调整（Shift 加速）· 双击恢复默认' }, labelText(values));
     label.addEventListener('dblclick', () => onChange(def.key, def.default));
+    const labelIcon = !panel && def.labelIcon;
+    if (labelIcon) {
+      label.title = labelText(values);
+      label.replaceChildren(icon(labelIcon, 15));
+    }
     row.append(label);
 
     // 工具条里名称可能省略显示，悬停时用提示说明是什么参数
@@ -87,6 +92,7 @@ export function buildControls(container, schema, values, onChange, ctx = {}) {
           row.classList.add('sfield');
           row.tabIndex = 0;
           row.setAttribute('role', 'slider');
+          if (labelIcon) row.setAttribute('aria-label', labelText(values));
           row.prepend(fill);
           row.append(display);
           let drag = null;

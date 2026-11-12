@@ -516,7 +516,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .sel-title { flex: 1; min-width: 0; font-size: 12px; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-list { display: flex; flex-direction: column; gap: 2px; position: relative; user-select: none; -webkit-user-select: none; }
 /* 拖动调整前后：被拖的行变淡，蓝线是放下的位置 */
-.layer-row.dragging { opacity: .4; }
+.layer-row.dragging, .layer-group.dragging ~ .layer-child { opacity: .4; }
 .layer-list.is-dragging .layer-row:hover { background: none; }
 .layer-list.is-dragging .layer-row.active { background: rgba(var(--accent-rgb), .14); }
 .layer-drop { position: absolute; left: 0; right: 0; height: 2px; border-radius: 0.5px; background: var(--accent); pointer-events: none; z-index: 1; }
@@ -538,7 +538,7 @@ body.layer-dragging, body.layer-dragging * { cursor: grabbing !important; }
 .layer-meta { flex: none; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .layer-group { margin-top: 4px; color: var(--text); font-weight: 600; background: rgba(var(--fg), .03); }
 .layer-group + .layer-child, .layer-list > .layer-row:first-child.layer-group { margin-top: 0; }
-.layer-caret { display: inline-flex; color: var(--faint); transition: transform .15s; transform: rotate(-90deg); }
+.layer-caret { display: inline-flex; flex: none; color: var(--faint); transition: transform .15s; transform: rotate(-90deg); }
 .layer-caret.open { transform: none; }
 .layer-child { margin-left: 14px; padding-left: 8px; position: relative; }
 .layer-child::before { content: ''; position: absolute; left: -2px; top: -1px; bottom: -1px; width: 1px; background: var(--line); }
@@ -1198,6 +1198,7 @@ html, body { touch-action: manipulation; overscroll-behavior: none; } /* 禁止�
 
 .ctx-controls.ctrls-inline { gap: 4px; }
 .ctx-controls.ctrls-inline .ctrl.sfield { width: 104px; padding: 0 10px; }
+.ctx-controls.ctrls-inline .ctrl.sfield:has(> .ctrl-label > .icon) { width: 78px; }
 .ctx-controls.ctrls-inline .ctrl.nfield { width: 84px; padding: 0 2px 0 10px; }
 
 /* 按住参数名称拖动调整数值（类似 Photoshop） */
@@ -2006,15 +2007,6 @@ body.resizing-v, body.resizing-v * { cursor: row-resize !important; user-select:
 }
 .select-preview[data-preview="side-color"] { --preview-side: #d3d5df; }
 .card-style-controls .ctrl-select.half .select-preview-current { width: 18px; height: 14px; }
-
-/* ---------- 立方体下面的说明（平面版式转动后） ---------- */
-.vc-note {
-  position: absolute; right: 0; top: calc(100% + 6px); width: 150px; padding: 7px 9px; border-radius: 4.5px; background: var(--float-bg); border: 1px solid var(--line-2);
-  color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; display: flex; flex-direction: column; gap: 5px;
-}
-.vc-note[hidden] { display: none; }
-.vc-note-btn { height: 24px; border: 0; border-radius: 3.5px; background: var(--accent-solid); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
-.vc-note-btn:hover { background: var(--accent-solid-hover); }
 
 /* ---------- 底部的操作提示：一行最常用的 + 「更多」 ---------- */
 .stage-hint { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--faint); font-size: 12px; line-height: 1.5; }

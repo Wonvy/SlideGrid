@@ -228,13 +228,13 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     const st = s.style;
     const fadeOn = st.fadeType && st.fadeType !== 'none';
     const total = list.length;
-    const head = el('div', { class: 'layer-row layer-group', 'data-kind': 'slides' },
-      el('span', { class: `layer-caret${groupOpen ? ' open' : ''}` }, icon('chevron-down', 13)),
+    const head = el('div', { class: 'layer-row layer-group', 'data-kind': 'slides', 'data-id': slidesId },
       el('span', { class: 'layer-type' }, icon('images', 13)),
       el('span', { class: 'layer-name' }, '幻灯片'),
       el('span', { class: 'layer-meta' }, total ? `${total} 张卡片` : s.slides.length ? '都拖到组外了' : '没有图片'),
+      el('span', { class: `layer-caret${groupOpen ? ' open' : ''}` }, icon('chevron-down', 13)),
     );
-    head.title = '画板里的卡片。上面的图层盖在卡片上，下面的图层在卡片后面；卡片可以拖到组外面，夹在图层之间';
+    head.title = '点击折叠或展开，拖动标题可移动整组；单张卡片也可拖到组外';
     head.addEventListener('click', () => setGroupOpen(!groupOpen));
     head.addEventListener('contextmenu', e => {
       e.preventDefault();
@@ -302,7 +302,7 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
   }
 
   /* ---------- 拖动调整前后 ----------
-   * 图层：可以拖到任何图层的上面 / 下面，也可以拖过「幻灯片」一组（整组算一层；拖出组的卡片跟着它下面的图层）；选中多个时一起拖。
+   * 图层和「幻灯片」组可以互相拖过；拖出组的卡片跟着它下面的图层。
    * 卡片：在卡片之间拖动调整前后，也可以拖出「幻灯片」一组、放到图层之间（或再拖回组里）。
    * 列表里上面的在前面，所以「放在某一行上面」= 盖住它。
    */
@@ -339,9 +339,11 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
       if (r.dataset.kind === 'layer') {
         if (!moving.has(r.dataset.id)) {
           if (top != null && out.length) out[out.length - 1].bottom = top; // 上面那些卡片是这个图层的，不算上一块
-          out.push({ id: r.dataset.id, top: top ?? box.top, bottom: box.bottom });
+          out.push({ id: r.dataset.id, top: top ?? box.top, bottom: box.bottom, rowMid: (box.top + box.bottom) / 2 });
         }
-      } else if (r.dataset.kind === 'slides') out.push({ id: slidesId, top: box.top, bottom: box.bottom, group: true });
+      } else if (r.dataset.kind === 'slides') {
+        if (!moving.has(slidesId)) out.push({ id: slidesId, top: box.top, bottom: box.bottom, group: true });
+      }
       else if (out.length && out[out.length - 1].group) out[out.length - 1].bottom = box.bottom; // 组里的行（遮罩、卡片、提示）
       top = null;
     }
@@ -356,7 +358,9 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
         const below = y >= b.bottom - 6;
         return { target: b.id, kind: b.kind, place: below ? 'below' : 'above', y: below ? b.bottom + 1 : b.top - 1 };
       }
-      if (y < (b.top + b.bottom) / 2) return { target: b.id, kind: b.kind, place: 'above', y: b.top - 1 };
+      // 整组拖到图层上时，用图层行的中线区分上下，已挂在图层上的卡片跟着图层。
+      const mid = d.kind === 'slides' ? b.rowMid : (b.top + b.bottom) / 2;
+      if (y < mid) return { target: b.id, kind: b.kind, place: 'above', y: b.top - 1 };
     }
     const last = blocks[blocks.length - 1];
     return { target: last.id, kind: last.kind, place: 'below', y: last.bottom + 1 };
@@ -401,18 +405,20 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
     if (e.button !== 0 || e.target.closest('button, input')) return;
     const row = e.target.closest('.layer-row');
     const kind = row?.dataset.kind;
-    if (kind !== 'layer' && !(kind === 'card' && cards.canDrag() && !row.classList.contains('is-hidden'))) return;
+    const canDrag = kind === 'layer' || (kind === 'slides' && cards.hasLayers())
+      || (kind === 'card' && cards.canDrag() && !row.classList.contains('is-hidden'));
+    if (!canDrag) return;
     const id = row.dataset.id;
     const x0 = e.clientX, y0 = e.clientY;
     const move = ev => {
       if (!dragging) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
         // 拖的这一行在选中的里面：一起拖；否则只拖这一行（并选中它）
-        let ids;
+        let ids = [id];
         if (kind === 'layer') {
           if (!ui.layerSel.includes(id)) selectLayers([id]);
           ids = [...ui.layerSel];
-        } else {
+        } else if (kind === 'card') {
           if (!ui.selection.includes(+id)) cards.select([+id]);
           ids = ui.selection.map(String);
         }
@@ -442,8 +448,11 @@ export function createInspector({ selectionSlot, layersSlot }, { store, actions,
       suppressClick = true; // 松手后的那次点击不算选中
       setTimeout(() => { suppressClick = false; }, 0);
       if (!d.drop) return;
-      const ok = d.kind === 'layer' ? placeLayers(d.ids, d.drop.target, d.drop.place)
-        : cards.drop(d.ids.map(Number), { kind: d.drop.kind, id: d.drop.target, place: d.drop.place });
+      if (d.kind !== 'card') {
+        placeLayers(d.ids, d.drop.target, d.drop.place);
+        return;
+      }
+      const ok = cards.drop(d.ids.map(Number), { kind: d.drop.kind, id: d.drop.target, place: d.drop.place });
       if (!ok && d.kind === 'card') notify('前后顺序没有变化');
     };
     const cancel = () => { stop(); if (dragging) endDrag(); };

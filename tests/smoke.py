@@ -207,6 +207,30 @@ def t_board_menu(page, errors):
     page.keyboard.press('Delete')
     assert page.evaluate('SlideGrid.store.get().artboards.length') == n
     page.keyboard.press('Escape')
+    # 3D 版式和旋转后的平面版式都能直接在画板上点选卡片。
+    original_layout = page.evaluate('SlideGrid.store.get().layoutId')
+    for layout, yaw in [('cascade', 0), ('grid', 25)]:
+        point = page.evaluate("""([layout, yaw]) => {
+          const S = SlideGrid;
+          S.actions.setLayout(layout);
+          S.actions.setCamera({ yaw });
+          S.render();
+          const v = document.getElementById('viewport').getBoundingClientRect();
+          for (const { rect } of S.itemRects()) {
+            const x = v.x + (rect.l + rect.r) / 2, y = v.y + (rect.t + rect.b) / 2;
+            const hit = S.pickAt(x, y);
+            if (hit) return { x, y, order: hit.order };
+          }
+          return null;
+        }""", [layout, yaw])
+        assert point, layout
+        page.mouse.click(point['x'], point['y'])
+        assert page.evaluate('SlideGrid.ui.selection') == [point['order']], layout
+        page.keyboard.down('Shift')
+        page.mouse.click(point['x'], point['y'])
+        page.keyboard.up('Shift')
+        assert page.evaluate('SlideGrid.ui.selection') == [], layout
+    page.evaluate("layout => { SlideGrid.actions.setLayout(layout); SlideGrid.actions.resetCamera(); }", original_layout)
     assert not errors, errors
 
 
@@ -362,6 +386,18 @@ def t_layer_panel(page, errors):
         page.mouse.up()
 
     assert order() == '甲乙丙', order()  # 列表里从上到下是 丙 乙 甲
+    group = page.locator('.layer-list .layer-group')
+    children = page.locator('.layer-list .layer-card.layer-child')
+    group.click()
+    assert children.count() == 0
+    drag(group, row('l_pb'), 'above')
+    assert order() == '甲↓乙↓丙' and children.count() == 0, order()
+    group.click()
+    group_order = children.evaluate_all('(rows) => rows.map(row => row.dataset.id)')
+    assert group_order
+    drag(group, row('l_pa'), 'below')
+    assert order() == '甲乙丙', order()
+    assert children.evaluate_all('(rows) => rows.map(row => row.dataset.id)') == group_order
     drag(row('l_pa'), row('l_pc'), 'above')
     assert order() == '乙丙甲', order()
     # 拖到「幻灯片」一组的下面：放到卡片后面
@@ -407,6 +443,11 @@ def t_layer_panel(page, errors):
     page.evaluate('SlideGrid.render()')
     shown = page.evaluate(probe, cid)
     assert shown and shown[:3] != [255, 255, 255], shown  # 拖出去以后盖在图层上面
+    # 移动整组时，已拖出组的卡片继续跟着原来的图层。
+    drag(group, row('l_pc'), 'above')
+    assert order() == '甲↓丙↓乙' and adj()[str(cid)].get('above') == 'l_pc', (order(), adj())
+    drag(group, row('l_pc'), 'below')
+    assert order() == '甲↓丙乙' and adj()[str(cid)].get('above') == 'l_pc', (order(), adj())
     # 眼睛按钮：隐藏 / 显示这张卡片
     n_items = lambda: page.evaluate('SlideGrid.cards.all().length')
     total = n_items()

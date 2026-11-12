@@ -46,7 +46,10 @@ const BARS = {
   }),
   mixed: pick(['opacity'], COMPACT),
 };
-const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ');
+const CARD_BAR = cropSchema.filter(d => d.key === 'fit' || d.key === 'cropZ').map(d =>
+  d.key === 'fit'
+    ? { ...d, segmented: true, options: d.options.map(o => ({ ...o, icon: o.value === 'cover' ? 'crop' : 'fit-board' })) }
+    : { ...d, labelIcon: 'zoom-in' });
 // 形状的填充、描边：宽度够时整排显示，放不下时（比排列、对齐更早）折叠成按钮 + 弹出面板
 const SHAPE_GROUPS = [
   { keys: ['fillType', 'fill', 'fillAlpha'], icon: 'paint-bucket', label: '填充', priority: 0.5, swatch: v => (v.fillType === 'none' ? 'transparent' : v.fill) },

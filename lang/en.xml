@@ -533,7 +533,7 @@
   <s k="{0} 个画板在用这个图集">{0} artboards use this album</s>
   <s k="复制透明背景：开（复制的 PNG 去掉画板背景）· 与导出设置无关">Copy with transparent background: on (the copied PNG has no artboard background) · independent of export settings</s>
   <s k="复制透明背景：关（复制带背景）· 点击打开">Copy with transparent background: off (copies with background) · click to turn on</s>
-  <s k="3D 视图下不能单独调整卡片：请换成平面版式，或点右上角立方体下面的「复位」回到平面">Single cards cannot be adjusted in a 3D view: switch to a flat layout, or click "Reset" under the cube at the top right to go back to flat</s>
+  <s k="3D 视图下不能单独调整卡片：请换成平面版式，或点右上角立方体旁的「复位视角」">Single cards cannot be adjusted in a 3D view. Switch to a flat layout or click "Reset view" next to the cube in the upper-right corner.</s>
   <s k="已重置当前画板的卡片调整">Card adjustments of the current artboard were reset</s>
   <s k="渐隐遮罩">Fade mask</s>
   <s k="已交换这两张卡片的图片（「{0}」↔「{1}」）">Swapped the images of these two cards ("{0}" ↔ "{1}")</s>
@@ -777,7 +777,7 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="{0} · 点击选中，拖动调整前后{1}，右键更多操作">{0} · click to select, drag to reorder{1}, right-click for more</s>
   <s k="都拖到组外了">All dragged out of the group</s>
   <s k="没有图片">No images</s>
-  <s k="画板里的卡片。上面的图层盖在卡片上，下面的图层在卡片后面；卡片可以拖到组外面，夹在图层之间">Cards on the artboard. Layers above cover the cards, layers below sit behind them; cards can be dragged out of the group and placed between layers</s>
+  <s k="点击折叠或展开，拖动标题可移动整组；单张卡片也可拖到组外">Click to collapse or expand. Drag the heading to move the group, or drag individual cards out of the group.</s>
   <s k="展开">Expand</s>
   <s k="选中全部 {0} 张卡片">Select all {0} cards</s>
   <s k="调整渐隐遮罩…">Adjust fade mask…</s>
@@ -1036,8 +1036,6 @@ Drop images here: move them to this album (hold Alt to copy)</s>
   <s k="拖动旋转视角 · 点面 / 棱 / 角切换视图">Drag to rotate the view · click a face / edge / corner to switch views</s>
   <s k="复位视角（回到版式默认的角度）">Reset view (back to the layout's default angle)</s>
   <s k="复位视角">Reset view</s>
-  <s k="回到平面">Back to flat</s>
-  <s k="已转动视角，单张卡片暂时不能调整">The view is turned; single cards cannot be adjusted for now</s>
   <s k="正交">Ortho</s>
   <s k="透视">Persp</s>
   <s k="现在是正交投影（没有近大远小），点击切换为透视">Orthographic projection now (no foreshortening); click to switch to perspective</s>

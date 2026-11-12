@@ -430,7 +430,7 @@ const SELECT_TOOLS = [...CARD_TOOLS, 'crop']; // 切换到这些工具时保留�
 // 工具是否可用：单张卡片调整（选择 / 旋转 / 比例）只用于平面版式
 function toolAvailability(id) {
   // 选择工具在 3D 版式下仍可用（选图层、移动画板），只是不能单独调整卡片
-  if (CARD_TOOLS.includes(id) && id !== 'select' && is3D()) return { ok: false, reason: '3D 视图下不能单独调整卡片：请换成平面版式，或点右上角立方体下面的「复位」回到平面' };
+  if (CARD_TOOLS.includes(id) && id !== 'select' && is3D()) return { ok: false, reason: '3D 视图下不能单独调整卡片：请换成平面版式，或点右上角立方体旁的「复位视角」' };
   return { ok: true, reason: '' };
 }
 function setTool(id) {
@@ -625,7 +625,6 @@ interaction = attachViewportInteraction(viewport, {
   toolAvailable: id => toolAvailability(id).ok,
   is3D,
   isPerspective,
-  cardSelectable: () => !!getLayout(store.get().layoutId).cardParams,
   canSwap: hasRealSlides,
   getSlide: i => store.get().slides[i],
   onTempHand: on => { ui.tempHand = on; refreshTools(); },

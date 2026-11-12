@@ -40,7 +40,7 @@ const normAngle = d => ((((d + 180) % 360) + 360) % 360) - 180; // 规范到 [-1
  */
 export function attachViewportInteraction(target, opts) {
   const {
-    getTool, setTool, toolAvailable, is3D, isPerspective = is3D, canSwap, getSlide, onTempHand, cardSelectable = () => false,
+    getTool, setTool, toolAvailable, is3D, isPerspective = is3D, canSwap, getSlide, onTempHand,
     // 画板与视图
     boardAt, activeBoard, activateBoard, boardRect, deleteSelectedBoards,
     selectedBoards, toggleBoardSelection, selectBoards, selectAllBoards, moveBoards, setMarquee,
@@ -220,7 +220,7 @@ export function attachViewportInteraction(target, opts) {
     if (tool === 'swap') return canSwap() ? 'grab' : 'default';
     if (tool === 'crop') return drag?.mode === 'crop' ? 'grabbing' : 'grab';
     if (!toolAvailable(tool)) return 'not-allowed';
-    if (tool === 'select') return 'move';
+    if (tool === 'select') return is3D() ? 'pointer' : 'move';
     if (tool === 'rotate') return ROTATE_CURSOR;
     return 'default';
   }
@@ -351,8 +351,8 @@ export function attachViewportInteraction(target, opts) {
           }
         } else if (cardTools.has(tool)) {
           const ok = hit && flat && toolAvailable(tool); // 3D 版式不能单独调整卡片
-          if (!flat && hit && tool === 'select' && cardSelectable()) {
-            // 有单卡设置的 3D 版式（等距展台、分组展台）：点选卡片（Shift / ⌘ 加选、减选），在「设计」页调抬起
+          if (!flat && hit && tool === 'select') {
+            // 3D 视图可以点选卡片，这里只更新选择。
             const cur = getSelection();
             layers?.clear();
             if (additive) setSelection(cur.includes(hit.order) ? cur.filter(o => o !== hit.order) : [...cur, hit.order], hit.order);
